@@ -125,7 +125,9 @@ class EnvFeishuChannel(_EnvSection):
     mode: str | None = None
     base_url: str | None = None
     bot_name: str | None = None
+    bot_open_id: str | None = None
     stream_reply: bool | None = None
+    isolate_by_thread: bool | None = None
     allowed_chats: list[str] | None = None
     allowed_users: list[str] | None = None
 

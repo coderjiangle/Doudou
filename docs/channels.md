@@ -30,83 +30,114 @@ class Channel(Protocol):
 
 ## 2. 飞书（Lark）通道
 
-### 2.1 创建应用
+**当前实现：WebSocket 长连接**（`channels.feishu.mode: websocket`）。
+好处是不需要公网地址、不需要内网穿透，本地开发与内网部署都能直接跑。
 
-1. 打开[飞书开放平台](https://open.feishu.cn/app) → 创建**企业自建应用**。
+### 2.1 为什么长连接模式不需要 `crypto.py`
+
+事件回调模式要用 `Encrypt Key` 做 AES 解密、用 `Verification Token` 校验，
+是因为那个 HTTP 端点是**公网可访问**的，必须证明请求真的来自飞书。
+长连接是我们的进程主动连出去、并由 app_id/app_secret 完成鉴权，
+事件经 SDK 解析后交给我们，因此**没有验签解密这一层**。
+`crypto.py` 与 `api/routes/webhooks.py` 留到需要公网回调时再补。
+
+### 2.2 创建应用
+
+1. [飞书开放平台](https://open.feishu.cn/app) → 创建**企业自建应用**。
 2. 「凭证与基础信息」记下 `App ID`、`App Secret`。
 3. 「权限管理」开通：
    - `im:message`（读取消息）
    - `im:message:send_as_bot`（以应用身份发消息）
-   - `im:chat:readonly`（读群信息，用于群聊 @ 判断）
-   - `im:resource`（图片/文件资源，如需收发附件）
-4. 「事件订阅」：
-   - 请求地址填 `https://<你的域名>/api/v1/webhooks/feishu/events`
-   - 记下 `Verification Token`，如启用加密再记下 `Encrypt Key`
-   - 订阅事件：`im.message.receive_v1`（接收消息）、`im.message.reaction.created_v1`（可选）
-5. 本地开发时用内网穿透把回调暴露出去，或改用长连接模式（见 2.4）。
+   - `im:chat:readonly`（读群信息，用于群聊判断）
+4. 「事件订阅」**选择「使用长连接接收事件」**，订阅 `im.message.receive_v1`。
+   （不需要填请求地址，也不需要 `Verification Token`。）
+5. 把机器人拉进群，或在私聊里找它说话。
 
-### 2.2 事件回调时序
+### 2.3 配置
 
+```dotenv
+# .env
+DOUDOU_CHANNELS__FEISHU__ENABLED=true
+DOUDOU_CHANNELS__FEISHU__MODE=websocket
+FEISHU_APP_ID=cli_xxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxx
 ```
-飞书平台 ──POST/加密──▶ /api/v1/webhooks/feishu/events
-                         │
-                         ├─ crypto.verify_signature / decrypt
-                         ├─ 首次配置：url_verification 握手 → 回 challenge
-                         ├─ events.events 解析 → 按 event_id 去重
-                         ├─ 立即 200（飞书要求 3s 内）
-                         └─ 入 gateway.bus 异步处理
-                                  │
-                                  ▼
-                    gateway.runner → agent 流式执行
-                                  │
-                    cards.build_* → 卡片创建/更新（PATCH）
-                                  │
-                                  ▼
-                    飞书客户端显示增量内容
-```
-
-**为什么必须立即 200**：飞书对超时事件会重推，重推会导致重复回答。
-`channels/feishu/events.py` 用 `event_id` + TTL 做幂等去重。
-
-### 2.3 回复形态
-
-| 模式 | 行为 | 适用 |
-| --- | --- | --- |
-| `reply_mode: card` | 先发一张「思考中」卡片，随后按 `card_update_interval_ms` 节流更新卡片内容 | 推荐，体验接近流式 |
-| `reply_mode: text` | 等 agent 跑完，一次性发文本 | 简单场景、卡片权限不足时 |
-
-卡片相关能力集中在 `channels/feishu/cards.py`：
-
-- 流式文本卡片（带「生成中」状态，结束后去掉）
-- 工具调用过程卡片（可选，显示正在调用哪个工具）
-- 人工确认卡片（配合 `interrupt_on`，提供「同意 / 拒绝」按钮回传）
-
-### 2.4 长连接模式（本地开发友好）
-
-若不想暴露公网地址，可使用飞书 SDK 的 WebSocket 长连接接收事件，
-无需配置回调地址。切换方式：在 `config.yaml` 的 `channels.feishu` 下加
 
 ```yaml
-mode: websocket        # callback（默认） | websocket
+# config/config.yaml
+channels:
+  feishu:
+    enabled: true
+    mode: websocket
+    bot_name: Doudou          # 用于群聊 @ 判定，需与飞书里的显示名一致
+    # bot_open_id: ou_xxx     # 更可靠的 @ 判定；留空时会自动去查
+    group_require_at: true    # 群里必须 @ 机器人才响应
+    isolate_by_thread: false  # false = 同一个群共享一个上下文
+    stream_reply: true
+    card_update_interval_ms: 800
+    allowed_chats: []         # 非空即启用白名单
 ```
 
-长连接模式下不经过 `/webhooks/feishu/events`，但仍复用同一套
-`events` 解析、`gateway` 路由与 `cards` 渲染逻辑。
+启动：`uv run doudou serve`（长连接随 HTTP 服务一起托管）。
 
-### 2.5 群聊策略
+### 2.4 会话隔离：同一个群共享一个上下文
 
-- `group_require_at: true`：群聊中只有 @ 机器人的消息才触发，避免噪音。
-- `allowed_chats` / `allowed_users` 非空时构成白名单，其余一律忽略。
-- 同一群聊默认共享一个 thread；如需每人独立上下文，把 `session` 的隔离粒度配置为 `per_user`。
+`isolate_by_thread: false`（默认）时，会话标识就是 `chat_id`，
+也就是**一个群 = 一个 thread = 一段连续上下文**，群里的助手像一个同事。
 
-### 2.6 去重与限流
+代价与已知行为：
 
-| 项 | 做法 |
+- 同一个群里不同成员的提问会**互相看得见**（都在同一段历史里）；
+- 想改成「每人独立」需要把会话标识改成 `chat_id + open_id`，目前没有这个开关；
+- 想改成「每个话题独立」则打开 `isolate_by_thread: true`（按 `thread_id` 拆）。
+
+### 2.5 回复形态：整卡 patch
+
+收到消息后立刻发一张「正在处理」卡片，随后**整卡更新**（节流
+`card_update_interval_ms`），最终覆盖成答案卡片。卡片上会保留工具调用痕迹
+（`✓ web_search — 找到了 3 条`）—— 这是检索类回答建立信任的关键：
+只给答案不给过程，用户无法判断可信度。
+
+飞书另有 cardkit 增量更新接口（`cardkit.v1.card_element.content`），只推变化的元素、
+流量更省。这里选整卡 patch 是因为 API 面小、行为可预测，配合节流已经足够像流式；
+增量更新作为后续优化。
+
+失败降级：卡片发不出去 / 更新失败时**改发一条纯文本**，保证用户一定看得到结果。
+
+### 2.6 群聊 @ 判定
+
+优先看事件的 `mentioned_type == "bot"`（飞书会填这个字段）；
+取不到时退回按 `bot_open_id`（启动时自动获取，或配置里显式指定）与
+`bot_name` 比对。三条都落空会记警告 —— 静默失效比报错更难排查。
+
+### 2.7 幂等
+
+飞书在重连或抖动时可能重推同一事件。因此按 `event_id` + TTL 去重
+（`dedup_ttl_seconds`），并对条目数设上限（`OrderedDict` 按插入顺序淘汰），
+保证长时间运行不会把内存吃光。
+
+### 2.8 一个必须记下的坑：lark 的模块级事件循环
+
+`lark_oapi.ws.client` 在**模块导入时**就执行了 `loop = asyncio.get_event_loop()`，
+`ws.Client.start()` 会 `loop.run_until_complete(_select())` 一直阻塞。
+
+问题在于：如果 lark 已经在主线程被导入过（构造 `lark.Client` 就会导入它），
+那个模块级 `loop` 就是**主事件循环**，于是 `start()` 里的
+`run_until_complete` 会抛 `This event loop is already running` ——
+**长连接根本连不上，而异常被线程吞掉，表面看服务一切正常**。
+
+处理方式（见 `channels/feishu/channel.py` 的 `_run`）：
+在专属 daemon 线程里新建 loop、`set_event_loop`，并把 lark 的模块级 `loop` 指过去。
+停止时向该 loop 投递 `stop`。这是它当前设计下唯一可靠的做法。
+
+### 2.9 尚未实现
+
+| 项 | 说明 |
 | --- | --- |
-| 事件重复投递 | `event_id` 去重，TTL `dedup_ttl_seconds` |
-| 卡片更新过于频繁 | 按 `card_update_interval_ms` 节流合并 |
-| 用户刷屏 | 每会话一个执行队列，排队而非并发 |
-| 回复过长 | 超过 `max_reply_chars` 自动截断并附完整内容落盘 |
+| `callback` 模式 | 需要 `crypto.py`（AES 解密 + 验签）与公网回调路由 |
+| 卡片按钮回传确认 | 人工确认在飞书里目前**无法完成**，副作用工具会被拒绝。M8 补 |
+| 图片 / 文件消息 | 目前只处理 `text` 与 `post`；图片要等多模态一起做 |
+| 群成员身份映射 | 只透传 `open_id`，没有解析真实姓名 |
 
 ## 3. 通用 Webhook 通道
 

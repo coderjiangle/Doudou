@@ -13,7 +13,7 @@ from rich.table import Table
 
 from doudou.agent.events import RunEvent
 from doudou.agent.react import ApprovalHook, RunResult, ToolApprovalRequest
-from doudou.channels.base import OutboundMessage
+from doudou.channels.base import InboundMessage, OutboundMessage
 from doudou.gateway.runner import AgentRunner
 from doudou.gateway.schema import RunRequest
 from doudou.observability.logging import get_logger
@@ -136,6 +136,23 @@ class CliChannel:
         self.console.print("[dim]再见。[/dim]")
 
     # ---------------------------------------------------------------- 渲染
+
+    async def deliver(self, message: InboundMessage, events: AsyncIterator[RunEvent]) -> None:
+        """实现 ``EventSink``：把事件流渲染到终端。
+
+        与 :meth:`ask` 的区别是它**不自己发起运行** —— 请求已经由
+        ``gateway.MessageRouter`` 组装好，这里只负责消费与渲染。
+        """
+        request = RunRequest(
+            text=message.text,
+            conversation_id=message.session_key,
+            channel=self.name,
+            user_id=message.user_id,
+        )
+        thread_id = await self.runner.resolve_thread(request)
+        self._state.reset()
+        result = await self._consume(events, thread_id=thread_id)
+        self._finish(result)
 
     async def _consume(self, stream: AsyncIterator[RunEvent], *, thread_id: str) -> RunResult:
         """消费事件流：边渲染边聚合，返回与 ``ainvoke`` 等价的结果。"""

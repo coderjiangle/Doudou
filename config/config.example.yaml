@@ -146,9 +146,13 @@ channels:
 
   feishu:
     enabled: false
+    # websocket = 主动连出去收事件（无需公网地址，推荐）
+    # callback  = HTTP 事件回调（需要公网 HTTPS、验签解密，尚未实现）
+    mode: websocket
     base_url: https://open.feishu.cn
-    bot_name: Doudou
-    # app_id / app_secret / encrypt_key / verification_token 从 .env 读取
+    bot_name: Doudou         # 群聊 @ 判定用，需与飞书里的显示名一致
+    # bot_open_id: ou_xxx    # 更可靠的 @ 判定；留空时启动会自动去查
+    # app_id / app_secret 从 .env 的 FEISHU_APP_ID / FEISHU_APP_SECRET 注入
     event_path: /webhooks/feishu/events
     reply_mode: card         # card | text
     stream_reply: true       # 卡片流式更新
@@ -156,6 +160,9 @@ channels:
     allowed_chats: []        # 空表示不限制
     allowed_users: []
     group_require_at: true   # 群聊中必须 @ 机器人才响应
+    # false = 同一个群共享一个上下文（群里的助手像一个同事）
+    # true  = 按话题（thread_id）拆开
+    isolate_by_thread: false
     max_reply_chars: 4000
     dedup_ttl_seconds: 600
 

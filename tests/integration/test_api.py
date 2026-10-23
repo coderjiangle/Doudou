@@ -92,6 +92,8 @@ async def test_health_is_public_and_light(settings_for_api: Settings) -> None:
     assert {"now", "days_between", "workspace_read", "note_save"} <= set(body["tools"])
     assert "web_search" not in body["tools"]
     assert body["checks"]["history"] == "database"
+    # 默认配置没开任何常驻通道；通道列表为空也要出现在响应里
+    assert body["channels"] == []
 
 
 async def test_ready_probes_the_store(settings_for_api: Settings) -> None:
@@ -405,3 +407,87 @@ async def test_memory_backend_does_not_persist(tmp_path: Path) -> None:
 
     async with api_client(settings) as client:
         assert (await client.get(f"/api/v1/threads/{thread_id}")).status_code == 404
+
+
+# --------------------------------------------------------------------------- 常驻通道
+
+
+class FakeChannel:
+    """假的常驻通道：只记录启停，不去连外部服务。"""
+
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.started = False
+        self.stopped = False
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    async def send(self, message: object) -> None:
+        return None
+
+
+class BrokenChannel(FakeChannel):
+    """启动就失败，用来验证「单个通道挂掉不影响 HTTP 服务」。"""
+
+    name = "broken"
+
+    async def start(self) -> None:
+        raise RuntimeError("连不上")
+
+
+async def test_enabled_channel_is_started_and_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """lifespan 要负责：装配总线 → 构造通道 → 启动 → 在 /health 里报告 → 关闭。"""
+    from doudou import api
+
+    made: list[FakeChannel] = []
+
+    def fake_build(settings: object, router: object) -> list[object]:
+        channel = FakeChannel()
+        made.append(channel)
+        return [channel]
+
+    monkeypatch.setattr(api.lifespan, "build_enabled_channels", fake_build)
+
+    settings = _write_config(tmp_path)
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            body = (await client.get("/api/v1/health")).json()
+
+        assert made[0].started is True
+        assert body["channels"] == ["fake"]
+        assert body["checks"]["channels"] == "fake"
+        # 总线必须已经起好，否则常驻通道的消息进来无处可去
+        assert app.state.doudou.bus is not None
+
+    assert made[0].stopped is True
+
+
+async def test_channel_start_failure_does_not_break_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """飞书连不上不应该让整个服务起不来 —— 运维还要靠 /health 排查。"""
+    from doudou import api
+
+    # lifespan 是 `from ... import build_enabled_channels`，所以要 patch 它自己的命名空间。
+    monkeypatch.setattr(
+        api.lifespan,
+        "build_enabled_channels",
+        lambda settings, router: [BrokenChannel(), FakeChannel()],
+    )
+
+    settings = _write_config(tmp_path)
+    async with api_client(settings) as client:
+        body = (await client.get("/api/v1/health")).json()
+
+    # 坏通道被跳过，好通道仍然起来
+    assert body["channels"] == ["fake"]

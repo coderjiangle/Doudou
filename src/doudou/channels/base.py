@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
+
+from doudou.agent.events import RunEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,4 +72,27 @@ class Channel(Protocol):
         ...
 
 
-__all__ = ["Channel", "InboundMessage", "OutboundMessage"]
+@runtime_checkable
+class EventSink(Protocol):
+    """能消费「一次运行的事件流」并渲染到某个通道。
+
+    ``gateway.MessageRouter`` 只依赖这个协议，因此它对「渲染成终端文本还是飞书卡片」
+    一无所知 —— 渲染方式与执行链路彻底解耦。
+    """
+
+    name: str
+
+    async def send(self, message: OutboundMessage) -> None:
+        """发送一条独立消息（例如「上一条还在处理中」）。"""
+        ...
+
+    async def deliver(self, message: InboundMessage, events: AsyncIterator[RunEvent]) -> None:
+        """消费一次运行的事件流。
+
+        实现方负责节流、聚合与错误兜底；**不应**把异常抛回给 router ——
+        这里已经在通道内部，抛出去没人能处理。
+        """
+        ...
+
+
+__all__ = ["Channel", "EventSink", "InboundMessage", "OutboundMessage"]

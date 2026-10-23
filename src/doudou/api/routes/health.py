@@ -25,6 +25,7 @@ async def health(state: StateDep) -> HealthResponse:
     checks = {
         "history": settings.app.storage.history,
         "database": CHECK_OK if state.database is not None else "memory",
+        "channels": ",".join(state.channel_names) if state.channel_names else "none",
     }
     return HealthResponse(
         status=CHECK_OK,
@@ -34,6 +35,7 @@ async def health(state: StateDep) -> HealthResponse:
         model=state.bundle.metadata.get("model", settings.app.model.primary),
         uptime_seconds=state.uptime_seconds,
         tools=state.bundle.tool_names,
+        channels=state.channel_names,
         checks=checks,
         metrics=state.metrics_snapshot(),
     )

@@ -196,16 +196,25 @@ def _env_overrides(env: EnvSettings) -> dict[str, Any]:
 
 
 def _apply_secrets(app: AppConfig, secrets: Secrets) -> AppConfig:
-    """把无前缀的凭据回填到对应配置段。"""
-    if not secrets.feishu_base_url:
-        return app
+    """把无前缀的凭据回填到对应配置段。
 
+    这样 ``FeishuChannelConfig`` 是自洽的（app_id/app_secret 都在里面），
+    消费方不必再去认识 ``Secrets``；``config show`` 又会把 ``*_secret`` 打码。
+    """
     feishu = app.channels.feishu
-    if feishu.base_url == FeishuChannelConfig().base_url:
-        updated = feishu.model_copy(update={"base_url": secrets.feishu_base_url})
-        channels = app.channels.model_copy(update={"feishu": updated})
-        return app.model_copy(update={"channels": channels})
-    return app
+    updates: dict[str, Any] = {}
+
+    if secrets.feishu_base_url and feishu.base_url == FeishuChannelConfig().base_url:
+        updates["base_url"] = secrets.feishu_base_url
+    if not feishu.app_id and secrets.feishu_app_id:
+        updates["app_id"] = secrets.feishu_app_id
+    if not feishu.app_secret and secrets.feishu_app_secret:
+        updates["app_secret"] = secrets.feishu_app_secret
+
+    if not updates:
+        return app
+    channels = app.channels.model_copy(update={"feishu": feishu.model_copy(update=updates)})
+    return app.model_copy(update={"channels": channels})
 
 
 @lru_cache(maxsize=1)

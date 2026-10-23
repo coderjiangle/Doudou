@@ -5,10 +5,11 @@
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M3 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
-> 会话网关、CLI 与 **HTTP 服务（REST + SSE + 持久化 + 鉴权）** 均端到端可用，
-> 270 个离线测试 + `ruff` + `mypy --strict` 全绿。
-> 飞书通道（M4）、MCP（M5）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
+> **当前进度：M4 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
+> 会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）** 与
+> **飞书通道（WebSocket 长连接 + 流式卡片）** 均端到端可用，
+> 339 个离线测试 + `ruff` + `mypy --strict` 全绿。
+> MCP（M5）、Skill 渐进式加载（M6）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
@@ -26,7 +27,8 @@
 | HTTP API | FastAPI + SSE + 落库 + Bearer 鉴权 | `doudou.api` | ✅ M2 |
 | 会话持久化 | 消息/线程/渠道绑定落库，重启可续 | `doudou.storage` | ✅ M2 |
 | 实用工具集 | 检索 / 抓取 / 笔记 / 只读文件，默认拒绝 | `doudou.tools.builtin` | ✅ M3 |
-| 飞书通道 | `lark-oapi` + 事件回调 + 互动卡片 | `doudou.channels.feishu` | ⏳ M4 |
+| 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` | ✅ M4 |
+| 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` | ✅ M4 |
 | MCP 工具 | `langchain-mcp-adapters` | `doudou.mcp` | ⏳ M5 |
 | Skill 加载 | Agent Skills 标准（`SKILL.md`）渐进式披露 | `doudou.skills` | 🚧 发现 ✅ / 加载 ⏳ M6 |
 | 上下文工程 | token 预算、摘要压缩、长期记忆 | `doudou.gateway` / `doudou.agent.memory` | ⏳ M7 |
@@ -212,7 +214,25 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat -H "Content-Type: application/jso
      -d '{"message":"现在几点了？"}'
 ```
 
-### 4.4 其他入口
+### 4.4 接入飞书（可选）
+
+飞书通道用 **WebSocket 长连接**，不需要公网地址、不需要内网穿透：
+
+```dotenv
+# .env
+DOUDOU_CHANNELS__FEISHU__ENABLED=true
+FEISHU_APP_ID=cli_xxxxxxxx
+FEISHU_APP_SECRET=xxxxxxxx
+```
+
+飞书开放平台里把事件订阅设为「**使用长连接接收事件**」并订阅
+`im.message.receive_v1`，然后 `uv run doudou serve` —— 长连接随服务一起托管。
+
+会话隔离默认是「**同一个群共享一个上下文**」（`isolate_by_thread: false`），
+群里的助手像一个同事。完整步骤、@ 判定、卡片流式与已知限制见
+[`docs/channels.md`](docs/channels.md)。
+
+### 4.5 其他入口
 ```powershell
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```

@@ -207,9 +207,16 @@ class CliChannelConfig(_Section):
 
 class FeishuChannelConfig(_Section):
     enabled: bool = False
+    #: ``websocket`` 用长连接收事件（无需公网地址，推荐本地开发与内网部署）；
+    #: ``callback`` 用 HTTP 事件回调（需要公网 HTTPS 地址与验签解密）。
     mode: Literal["callback", "websocket"] = "callback"
     base_url: str = "https://open.feishu.cn"
     bot_name: str = "Doudou"
+    #: 机器人自己的 open_id。留空时按 ``bot_name`` 或事件的 mentioned_type 判定 @。
+    bot_open_id: str | None = None
+    #: 应用凭据。留空时由 .env 的 FEISHU_APP_ID / FEISHU_APP_SECRET 注入。
+    app_id: str | None = None
+    app_secret: str | None = None
     event_path: str = "/webhooks/feishu/events"
     reply_mode: Literal["card", "text"] = "card"
     stream_reply: bool = True
@@ -217,6 +224,9 @@ class FeishuChannelConfig(_Section):
     allowed_chats: list[str] = Field(default_factory=list)
     allowed_users: list[str] = Field(default_factory=list)
     group_require_at: bool = True
+    #: 是否按话题（thread_id）隔离上下文。
+    #: 默认 ``False`` = 同一个群共享一个上下文（群里的助手像一个同事）。
+    isolate_by_thread: bool = False
     max_reply_chars: int = 4000
     dedup_ttl_seconds: int = 600
 

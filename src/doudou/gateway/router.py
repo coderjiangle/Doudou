@@ -1,3 +1,90 @@
-"""Map channel conversations to agent threads and dispatch runs."""
+"""Map channel conversations to agent threads and dispatch runs.
 
-# TODO: implement.
+路由层只认识两件事：
+
+* :class:`~doudou.channels.base.InboundMessage` —— 通道归一化后的入站消息；
+* :class:`~doudou.channels.base.EventSink` —— 能把事件流渲染出来的东西。
+
+因此它对「是终端还是飞书」、「怎么渲染」一无所知。
+"""
+
+from __future__ import annotations
+
+from doudou.channels.base import EventSink, InboundMessage, OutboundMessage
+from doudou.gateway.bus import MessageBus
+from doudou.gateway.runner import AgentRunner
+from doudou.gateway.schema import RunRequest
+from doudou.observability.logging import get_logger
+from doudou.observability.metrics import get_metrics
+
+logger = get_logger(__name__)
+
+#: 队列满时回复用户的话术。
+BUSY_REPLY = "我还在处理上一条消息，稍等一下再说～"
+
+
+class MessageRouter:
+    """把入站消息交给 Agent 跑，并把事件流交给通道渲染。"""
+
+    def __init__(self, runner: AgentRunner, *, bus: MessageBus | None = None) -> None:
+        self.runner = runner
+        self.bus = bus
+
+    async def dispatch(self, message: InboundMessage, sink: EventSink) -> bool:
+        """处理一条入站消息。
+
+        Args:
+            message: 归一化后的入站消息。
+            sink: 事件流的渲染方（通常是通道自己）。
+
+        Returns:
+            ``False`` 表示会话队列已满、本次被拒绝（已回话告知用户）。
+        """
+        request = RunRequest.from_inbound(message)
+
+        if self.bus is None:
+            await self._run(message, sink, request)
+            return True
+
+        # 同一会话串行：AgentRunner 内部只保证「同一 thread 不并发」，
+        # 但排队本身放在总线里做，这样积压可见、可限流。
+        accepted = await self.bus.submit(
+            message.session_key,
+            lambda: self._run(message, sink, request),
+            # 注意：这里用闭包捕获 request，所以每个任务拿到的是自己的那一条。
+        )
+        if not accepted:
+            await self._reply_busy(message, sink)
+        return accepted
+
+    async def _run(self, message: InboundMessage, sink: EventSink, request: RunRequest) -> None:
+        """真正执行一轮运行，并让 sink 消费事件流。"""
+        logger.info(
+            "router.run_start",
+            channel=message.channel,
+            conversation_id=message.conversation_id,
+            user_id=message.user_id,
+            text_chars=len(message.text),
+        )
+        stream = self.runner.astream(request)
+        try:
+            await sink.deliver(message, stream)
+        finally:
+            # 无论渲染是否成功，都要把生成器关掉，避免留下未消费的协程。
+            aclose = getattr(stream, "aclose", None)
+            if callable(aclose):
+                await aclose()
+
+    async def _reply_busy(self, message: InboundMessage, sink: EventSink) -> None:
+        get_metrics().incr("router.busy_rejected")
+        try:
+            await sink.send(
+                OutboundMessage(conversation_id=message.conversation_id, text=BUSY_REPLY)
+            )
+        except Exception as exc:
+            logger.warning(
+                "router.busy_reply_failed", conversation_id=message.conversation_id, error=str(exc)
+            )
+
+
+__all__ = ["BUSY_REPLY", "MessageRouter"]

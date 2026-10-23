@@ -123,31 +123,40 @@ uv run doudou ask "抓取 https://example.com 看看写了什么"   # 需先配�
 
 ---
 
-### M4 — 飞书通道
+### M4 — 飞书通道（WebSocket 长连接）✅
 
-**目标**：在飞书里真的能对话。这是产品的核心诉求。
+- [x] `channels/feishu/events.py`：事件解析 + `event_id` 幂等去重（TTL + 容量上限）
+- [x] `channels/feishu/schemas.py`：`text` / `post` 消息内容解析（保留链接）
+- [x] `channels/feishu/client.py`：lark SDK 封装（发卡、发文本、整卡 patch、机器人身份）
+- [x] `channels/feishu/cards.py`：思考卡片 / 答案卡片 / 错误卡片 + 工具痕迹
+- [x] `channels/feishu/channel.py`：长连接托管、卡片流式更新、失败降级为文本
+- [x] `gateway/bus.py`：按会话串行、跨会话并发、积压拒绝
+- [x] `gateway/router.py`：只依赖 `InboundMessage` + `EventSink`，对渲染方式无感知
+- [x] `channels/base.py`：新增 `EventSink` 协议；`CliChannel` 也实现它
+- [x] `channels/registry.py`：按配置启停常驻通道，单个失败不影响服务
+- [x] 群聊 @ 策略（`mentioned_type` / `bot_open_id` / `bot_name` 三级判定）、白名单
+- [x] 会话隔离：**同一个群共享一个上下文**（`isolate_by_thread: false`）
+- [x] 68 个新增测试，全部离线（假 lark 客户端 + 假长连接）
+- [x] 验收：真实启动 + 无效凭据下，服务照常可用且长连接失败**可见**
 
-**交付物**
+**与规划的两处偏差**
 
-- [ ] `channels/feishu/crypto.py`：AES 解密 + 签名/时间戳校验（含单测，覆盖篡改与重放）
-- [ ] `channels/feishu/events.py`：事件解析 + `event_id` 幂等去重（TTL）
-- [ ] `channels/feishu/schemas.py` / `client.py`：lark-oapi 封装（token 刷新、发消息、更新卡片）
-- [ ] `api/routes/webhooks.py`：**3 秒内返回 200**，执行放后台
-- [ ] `gateway/bus.py` + `gateway/router.py`：按会话的异步队列与分发
-- [ ] `channels/feishu/cards.py`：流式卡片（节流更新）、工具调用进度、确认按钮
-- [ ] 群聊 `@` 策略、`allowed_chats` / `allowed_users` 白名单
-- [ ] `mode: callback | websocket` 两种接入方式
+1. **只实现了 websocket 模式，`crypto.py` 与 `api/routes/webhooks.py` 未写。**
+   长连接是本进程主动连出去、由 app_id/app_secret 鉴权，事件经 SDK 解析后交给我们 ——
+   没有公网端点，也就没有「必须验签解密」这一层。为不需要的路径写加解密代码是负资产，
+   因此留到真正需要公网回调时再补。
+2. **卡片流式用「整卡 patch」而不是 cardkit 增量更新。**
+   后者流量更省但要维护元素 id 与流式会话状态；整卡 patch 的 API 面小、行为可预测，
+   配合节流已经足够像流式。增量更新列为后续优化。
 
-**验收**：飞书私聊与群聊（@ 机器人）都能流式回复；重复推送同一事件只回答一次；
-`kubectl`/进程重启后飞书侧不再重推（幂等）。
+**一个必须记下的坑**
 
-**依赖**：M2（HTTP 端点）；M3（否则回复没有信息量）
+`lark_oapi.ws.client` 在模块导入时就抓了 `asyncio.get_event_loop()` 存成模块级变量。
+若 lark 已在主线程导入过，那个 loop 就是主事件循环，`start()` 里的
+`run_until_complete` 会抛 `This event loop is already running` ——
+**长连接根本连不上，而异常被线程吞掉，服务表面完全正常**。
+处理方式见 `channels/feishu/channel.py::_run`（在专属线程里接管该模块级 loop）。
 
-**风险**
-
-- 回调需公网地址，本地开发要靠内网穿透或 `websocket` 模式；
-- 卡片更新有频控，`card_update_interval_ms` 需要实测调整；
-- 3 秒限制意味着「验签 + 入队即返回」，执行必须真正异步。
 
 ---
 

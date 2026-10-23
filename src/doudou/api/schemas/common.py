@@ -41,6 +41,7 @@ class HealthResponse(BaseModel):
     model: str
     uptime_seconds: float
     tools: list[str] = Field(default_factory=list)
+    channels: list[str] = Field(default_factory=list, description="已启动的常驻通道。")
     checks: dict[str, str] = Field(default_factory=dict, description="各依赖项的 ok / 说明。")
     metrics: dict[str, Any] = Field(default_factory=dict, description="运行计数与耗时摘要。")
 

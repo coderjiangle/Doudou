@@ -140,18 +140,20 @@ channels:
   cli:
     enabled: true
 
-  feishu:                      # M4 落地
+  feishu:                      # M4 已落地（websocket 长连接）
     enabled: false
-    mode: callback
+    mode: websocket            # websocket（推荐，无需公网）| callback（未实现）
     base_url: https://open.feishu.cn
-    bot_name: Doudou
-    event_path: /webhooks/feishu/events
-    reply_mode: card
+    bot_name: Doudou           # 群聊 @ 判定用，需与飞书里的显示名一致
+    # bot_open_id: ou_xxx      # 更可靠的 @ 判定；留空时启动会自动获取
+    # app_id / app_secret 从 .env 的 FEISHU_APP_ID / FEISHU_APP_SECRET 注入
+    reply_mode: card           # card（流式卡片）| text
     stream_reply: true
     card_update_interval_ms: 800
-    allowed_chats: []
+    allowed_chats: []          # 非空即启用白名单
     allowed_users: []
-    group_require_at: true
+    group_require_at: true     # 群里必须 @ 机器人才响应
+    isolate_by_thread: false   # false = 同一个群共享一个上下文
     max_reply_chars: 4000
     dedup_ttl_seconds: 600
 

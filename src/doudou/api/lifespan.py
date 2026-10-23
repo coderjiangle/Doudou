@@ -11,8 +11,12 @@ from typing import Any
 from fastapi import FastAPI
 
 from doudou.agent.factory import AgentBundle, build_agent
+from doudou.channels.base import Channel
+from doudou.channels.registry import build_enabled_channels, start_channels, stop_channels
 from doudou.config.loader import Settings, get_settings
+from doudou.gateway.bus import MessageBus
 from doudou.gateway.history import HistoryStore, InMemoryHistoryStore
+from doudou.gateway.router import MessageRouter
 from doudou.gateway.runner import AgentRunner
 from doudou.observability.logging import configure_logging, get_logger
 from doudou.observability.metrics import get_metrics
@@ -40,6 +44,9 @@ class AppState:
     runner: AgentRunner
     database: Database | None = None
     store: HistoryStore | None = None
+    bus: MessageBus | None = None
+    router: MessageRouter | None = None
+    channels: list[Channel] = field(default_factory=list)
     started_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -55,7 +62,12 @@ class AppState:
         return {
             "counters": snapshot.counters,
             "durations": snapshot.durations,
+            "bus": self.bus.stats.as_dict() if self.bus is not None else {},
         }
+
+    @property
+    def channel_names(self) -> list[str]:
+        return [channel.name for channel in self.channels]
 
 
 def build_store(settings: Settings) -> tuple[HistoryStore, Database | None]:
@@ -75,7 +87,7 @@ def build_store(settings: Settings) -> tuple[HistoryStore, Database | None]:
 
 
 async def create_state(settings: Settings | None = None) -> AppState:
-    """构造运行期状态（首次需要时初始化数据库 schema）。"""
+    """构造运行期状态（首次需要时初始化数据库 schema，并按配置拉起常驻通道）。"""
     resolved = settings or get_settings()
     store, database = build_store(resolved)
     if database is not None:
@@ -84,17 +96,37 @@ async def create_state(settings: Settings | None = None) -> AppState:
     bundle = build_agent(resolved)
     runner = AgentRunner(bundle, store=store)
 
+    # 常驻通道（飞书长连接）需要一条「不阻塞事件循环」的执行路径，
+    # 因此装配 bus → router → channels 三级。
+    bus = MessageBus()
+    await bus.start()
+    router = MessageRouter(runner, bus=bus)
+    channels = await start_channels(build_enabled_channels(resolved, router))
+
     logger.info(
         "api.state_ready",
         model=bundle.metadata.get("model"),
         tools=len(bundle.tools),
         history_backend=resolved.app.storage.history,
+        channels=[channel.name for channel in channels],
     )
-    return AppState(settings=resolved, bundle=bundle, runner=runner, database=database, store=store)
+    return AppState(
+        settings=resolved,
+        bundle=bundle,
+        runner=runner,
+        database=database,
+        store=store,
+        bus=bus,
+        router=router,
+        channels=channels,
+    )
 
 
 async def dispose_state(state: AppState) -> None:
-    """释放资源。"""
+    """释放资源。先停通道（停止收新消息），再停 bus，最后关数据库。"""
+    await stop_channels(state.channels)
+    if state.bus is not None:
+        await state.bus.stop()
     if state.database is not None:
         await state.database.dispose()
     logger.info("api.state_disposed", uptime_seconds=state.uptime_seconds)

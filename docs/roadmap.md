@@ -194,26 +194,34 @@ uv run doudou ask "用你能用的 MCP 工具把这句话原样回显给我：he
 
 ---
 
-### M6 — Skill 渐进式加载
+### M6 — Skill 渐进式加载 ✅
 
-**目标**：让「怎么做」与「能做什么」解耦，用户自己加 `SKILL.md` 就能扩展能力。
+- [x] `skills/registry.py`：索引 + 按名/描述检索 + 附属文件访问（含路径逃逸防护）
+- [x] 系统提示词**只注入索引**（name + description），正文不进上下文预算
+- [x] `agent.prompts.render_skill_index`：索引**有界**（`skill_index_limit`），
+      超出时说明「另有 X 个未列出」并明确告知「无关的技能不要读」
+- [x] 三个工具：`read_skill` / `list_skill_files` / `skill_read_file`；无技能时**不注册**
+- [x] 提示词与工具**共用同一份索引**（否则「列出的」与「能读到的」会对不上）
+- [x] `GET /api/v1/skills`、`GET /api/v1/skills/{name}`（正文按需）、`POST /api/v1/skills/reload`
+- [x] `doudou skills list|show|check|reload`
+- [x] 52 个新增测试，覆盖索引、检索、附属文件防护、提示词注入与热重载
+- [x] 验收：真实模型读索引 → 调 `read_skill("research")` → **按其步骤**继续执行；
+      无关提问（「现在几点了」）只调 `now`，**不读任何技能**
 
-**交付物**
+**验收命令**
 
-- [ ] `skills/registry.py`：索引 + 按 `description` 的检索接口
-- [ ] 启停时把 Skill 的 `name` + `description` 注入系统提示词（**只注入索引**）
-- [ ] `read_skill` 工具：模型判断需要时再读全文（渐进式披露，正文不进上下文预算）
-- [ ] `doudou skills show <name>` / `doudou skills check` / `POST /api/v1/skills/reload`
-- [ ] Skill 附属文件（`reference.md` / `templates/`）的按需读取路径
+```powershell
+uv run doudou skills list
+uv run doudou ask "帮我做一次结构化调研：对比 X 与 Y" --no-confirm
+uv run doudou ask "现在几点了？" --no-confirm   # 不应调用 read_skill
+```
 
-**验收**：问「帮我做一次结构化调研」→ 模型读到 `research` 的 description → 调用 `read_skill("research")`
-→ 按其中的步骤执行；问无关问题时**不加载**该 Skill（系统提示词长度不增长）。
-
-**依赖**：M1（`skills/loader.py` 的发现与校验已完成）
-
-**关键判断**：**这一项不必等 deepagents。** deepagents 的 `SkillsMiddleware` 做的是同一件事
-（启动只读 frontmatter、按需读全文），用「索引注入 + `read_skill` 工具」自研即可，
-成本远低于换引擎。见 M9 的说明。
+> **这里的热重载是真的，MCP 的不是。** `POST /skills/reload` 会就地更新系统提示词：
+> 技能索引只是提示词里的一段文本，而 `read_skill` 在调用时才查索引，
+> 所以换掉提示词 + 刷新索引就生效了。MCP 的工具列表是构建 Agent 时固定的，必须重启。
+>
+> **又一次印证了「依赖不满足就不注册」**：技能数量为 0 时不注册那三个工具，
+> 不给模型一个永远失败的 `read_skill`。
 
 ---
 

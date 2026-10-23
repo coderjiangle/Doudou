@@ -30,6 +30,21 @@ agent:
     add: true
 """
 
+#: 测试用 SKILL.md（``skills_settings`` 夹具会写进临时目录）。
+DEMO_SKILL = """\
+---
+name: demo-skill
+description: 演示技能。当用户要求演示技能机制时使用。
+---
+
+# 演示技能
+
+## 步骤
+
+1. 说明技能是按需加载的。
+2. 引用附表 `reference.md` 里的细节。
+"""
+
 
 @pytest.fixture
 def config_dir(tmp_path: Path) -> Path:
@@ -82,6 +97,36 @@ def tools_settings(
             f'    directory: "{notes}"\n'
         )
         return settings_factory(config_yaml=config_yaml, **kwargs)  # type: ignore[arg-type]
+
+    return make
+
+
+@pytest.fixture
+def skills_settings(
+    tmp_path: Path, settings_factory: Callable[..., Settings]
+) -> Callable[..., Settings]:
+    """构造带**真实 Skill 目录**的配置。
+
+    conftest 的默认配置把 ``agent.skills`` 指向 ``../skills/``（相对 tmp 配置目录），
+    那里不存在，因此默认是「没有技能」。要测技能必须自己铺目录。
+    """
+
+    def make(
+        *, skills: dict[str, str] | None = None, extra_files: dict[str, str] | None = None
+    ) -> Settings:
+        root = tmp_path / "skills"
+        payload = skills if skills is not None else {"demo-skill": DEMO_SKILL}
+        for name, content in payload.items():
+            directory = root / name
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "SKILL.md").write_text(content, encoding="utf-8")
+        for relative, content in (extra_files or {}).items():
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+
+        config_yaml = f'agent:\n  skills: ["{root.as_posix()}"]\n'
+        return settings_factory(config_yaml=config_yaml)
 
     return make
 

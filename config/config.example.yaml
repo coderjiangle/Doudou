@@ -44,6 +44,9 @@ agent:
     - AGENTS.md                            # deepagents memory=，始终加载
   skills:
     - ../skills/                           # Agent Skills 根目录
+  # 提示词里最多列出几个技能。索引必须**有界**：技能一多，
+  # 光是索引就能把提示词顶坏（超出时会说明「另有 X 个未列出」）。
+  skill_index_limit: 40
   subagents_file: agents.yaml
   # 需要人工确认（LangGraph interrupt）的工具
   interrupt_on:

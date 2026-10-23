@@ -46,6 +46,9 @@ agent:
     - AGENTS.md                # M7 接入记忆后生效
   skills:
     - ../skills/               # 仓库根的 skills/ 目录
+  # 提示词里最多列几个技能。索引必须**有界**，
+  # 否则技能一多、光是索引就把提示词顶坏。
+  skill_index_limit: 40
   subagents_file: agents.yaml  # M8 接入子 Agent 后生效
   # 需要人工确认的工具：CLI 会先询问再执行（见 docs/security.md）
   interrupt_on:

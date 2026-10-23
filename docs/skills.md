@@ -1,22 +1,36 @@
 # Skill 编写指引
 
+**状态：M6 已落地。** 渐进式披露可用了：系统提示词只放索引，正文由
+`read_skill` 按需读取。
+
 ## 1. 什么是 Skill
 
 Skill 是**按需加载的领域知识与工作流**，遵循 [Agent Skills 标准](https://agentskills.io/)。
-在 deepagents 里，`skills=` 会生成一个 `SkillsMiddleware`：
+一个 Skill 就是一个目录加一个 `SKILL.md`。
 
-- 启动时只读取每个 `SKILL.md` 的 **frontmatter**（`name` + `description`），进入系统提示词，开销很小；
-- 模型判断当前任务需要某技能时，才去读该 Skill 的完整正文与附属文件 —— 即**渐进式披露**。
+它和工具的区别：**工具提供动作，Skill 提供做法**。需要外部动作时，在 Skill 正文里
+写明该调用哪个工具。
 
-它和工具的区别：**工具提供动作，Skill 提供做法**。需要外部动作时，Skill 里写明该调用哪个工具。
+### 渐进式披露（M6 的核心）
+
+```
+启动时  ──▶ 只读 frontmatter（name + description），注入系统提示词的系统提示词索引
+按需时  ──▶ 模型判断「这个任务需要它」→ 调 read_skill("xxx") 读全文
+```
+
+因此：
+
+- **启动上下文只随「技能数量」增长，不随「技能体积」增长**；
+- 技能正文可以写得很长、可以带附属文件，不会一直占着上下文；
+- 谁来挑技能由模型判断，不需要人预先选好。
 
 ## 2. 目录结构
 
 ```
 skills/
-└─ example-echo/
+└─ my-skill/
    ├─ SKILL.md          # 必需：frontmatter + 正文
-   ├─ reference.md      # 可选：详细参考（正文里让它按需 read_file）
+   ├─ reference.md      # 可选：详细参考（正文里让模型用 skill_read_file 读）
    ├─ templates/        # 可选：模板文件
    └─ scripts/          # 可选：脚本
 ```
@@ -27,8 +41,8 @@ skills/
 
 ```markdown
 ---
-name: example-echo
-description: 示例技能，演示 Skill 的最小结构与编写规范。当用户要求演示技能机制时使用。
+name: my-skill          # 小写短横线命名，全局唯一
+description: 做什么 + 什么时候用（这句决定它会不会被加载）
 ---
 
 # 正文
@@ -37,49 +51,49 @@ description: 示例技能，演示 Skill 的最小结构与编写规范。当用
 ...
 
 ## 步骤
-1. ...
-2. ...
-
-## 注意
-...
+1. 用 `web_search` 检索最近 7 天的相关新闻。
+2. 用 `write_file` 把结果写入 `/workspace/report.md`。
 ```
 
 ### frontmatter 字段
 
 | 字段 | 必需 | 说明 |
 | --- | --- | --- |
-| `name` | ✅ | 小写短横线命名，全局唯一 |
+| `name` | ✅ | 小写短横线命名（`^[a-z0-9]+(-[a-z0-9]+)*$`），全局唯一 |
 | `description` | ✅ | **决定模型何时加载它**，务必写清「做什么 + 什么时候用」 |
-| 其他自定义字段 | ❌ | 会被解析但不要依赖，避免与标准冲突 |
+| 其它字段 | ❌ | 会被解析并出现在 `skills show` 里，但不要依赖 |
 
 `description` 是 Skill 能否被正确触发的关键，建议句式：
 「<能力>。当 <触发场景> 时使用。」并包含用户可能说的关键词。
 
-## 4. 配置
+> 名字不合法、缺 `description`、YAML 写坏 —— 这类问题**不会**让服务起不来，
+> 但会被记下来并出现在 `doudou skills check` 与 `GET /skills` 的 `errors` 里。
+> **必须去看**：静默跳过会让你以为技能已生效。
+
+## 4. 模型能用的三个工具
+
+Skill 数量为 0 时**这三个工具都不注册** —— 不给模型一个永远失败的工具。
+
+| 工具 | 作用 |
+| --- | --- |
+| `read_skill(name)` | 读某个技能的完整正文 |
+| `list_skill_files(name)` | 列出该技能目录下的附属文件 |
+| `skill_read_file(name, path)` | 读附属文件（如 `templates/report.md`） |
+
+协议安排：提示词里明确写了「**与当前任务无关的技能不要读**」——
+否则模型会出于好奇把所有技能都拉一遍，渐进式披露就白做了。
+
+## 5. 配置
 
 ```yaml
-# config/config.yaml
 agent:
   skills:
     - ../skills/            # 仓库根 skills 目录，可多行
+  skill_index_limit: 40     # 提示词里最多列几个技能
 ```
 
-子 Agent 可以有自己独立的 Skill 集（`config/agents.yaml` 的 `subagents[].skills`），
-此时只有该子 Agent 能看到这些 Skill。
-
-## 5. 和工具的配合
-
-Skill 本身不执行动作。需要动作时，在正文里指明使用的工具：
-
-```markdown
-## 步骤
-1. 用 `web_search` 检索最近 7 天的相关新闻。
-2. 用 `write_file` 把结果写入 `/workspace/report.md`。
-3. 用 `http_request` 把文件内容提交到内部系统。
-```
-
-也可以给 Skill 绑定专属工具（`SkillsMiddleware(tools=[...])`），
-即在 `agent/middleware.py` 的角色化 Skill 配置里声明。
+`skill_index_limit` 存在的理由：索引必须**有界**。技能一多，光是索引就能把
+提示词顶坏。超出时会列出前 N 个并说明「另有 X 个未列出」。
 
 ## 6. 与记忆（AGENTS.md）的分工
 
@@ -89,19 +103,32 @@ Skill 本身不执行动作。需要动作时，在正文里指明使用的工�
 | 内容 | 特定领域的流程与方法 | 长期偏好与事实 |
 | 体量 | 可以较大，含附属文件 | 要精简 |
 
-「我喜欢用中文回复」→ 记忆；「写调研报告的标准流程」→ Skill。
+「我喜欢用中文回复」→ 记忆（M7 落地）；「写调研报告的标准流程」→ Skill。
 
 ## 7. 调试
 
 ```powershell
-uv run doudou skills list     # 列出发现的 Skill（已可用）
+uv run doudou skills list              # 索引 + 正文大小 + 附件数
+uv run doudou skills show research     # 详情
+uv run doudou skills show research --body   # 连正文一起看
+uv run doudou skills check             # 只校验，有错则非零退出
+uv run doudou skills reload            # 重新扫描
 ```
 
-计划在 M6 补上 `doudou skills show <name>`（打印 frontmatter 与正文）、
-`doudou skills check`（仅校验）与 `POST /api/v1/skills/reload` 热重载。
+HTTP 侧：
 
-触发不灵时通常是 `description` 写得不够具体，导致模型不认为该加载。
+```
+GET  /api/v1/skills                   # 索引（不含正文）
+GET  /api/v1/skills/{name}            # 详情；include_body=true 才带正文
+POST /api/v1/skills/reload            # 重新扫描
+```
 
-> **注意**：当前（M1）只实现了 Skill 的**发现与校验**。
-> 交给模型的渐进式加载在 **M6** 落地，做法是「把索引注入系统提示词 + 提供 `read_skill` 工具」，
-> **不依赖 deepagents**（见 docs/roadmap.md M6）。
+## 8. 热重载：这次是真的
+
+`POST /skills/reload` 会**就地更新系统提示词**，无需重启。
+
+为什么 MCP 的 `/mcp/refresh` 做不到而这里可以：技能索引只是提示词里的一段文本，
+而 `read_skill` 在调用时才查索引 —— 换掉提示词 + 刷新索引就真的生效了。
+MCP 的工具列表是构建 Agent 时固定的，那个必须重启。
+
+触发不灵时先看 `description` 是不是写得太笼统，导致模型不认为该加载。

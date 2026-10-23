@@ -126,6 +126,37 @@ class McpStatusResponse(BaseModel):
     note: str | None = None
 
 
+class SkillOut(BaseModel):
+    """单个 Skill 的索引条目（正文按需返回）。"""
+
+    name: str
+    description: str
+    path: str
+    directory: str
+    body_chars: int = 0
+    body: str | None = Field(default=None, description="仅当 include_body=true 时返回。")
+    files: list[str] = Field(default_factory=list, description="附属文件相对路径。")
+    extra: dict[str, Any] = Field(default_factory=dict, description="frontmatter 里的其它字段。")
+
+
+class SkillsResponse(BaseModel):
+    """`GET /skills` 的响应。"""
+
+    count: int
+    roots: list[str] = Field(default_factory=list, description="扫描的根目录。")
+    errors: list[str] = Field(default_factory=list, description="被跳过的 Skill 及原因。")
+    skills: list[SkillOut] = Field(default_factory=list)
+
+
+class SkillReloadResponse(BaseModel):
+    """`POST /skills/reload` 的响应。"""
+
+    count: int
+    errors: list[str] = Field(default_factory=list)
+    system_prompt_chars: int = 0
+    note: str | None = None
+
+
 __all__ = [
     "ChecksOut",
     "ErrorBody",
@@ -134,6 +165,9 @@ __all__ = [
     "McpServerOut",
     "McpStatusResponse",
     "MessageOut",
+    "SkillOut",
+    "SkillReloadResponse",
+    "SkillsResponse",
     "ThreadDetail",
     "ThreadListResponse",
     "ThreadSummary",

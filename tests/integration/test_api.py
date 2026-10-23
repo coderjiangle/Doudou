@@ -25,7 +25,7 @@ model:
 agent:
   name: ApiTest
   system_prompt_file: null
-  skills: []
+  skills: {skills}
   max_steps: 4
 filesystem:
   root_dir: "{workspace}"
@@ -38,15 +38,23 @@ tools:
 """
 
 
-def _write_config(tmp_path: Path, *, token: str = "", history: str = "database") -> Settings:
+def _write_config(
+    tmp_path: Path,
+    *,
+    token: str = "",
+    history: str = "database",
+    skills_root: Path | None = None,
+) -> Settings:
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     db = (tmp_path / "doudou.db").as_posix()
+    skills = f'["{skills_root.as_posix()}"]' if skills_root else "[]"
     # 工作区与笔记目录都指向 tmp_path：否则测试会去动仓库里的 data/
     text = CONFIG_TEMPLATE.format(
         db=db,
         workspace=(tmp_path / "workspace").as_posix(),
         notes=(tmp_path / "notes").as_posix(),
+        skills=skills,
     ).replace("history: database", f"history: {history}")
     (config_dir / "config.yaml").write_text(text, encoding="utf-8")
     return load_settings(config_dir=config_dir, env_file=tmp_path / "no.env", use_env=False)
@@ -594,3 +602,145 @@ async def test_broken_mcp_server_degrades_but_service_works(tmp_path: Path) -> N
     assert mcp["servers"][0]["error"]
     # 服务照常能对话
     assert chat.status_code == 200
+
+
+# --------------------------------------------------------------------------- Skill
+
+
+SKILL_MD = """\
+---
+name: demo-skill
+description: 演示技能。当用户要求演示技能机制时使用。
+---
+
+# 演示技能
+
+按需加载的正文。
+"""
+
+SKILL_MD_EXTRA = SKILL_MD.replace("demo-skill", "added-skill").replace("演示技能", "新技能")
+
+
+def _write_skills(root: Path) -> Path:
+    """铺一个技能目录（只动文件，不碰配置）。
+
+    配置通过 ``_write_config(skills_root=...)`` 传进去 —— 早期版本在这里改
+    config.yaml，但 ``_write_config`` 每次都会从模板重写它，改动会被覆盖。
+    """
+    directory = root / "demo-skill"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+    (directory / "reference.md").write_text("附表内容", encoding="utf-8")
+    return root
+
+
+async def test_skills_endpoint_lists_index_without_body(tmp_path: Path) -> None:
+    """列表只给索引：正文可能很大，检视时不需要。"""
+    root = _write_skills(tmp_path / "skills")
+    settings = _write_config(tmp_path, skills_root=root)
+
+    async with api_client(settings) as client:
+        listed = (await client.get("/api/v1/skills")).json()
+        detail = (await client.get("/api/v1/skills/demo-skill")).json()
+        with_body = (
+            await client.get("/api/v1/skills/demo-skill", params={"include_body": "true"})
+        ).json()
+
+    assert listed["count"] == 1
+    assert listed["skills"][0]["name"] == "demo-skill"
+    assert listed["skills"][0]["files"] == ["reference.md"]
+    assert detail["body"] is None
+    assert with_body["body"] is not None
+    assert "按需加载的正文" in with_body["body"]
+
+
+async def test_skills_endpoint_reports_invalid_skills(tmp_path: Path) -> None:
+    """写坏的 SKILL.md 要被报出来，而不是静默跳过。"""
+    root = _write_skills(tmp_path / "skills")
+    (root / "broken").mkdir()
+    (root / "broken" / "SKILL.md").write_text("---\nname: broken\n---\n", encoding="utf-8")
+    settings = _write_config(tmp_path, skills_root=root)
+
+    async with api_client(settings) as client:
+        listed = (await client.get("/api/v1/skills")).json()
+
+    assert listed["count"] == 1
+    assert len(listed["errors"]) == 1
+    assert "description" in listed["errors"][0]
+
+
+async def test_skill_detail_unknown_returns_404(tmp_path: Path) -> None:
+    root = _write_skills(tmp_path / "skills")
+    settings = _write_config(tmp_path, skills_root=root)
+
+    async with api_client(settings) as client:
+        response = await client.get("/api/v1/skills/nope")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "skill_not_found"
+
+
+async def test_skills_reload_reports_new_skills(tmp_path: Path) -> None:
+    """``POST /skills/reload`` 要能发现新增的技能。"""
+    root = _write_skills(tmp_path / "skills")
+    settings = _write_config(tmp_path, skills_root=root)
+
+    async with api_client(settings) as client:
+        before = (await client.get("/api/v1/skills")).json()
+
+        (root / "added-skill").mkdir()
+        (root / "added-skill" / "SKILL.md").write_text(SKILL_MD_EXTRA, encoding="utf-8")
+
+        reloaded = (await client.post("/api/v1/skills/reload")).json()
+        after = (await client.get("/api/v1/skills")).json()
+
+    assert before["count"] == 1
+    assert reloaded["count"] == 2
+    assert after["count"] == 2
+    assert reloaded["system_prompt_chars"] > 0
+    assert "added-skill" in {item["name"] for item in after["skills"]}
+
+
+async def test_skills_reload_changes_agent_prompt(tmp_path: Path) -> None:
+    """直接断言 Agent 手里的提示词变了 —— 这才是「生效」的证据。"""
+    root = _write_skills(tmp_path / "skills")
+    settings = _write_config(tmp_path, skills_root=root)
+
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        bundle = app.state.doudou.bundle
+        assert "demo-skill" in bundle.system_prompt
+        assert "added-skill" not in bundle.system_prompt
+
+        (root / "added-skill").mkdir()
+        (root / "added-skill" / "SKILL.md").write_text(SKILL_MD_EXTRA, encoding="utf-8")
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/skills/reload")
+
+        assert "added-skill" in bundle.system_prompt
+        assert bundle.agent.system_prompt == bundle.system_prompt
+
+
+async def test_skill_tools_are_exposed_to_the_agent(tmp_path: Path) -> None:
+    """技能工具必须真的进入 Agent 的工具列表。"""
+    root = _write_skills(tmp_path / "skills")
+    settings = _write_config(tmp_path, skills_root=root)
+
+    async with api_client(settings) as client:
+        tools = {item["name"]: item for item in (await client.get("/api/v1/tools")).json()["tools"]}
+
+    assert {"read_skill", "list_skill_files", "skill_read_file"} <= set(tools)
+    assert tools["read_skill"]["group"] == "skills"
+    assert tools["read_skill"]["side_effects"] is False
+
+
+async def test_no_skill_tools_without_skills(settings_for_api: Settings) -> None:
+    """没有技能时不该给模型一个永远失败的 read_skill。"""
+    async with api_client(settings_for_api) as client:
+        listed = (await client.get("/api/v1/skills")).json()
+        names = {item["name"] for item in (await client.get("/api/v1/tools")).json()["tools"]}
+
+    assert listed["count"] == 0
+    assert "read_skill" not in names

@@ -60,6 +60,7 @@ class EnvAgent(_EnvSection):
     max_steps: int | None = None
     recursion_limit: int | None = None
     require_approval_for_side_effects: bool | None = None
+    skill_index_limit: int | None = None
 
 
 class EnvHttpTool(_EnvSection):

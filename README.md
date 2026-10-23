@@ -5,11 +5,12 @@
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M5 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
+> **当前进度：M6 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
 > 会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）**、
-> **飞书通道（WebSocket 长连接 + 流式卡片）** 与 **MCP（stdio / http / sse）**
-> 均端到端可用，399 个离线测试 + `ruff` + `mypy --strict` 全绿。
-> Skill 渐进式加载（M6）、上下文工程（M7）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
+> **飞书通道（WebSocket 长连接 + 流式卡片）**、**MCP（stdio / http / sse）** 与
+> **Skill 渐进式加载（索引注入 + 按需读全文 + 热重载）** 均端到端可用，
+> 451 个离线测试 + `ruff` + `mypy --strict` 全绿。
+> 上下文工程（M7）、权限与子 Agent（M8）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
@@ -30,7 +31,7 @@
 | 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` | ✅ M4 |
 | 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` | ✅ M4 |
 | MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` | ✅ M5 |
-| Skill 加载 | Agent Skills 标准（`SKILL.md`）渐进式披露 | `doudou.skills` | 🚧 发现 ✅ / 加载 ⏳ M6 |
+| Skill 渐进式加载 | 索引注入 + `read_skill` 按需读 + 热重载 | `doudou.skills` | ✅ M6 |
 | 上下文工程 | token 预算、摘要压缩、长期记忆 | `doudou.gateway` / `doudou.agent.memory` | ⏳ M7 |
 | 权限与子 Agent | 路径权限、子 Agent 委派、跨重启确认 | `doudou.agent.permissions` | ⏳ M8 |
 | 任务规划 | `write_todos`（deepagents 引擎） | `doudou.agent.middleware` | ⏳ M9 |
@@ -250,7 +251,33 @@ uv run doudou tools list        # Agent 实际装载的工具（含 MCP）
 > 对 `stdio` 就是每次调用重新拉起子进程，`npx`/`uvx` 那类会到秒级；
 > 需要频繁调用优先用 `http`。详见 [`docs/mcp.md`](docs/mcp.md) §4。
 
-### 4.6 其他入口
+### 4.6 编写 Skill（可选）
+
+在 `skills/<name>/SKILL.md` 写一个带 frontmatter 的技能即可扩展能力，
+无需改代码：
+
+```markdown
+---
+name: my-skill
+description: 做什么 + 什么时候用（这句决定它会不会被加载）
+---
+
+# 正文：步骤、注意事项、该调用哪些工具
+```
+
+**只有索引（name + description）会进系统提示词**；正文由模型判断需要时调
+`read_skill` 读取 —— 所以技能可以写得很长，不会一直占着上下文预算。
+
+```powershell
+uv run doudou skills list                 # 索引 + 正文大小 + 附件数
+uv run doudou skills show research --body # 看详情与正文
+uv run doudou skills check                # 校验（有错则非零退出）
+uv run doudou skills reload               # 重新扫描（HTTP 侧会热更新提示词）
+```
+
+详见 [`docs/skills.md`](docs/skills.md)。
+
+### 4.7 其他入口
 ```powershell
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```

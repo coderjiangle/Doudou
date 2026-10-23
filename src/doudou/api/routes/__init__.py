@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from doudou.api.deps import require_token
-from doudou.api.routes import chat, health, mcp, threads, tools
+from doudou.api.routes import chat, health, mcp, skills, threads, tools
 
 
 def build_router(base_path: str = "/api/v1") -> APIRouter:
@@ -21,6 +21,7 @@ def build_router(base_path: str = "/api/v1") -> APIRouter:
     router.include_router(threads.router, dependencies=[Depends(require_token)])
     router.include_router(tools.router, dependencies=[Depends(require_token)])
     router.include_router(mcp.router, dependencies=[Depends(require_token)])
+    router.include_router(skills.router, dependencies=[Depends(require_token)])
 
     return router
 

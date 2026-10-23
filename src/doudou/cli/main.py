@@ -23,7 +23,7 @@ from doudou.mcp.client import ServerOverview
 from doudou.mcp.config import McpConfigError
 from doudou.mcp.lifecycle import McpRuntime
 from doudou.observability.logging import configure_logging
-from doudou.skills.loader import discover_skills
+from doudou.skills.registry import SkillRegistry
 from doudou.tools.registry import build_tools, describe_groups, tool_infos
 from doudou.utils.text import truncate
 from doudou.version import __version__
@@ -380,30 +380,91 @@ def tools_show(
 
 @skills_app.command("list")
 def skills_list(config_dir: ConfigDir = None) -> None:
-    """列出已发现的 Skill。"""
+    """列出已发现的 Skill（索引 + 附属文件）。"""
     settings = _load(config_dir)
-    roots = settings.skills_dirs
-    skills, errors = discover_skills(roots)
+    registry = SkillRegistry.from_settings(settings)
+    roots = registry.roots
 
     if not roots:
         console.print("[yellow]配置里未声明 Skill 目录（agent.skills）。[/yellow]")
         return
 
-    table = Table(title=f"Skill（{len(skills)}）")
+    table = Table(title=f"Skill（{len(registry)}）")
     table.add_column("名称", style="bold")
-    table.add_column("目录", style="dim")
+    table.add_column("正文", justify="right", style="dim")
+    table.add_column("附件", justify="right", style="dim")
     table.add_column("说明")
-    for info in skills:
+    for entry in registry.describe():
         table.add_row(
-            info.name,
-            str(info.directory),
-            _summary(info.description),
+            entry.name,
+            str(entry.body_chars),
+            str(len(entry.files)),
+            _summary(entry.description),
         )
     console.print(table)
+
     for root in roots:
         if not root.is_dir():
             console.print(f"[yellow]目录不存在：{root}[/yellow]")
-    for message in errors:
+    for message in registry.errors:
+        console.print(f"[red]· {message}[/red]")
+
+
+@skills_app.command("show")
+def skills_show(
+    name: Annotated[str, typer.Argument(help="技能名。")],
+    config_dir: ConfigDir = None,
+    body: Annotated[bool, typer.Option("--body", help="同时打印正文。")] = False,
+) -> None:
+    """查看一个 Skill 的详情。"""
+    settings = _load(config_dir)
+    registry = SkillRegistry.from_settings(settings)
+    skill = registry.get(name)
+    if skill is None:
+        err_console.print(
+            f"[red]没有名为 {name!r} 的技能。[/red]可用：{'、'.join(registry.names) or '（无）'}"
+        )
+        raise typer.Exit(EXIT_USAGE)
+
+    console.print(f"[bold]{skill.name}[/bold]")
+    console.print(f"  说明 : {skill.description}")
+    console.print(f"  文件 : {skill.path}")
+    console.print(f"  正文 : {len(skill.body)} 字")
+    files = registry.list_files(name)
+    console.print(f"  附件 : {'、'.join(files) if files else '（无）'}")
+    if skill.extra:
+        console.print(f"  其它 : {skill.extra}")
+    if body:
+        console.print()
+        console.print(skill.body)
+
+
+@skills_app.command("check")
+def skills_check(config_dir: ConfigDir = None) -> None:
+    """只校验 Skill 目录（等价于 ``config check`` 的 Skill 部分）。"""
+    settings = _load(config_dir)
+    registry = SkillRegistry.from_settings(settings)
+
+    console.print(f"根目录：{[str(root) for root in registry.roots]}")
+    console.print(f"有效   ：{len(registry)} 个 —— {'、'.join(registry.names) or '（无）'}")
+    if not registry.errors:
+        console.print("[green]✓ 全部通过校验[/green]")
+        return
+
+    for message in registry.errors:
+        console.print(f"[red]· {message}[/red]")
+    raise typer.Exit(EXIT_USAGE)
+
+
+@skills_app.command("reload")
+def skills_reload(config_dir: ConfigDir = None) -> None:
+    """重新扫描 Skill 目录（等价于 ``POST /skills/reload``）。"""
+    settings = _load(config_dir)
+    registry = SkillRegistry.from_settings(settings)
+
+    console.print(f"[green]已重新扫描[/green]：{len(registry)} 个")
+    console.print(f"  {'、'.join(registry.names) or '（无）'}")
+    for message in registry.errors:
         console.print(f"[red]· {message}[/red]")
 
 
@@ -462,8 +523,8 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
         if not settings.secrets.feishu_encrypt_key:
             problems.append(("warn", "飞书未配置 FEISHU_ENCRYPT_KEY，生产环境应启用加密"))
 
-    skills, errors = discover_skills(settings.skills_dirs)
-    for message in errors:
+    skill_registry = SkillRegistry.from_settings(settings)
+    for message in skill_registry.errors:
         problems.append(("error", f"Skill 校验失败：{message}"))
 
     infos = tool_infos(settings)
@@ -476,13 +537,13 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
         problems.append((level, f"工具分组 {status.name} 未启用：{status.reason}"))
 
     tool_names = ", ".join(info.name for info in infos) or "（无）"
-    skill_names = ", ".join(info.name for info in skills) or "（无）"
+    skill_names = "、".join(skill_registry.names) or "（无）"
     guarded = [info.name for info in infos if info.requires_approval]
     console.print(f"[green]✓ 配置合法[/green]（{len(settings.loaded_files)} 个文件）")
     console.print(f"  模型      : {spec.raw}")
     console.print(f"  工具      : {len(infos)} 个 —— {tool_names}")
     console.print(f"  需人工确认: {', '.join(guarded) if guarded else '（无）'}")
-    console.print(f"  Skill     : {len(skills)} 个 —— {skill_names}")
+    console.print(f"  Skill     : {len(skill_registry)} 个 —— {skill_names}")
     console.print(f"  飞书通道  : {'启用' if feishu.enabled else '关闭'}")
 
     for level, message in problems:

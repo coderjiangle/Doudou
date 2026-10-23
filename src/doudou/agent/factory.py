@@ -14,6 +14,7 @@ from doudou.agent.prompts import load_system_prompt
 from doudou.agent.react import ApprovalHook, ReactAgent
 from doudou.config.loader import Settings, get_settings
 from doudou.observability.logging import get_logger
+from doudou.skills.registry import SkillRegistry
 from doudou.tools.registry import build_tools, effective_interrupt_on
 
 logger = get_logger(__name__)
@@ -31,11 +32,31 @@ class AgentBundle:
     tools: list[BaseTool]
     system_prompt: str
     agent: ReactAgent
+    skills: SkillRegistry | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def tool_names(self) -> list[str]:
         return [tool.name for tool in self.tools]
+
+    def refresh_skills(self) -> int:
+        """重新发现 Skill，并**就地**更新系统提示词。
+
+        为什么这里能做真正的热重载（而 MCP 的 ``/mcp/refresh`` 做不到）：
+        技能索引只是提示词里的一段文本，而 ``read_skill`` 在调用时才查索引，
+        所以换掉提示词 + 刷新索引就够了，不需要重建 Agent。
+        MCP 的工具列表是 Agent 构造时固定的，那个必须重启。
+
+        Returns:
+            刷新后的技能数量。
+        """
+        if self.skills is None:
+            return 0
+        count = self.skills.reload()
+        self.system_prompt = load_system_prompt(self.settings, skills=self.skills.skills)
+        self.agent.system_prompt = self.system_prompt
+        logger.info("agent.skills_refreshed", count=count)
+        return count
 
 
 def build_agent(
@@ -66,10 +87,16 @@ def build_agent(
 
     if model is None:
         model = build_model(resolved.app.model, secrets=resolved.secrets, spec=model_spec)
-    if tools is None:
-        tools = build_tools(resolved, extra=extra_tools, extra_source="mcp")
 
-    system_prompt = load_system_prompt(resolved)
+    # Skill 索引只建一次，提示词与 read_skill 工具共用它 ——
+    # 否则「提示词里列出的技能」与「能读到的技能」可能对不上。
+    registry = SkillRegistry.from_settings(resolved)
+    if tools is None:
+        tools = build_tools(
+            resolved, extra=extra_tools, extra_source="mcp", skills_registry=registry
+        )
+
+    system_prompt = load_system_prompt(resolved, skills=registry.skills)
 
     # 副作用工具在配置未显式说明时自动需要确认，见 tools.registry.requires_approval
     interrupt_on = effective_interrupt_on(resolved, tools)
@@ -88,6 +115,7 @@ def build_agent(
         "model": model_spec or resolved.app.model.primary,
         "tools": [tool.name for tool in tools],
         "requires_approval": sorted(name for name, needed in interrupt_on.items() if needed),
+        "skills": registry.names,
         "system_prompt_chars": len(system_prompt),
     }
     logger.info("agent.built", **metadata)
@@ -98,6 +126,7 @@ def build_agent(
         tools=list(tools),
         system_prompt=system_prompt,
         agent=agent,
+        skills=registry,
         metadata=metadata,
     )
 

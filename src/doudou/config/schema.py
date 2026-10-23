@@ -140,6 +140,9 @@ class AgentConfig(_Section):
     #: 是否自动拦截声明了副作用（``side_effects=True``）的工具。
     #: 关掉它意味着「写文件、发消息」这类操作不经确认直接执行。
     require_approval_for_side_effects: bool = True
+    #: 系统提示词里最多列出几个技能。索引必须**有界**，
+    #: 否则技能一多，光是索引就把上下文顶坏了。
+    skill_index_limit: int = 40
     recursion_limit: int = 60
     #: ReAct 循环的单次运行最大步数（模型往返次数）
     max_steps: int = 8

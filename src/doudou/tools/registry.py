@@ -10,7 +10,8 @@ from langchain_core.tools import BaseTool
 
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
-from doudou.tools.builtin import clock, files, http, notes, web_search
+from doudou.skills.registry import SkillRegistry
+from doudou.tools.builtin import clock, files, http, notes, skills, web_search
 from doudou.tools.decorators import annotations_of, is_annotated
 
 logger = get_logger(__name__)
@@ -25,6 +26,7 @@ BUILTIN_PROVIDERS: tuple[tuple[str, ToolProvider], ...] = (
     ("http", http.build_tools),
     ("files", files.build_tools),
     ("notes", notes.build_tools),
+    ("skills", skills.build_tools),
     ("clock", clock.build_tools),
 )
 
@@ -34,6 +36,9 @@ ALL_GROUPS: tuple[str, ...] = tuple(group for group, _ in BUILTIN_PROVIDERS)
 #: ``extra`` 工具的默认分组与来源。
 EXTRA_GROUP = "mcp"
 EXTRA_SOURCE = "mcp"
+
+#: 需要复用外部索引的分组（唯一一个：Skill 索引要与系统提示词共用同一份）。
+SKILLS_GROUP = "skills"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +72,7 @@ def build_tools(
     *,
     extra: Iterable[BaseTool] = (),
     extra_source: str = EXTRA_SOURCE,
+    skills_registry: SkillRegistry | None = None,
 ) -> list[BaseTool]:
     """汇总所有工具，做分组开关、禁用名单与重名检测。
 
@@ -74,6 +80,8 @@ def build_tools(
         settings: 用于构造依赖配置的工具。
         extra: 额外工具，例如 M5 中 MCP 拉取到的工具。
         extra_source: ``extra`` 的来源标记，仅用于日志。
+        skills: 复用已有的 Skill 索引。**必须与系统提示词用同一份**，
+            否则提示词里列出的技能和 ``read_skill`` 能读到的会对不上。
 
     Returns:
         工具列表，顺序为「内置 → extra」。被配置禁用的、以及依赖不满足的都不出现。
@@ -85,7 +93,13 @@ def build_tools(
         if not group_enabled(settings, group):
             logger.debug("tools.group_disabled", group=group)
             continue
-        for item in provider(settings):
+        # skills 提供方需要复用**同一份**索引（与系统提示词共用），因此单独分支。
+        # 其余提供方都是统一的 ``(settings) -> tools`` 形状。
+        if group == SKILLS_GROUP:
+            items: Sequence[BaseTool] = skills.build_tools(settings, registry=skills_registry)
+        else:
+            items = provider(settings)
+        for item in items:
             _add(collected, seen, item, source=f"builtin:{group}", settings=settings)
 
     for item in extra:

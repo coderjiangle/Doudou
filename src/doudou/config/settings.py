@@ -59,6 +59,36 @@ class EnvAgent(_EnvSection):
     skills: list[str] | None = None
     max_steps: int | None = None
     recursion_limit: int | None = None
+    require_approval_for_side_effects: bool | None = None
+
+
+class EnvHttpTool(_EnvSection):
+    allowed_domains: list[str] | None = None
+    timeout: float | None = None
+    max_response_chars: int | None = None
+
+
+class EnvWebSearchTool(_EnvSection):
+    provider: str | None = None
+    max_results: int | None = None
+    search_depth: str | None = None
+
+
+class EnvNotesTool(_EnvSection):
+    directory: str | None = None
+
+
+class EnvFilesTool(_EnvSection):
+    max_read_chars: int | None = None
+
+
+class EnvTools(_EnvSection):
+    enabled_groups: list[str] | None = None
+    disabled: list[str] | None = None
+    http: EnvHttpTool | None = None
+    web_search: EnvWebSearchTool | None = None
+    notes: EnvNotesTool | None = None
+    files: EnvFilesTool | None = None
 
 
 class EnvFilesystem(_EnvSection):
@@ -135,6 +165,7 @@ class EnvSettings(BaseSettings):
     server: EnvServer | None = None
     model: EnvModel | None = None
     agent: EnvAgent | None = None
+    tools: EnvTools | None = None
     filesystem: EnvFilesystem | None = None
     context: EnvContext | None = None
     storage: EnvStorage | None = None

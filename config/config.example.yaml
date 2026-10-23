@@ -62,6 +62,44 @@ agent:
       paths: ["/**/.env", "/**/*.pem", "/**/*.key", "/**/secrets/**"]
       mode: deny
 
+# ---------------------------------------------------------------- 工具
+tools:
+  # 空列表 = 全部启用；填分组名则只启用这些。分组：web / http / files / notes / clock
+  enabled_groups: []
+  # 逐个禁用的工具名，优先级高于 enabled_groups
+  disabled: []
+
+  # 联网检索（Tavily）。缺少 TAVILY_API_KEY 时该分组整组不注册 ——
+  # 「永远失败的工具」只会占提示词并诱导模型乱试。
+  web_search:
+    provider: tavily
+    max_results: 5
+    search_depth: basic        # basic | advanced（更准但更慢更贵）
+    include_answer: true
+    timeout: 20
+
+  # 出站 HTTP。**默认拒绝一切**：allowed_domains 为空时工具不注册。
+  # - example.com   匹配 example.com 及其任意子域
+  # - *.example.com 只匹配子域
+  # 此外解析到内网/回环地址的域名一律拒绝（防 SSRF 绕过）。
+  http:
+    allowed_domains: []
+    timeout: 20
+    max_response_chars: 20000
+    max_redirects: 2
+    user_agent: Doudou/0.1 (+personal-assistant)
+
+  # 只读文件访问。根目录固定为 filesystem.root_dir，不单独配置。
+  files:
+    max_read_chars: 50000
+    max_list: 200
+
+  # 本地笔记（Markdown）。note_save 有副作用，默认需要人工确认。
+  notes:
+    directory: ./data/notes
+    max_list: 50
+    max_read_chars: 20000
+
 # ---------------------------------------------------------------- 虚拟文件系统
 filesystem:
   backend: composite         # state | store | filesystem | composite

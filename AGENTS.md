@@ -33,18 +33,27 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
 
 - Python 3.12+，全量类型注解；`mypy --strict` 必须通过。
 - 行宽 100，格式化与 lint 由 `ruff` 负责（`ruff format` + `ruff check --fix`）。
-- 异步优先：I/O 一律 async；CPU 密集或阻塞调用用 `anyio.to_thread` 下沉。
+- 异步优先：I/O 一律 async；CPU 密集或阻塞调用用 `asyncio.to_thread` 下沉。
 - 配置读取**只**通过 `doudou.config.settings`，禁止散落 `os.environ`。
 - 日志用 `structlog`（`doudou.observability.logging`），禁止裸 `print`（CLI 输出除外）。关键位置必须打印日志，包括出入参，敏感信息请模糊化处理。
+- 出网调用统一走 `utils.async_utils.retry_async`，不要各写一套重试。
 - 异常：领域异常定义在模块内并继承统一基类；API 层由 `api.errors` 转成响应。
 - 关键逻辑处请添加注释。
 
 ## 工具 / MCP / Skill 的约定
 
-- **内置工具**放 `src/doudou/tools/builtin/`，每个模块一个主题，函数用 `@tool` 装饰并写清 docstring（LLM 依赖它理解用途）。
+- **内置工具**放 `src/doudou/tools/builtin/`，每个模块导出
+  `build_tools(settings) -> Sequence[BaseTool]`，函数用 `@tool` 装饰并写清 docstring
+  （首行是一句话摘要，模型与 `tools list` 都依赖它）。
+- **每个工具必须调 `annotate(tool, group=..., side_effects=...)`**。
+  未注解的工具会被当成「有副作用」而要求人工确认 —— 这是安全默认，
+  且 `build_tools` 会打 `tools.missing_annotations` 告警让你立刻发现。
+- **依赖不满足就不注册**（缺 API Key、白名单为空），不要注册一个永远失败的工具。
+- **出网工具**必须支持注入 `httpx.AsyncClient`，这样单测能用 `httpx.MockTransport` 离线跑。
 - **MCP** 只通过 `config/mcp.servers.yaml` 声明；代码里不出现硬编码的 server 地址。
 - **Skill** 放仓库根 `skills/`，每个 Skill 一个目录 + `SKILL.md`（YAML frontmatter：`name`、`description`）。
-- 有副作用的工具（写文件、发消息、调用外部写接口）需要在配置里登记为需人工确认（`interrupt_on`）。
+- 有副作用的工具必须声明 `side_effects=True`；无确认回调时它们会被拒绝执行
+  （见 `docs/tools.md` §4）。
 
 ## 测试
 

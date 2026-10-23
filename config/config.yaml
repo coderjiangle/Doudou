@@ -65,6 +65,43 @@ agent:
       paths: ["/workspace/**"]
       mode: allow
 
+# ---------------------------------------------------------------- 工具
+tools:
+  # 空列表 = 全部启用；填分组名则只启用这些。分组：web / http / files / notes / clock
+  enabled_groups: []
+  # 逐个禁用的工具名，优先级高于 enabled_groups
+  disabled: []
+
+  # web_search（Tavily）：缺少 TAVILY_API_KEY 时该分组整组不注册
+  web_search:
+    provider: tavily
+    max_results: 5
+    search_depth: basic        # basic | advanced（更准但更慢更贵）
+    include_answer: true
+    timeout: 20
+
+  # http_request：**默认拒绝一切出站请求**，allowed_domains 为空时工具不注册。
+  # example.com 同时匹配其子域；*.example.com 只匹配子域。
+  http:
+    allowed_domains: []
+    # 常用域名可先放进来，例如：
+    # - docs.python.org
+    # - api.github.com
+    timeout: 20
+    max_response_chars: 20000
+    max_redirects: 2
+
+  # 只读工作区（根目录 = filesystem.root_dir）
+  files:
+    max_read_chars: 50000
+    max_list: 200
+
+  # 本地笔记；写笔记有副作用，默认需要人工确认
+  notes:
+    directory: ./data/notes
+    max_list: 50
+    max_read_chars: 20000
+
 # ---------------------------------------------------------------- 虚拟文件系统
 filesystem:
   backend: state               # M9 落地；state 为进程内内存文件系统

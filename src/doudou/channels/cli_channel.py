@@ -268,14 +268,16 @@ class CliChannel:
         table = Table(title="已装载的工具")
         table.add_column("名称", style="bold")
         table.add_column("分组", style="dim")
-        table.add_column("说明")
+        table.add_column("副作用", justify="center")
         table.add_column("需确认", justify="center")
+        table.add_column("说明")
         for info in tool_infos(self.runner.settings):
             table.add_row(
                 info.name,
                 info.group,
-                _summary(info.description),
+                "是" if info.side_effects else "—",
                 "是" if info.requires_approval else "—",
+                _summary(info.description),
             )
         self.console.print(table)
 
@@ -299,9 +301,37 @@ def make_approval_hook(console: Console) -> ApprovalHook:
     return _confirm
 
 
-def _summary(text: str, limit: int = 48) -> str:
-    """把描述压成单行短摘要，便于放进表格单元格。"""
-    return truncate(" ".join(text.split()), limit)
+def make_auto_approve_hook(console: Console) -> ApprovalHook:
+    """构造「一律同意」的确认回调，对应 ``--no-confirm``。
+
+    ``--no-confirm`` 的字面意思是「别问我」，所以默认执行而不是拒绝 ——
+    否则这个开关等于把有副作用的工具全禁掉，没有任何用处。
+    代价是它同时也放开了破坏性操作，因此每次都打一条日志留痕。
+    """
+
+    async def _approve(request: ToolApprovalRequest) -> bool:
+        logger.info(
+            "cli.tool_auto_approved",
+            tool=request.tool_name,
+            step=request.step,
+            call_id=request.call_id,
+            args=request.args,
+        )
+        console.print(
+            f"[yellow]· 已按 --no-confirm 自动同意执行 {request.tool_name}"
+            f"{_format_args(request.args)}[/yellow]"
+        )
+        return True
+
+    return _approve
+
+
+def _summary(text: str, limit: int = 44) -> str:
+    """把工具 docstring 压成表格可用的单行摘要（只取首行，避免撑爆行高）。"""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    return truncate(stripped.splitlines()[0].strip(), limit)
 
 
 def _format_args(args: dict[str, Any]) -> str:
@@ -316,4 +346,4 @@ def _usage_text(usage: dict[str, int]) -> str:
     return "、".join(parts) if parts else "无用量统计"
 
 
-__all__ = ["DEFAULT_CONVERSATION", "CliChannel", "make_approval_hook"]
+__all__ = ["DEFAULT_CONVERSATION", "CliChannel", "make_approval_hook", "make_auto_approve_hook"]

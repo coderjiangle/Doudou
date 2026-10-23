@@ -54,6 +54,8 @@ class ToolInfoOut(BaseModel):
     source: str
     args: dict[str, str] = Field(default_factory=dict)
     requires_approval: bool = False
+    side_effects: bool = False
+    timeout: float | None = None
 
 
 class ToolListResponse(BaseModel):

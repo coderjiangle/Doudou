@@ -72,27 +72,54 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat -H "Content-Type: application/jso
 
 ---
 
-### M3 — 实用工具集（只读类）
+### M3 — 实用工具集（只读类）✅
 
-**目标**：现在的助手只会报时。没有检索能力就只是个聊天机器人。
+- [x] `tools/decorators.py`：工具注解（`group` / `side_effects` / `timeout`），挂在 `BaseTool.metadata`
+- [x] `tools/builtin/web_search.py`：Tavily REST（不引入额外依赖），**缺 key 则整组不注册**
+- [x] `tools/builtin/http.py`：`http_request`，默认拒绝 + 域名白名单 + 内网 IP 拒绝 + 仅 GET/HEAD + 截断
+- [x] `tools/builtin/notes.py`：`note_save` / `note_list` / `note_read`，文件名安全化
+- [x] `tools/builtin/files.py`：`workspace_read` / `workspace_list`（只读，路径逃逸防护）
+- [x] `utils/text.py`：`html_to_text`（stdlib `HTMLParser`，剥掉标签与 script）
+- [x] `utils/async_utils.py`：`retry_async`（tenacity，指数退避，只重试可重试的异常）
+- [x] `config`：`tools.enabled_groups` / `tools.disabled` / 各工具参数
+- [x] **副作用自动拦截**：`side_effects=True` 的工具默认需要人工确认，不必逐个登记
+- [x] `registry.describe_groups()`：说明每个分组为什么在/不在工具列表里
+- [x] `--no-confirm` 语义修正为「一律同意并留痕」，`--quiet` 保持「无人在场则拒绝」
+- [x] 118 个新增测试，出网路径全部用 `httpx.MockTransport` 离线跑
+- [x] 验收：真实模型 + 真实网络下，5 个工具全部跑通；白名单外域名与无人在场的写操作都被正确拒绝
 
-**交付物**
+**验收命令**
 
-- [ ] `tools/builtin/web_search.py`：Tavily（`TAVILY_API_KEY` 缺失时**自动不注册**）
-- [ ] `tools/builtin/http.py`：`http_request`，域名允许列表 + 超时 + 响应截断
-- [ ] `tools/builtin/notes.py`：本地笔记/待办（读、写、列）
-- [ ] `tools/builtin/files.py`：读取工作区文件（只读）
-- [ ] `tools/decorators.py`：工具元数据（分组、是否需确认、超时）
-- [ ] `utils/async_utils.py`：重试与并发编排
-- [ ] `config` 增加 `tools.disabled` / `tools.enabled_groups` 开关
+```powershell
+uv run doudou tools list
+uv run doudou ask "工作区里有哪些文件？"
+uv run doudou ask "帮我记一条笔记：明天交周报" --no-confirm
+uv run doudou ask "抓取 https://example.com 看看写了什么"   # 需先配白名单
+```
 
-**验收**：`doudou ask "帮我查一下 X 的最新进展"` → 调用 `web_search` → 给出带来源的回答。
+> **与规划的一处偏差**：规划里 `http_request` 与 `notes` 都算「只读类」，但写笔记确实
+> 有副作用。处理方式不是把它挪到 M8，而是引入「副作用声明 + 自动拦截」机制 ——
+> 这样 M8 加写文件 / 执行命令时不必再建一套确认逻辑。
+>
+> 另外新增了一条规划外的策略：**依赖不满足的工具不注册**（而不是注册一个永远失败的）。
+> 这让「工具列表 = 现在真的能用」成为不变式。
 
-**依赖**：M1（弱依赖 M2，命令行即可验收）
 
-**风险**：`http_request` 是 SSRF 面，允许列表必须默认拒绝；不要做成「任意 URL」。
+**验收命令**
 
-> **写操作与命令执行刻意不放在这里**：它们需要权限规则与确认机制配套，见 M8。
+```powershell
+uv run doudou tools list
+uv run doudou ask "工作区里有哪些文件？"
+uv run doudou ask "帮我记一条笔记：明天交周报" --no-confirm
+uv run doudou ask "抓取 https://example.com 看看写了什么"   # 需先配白名单
+```
+
+> **与规划的一处偏差**：规划里 `http_request` 与 `notes` 都算「只读类」，但写笔记确实
+> 有副作用。处理方式不是把它挪到 M8，而是引入「副作用声明 + 自动拦截」机制 ——
+> 这样 M8 加写文件 / 执行命令时不必再建一套确认逻辑。
+>
+> 另外新增了一条规划外的策略：**依赖不满足的工具不注册**（而不是注册一个永远失败的）。
+> 这让「工具列表 = 现在真的能用」成为不变式。
 
 ---
 

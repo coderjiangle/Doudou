@@ -9,8 +9,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from langchain_core.tools import BaseTool, tool
 
 from doudou.config.loader import Settings
+from doudou.tools.decorators import annotate
 
 _WEEKDAYS = "一二三四五六日"
+
+GROUP = "clock"
 
 
 def resolve_timezone(name: str | None) -> ZoneInfo:
@@ -77,7 +80,10 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
     # 只能事后追加：docstring 里做字符串插值会让它不再是合法的 __doc__。
     now.description = f"{now.description}\n\n当前默认时区：{default_timezone}。"
 
+    # 两个工具都是纯读操作：显式声明，否则会被当成有副作用而要求人工确认。
+    annotate(now, group=GROUP, side_effects=False)
+    annotate(days_between, group=GROUP, side_effects=False)
     return [now, days_between]
 
 
-__all__ = ["build_tools", "resolve_timezone"]
+__all__ = ["GROUP", "build_tools", "resolve_timezone"]

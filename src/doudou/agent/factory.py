@@ -13,7 +13,7 @@ from doudou.agent.prompts import load_system_prompt
 from doudou.agent.react import ApprovalHook, ReactAgent
 from doudou.config.loader import Settings, get_settings
 from doudou.observability.logging import get_logger
-from doudou.tools.registry import build_tools
+from doudou.tools.registry import build_tools, effective_interrupt_on
 
 logger = get_logger(__name__)
 
@@ -63,13 +63,15 @@ def build_agent(
 
     system_prompt = load_system_prompt(resolved)
 
+    # 副作用工具在配置未显式说明时自动需要确认，见 tools.registry.requires_approval
+    interrupt_on = effective_interrupt_on(resolved, tools)
     agent = ReactAgent(
         model=model,
         tools=tools,
         system_prompt=system_prompt,
         max_steps=resolved.app.agent.max_steps,
         max_tool_calls_per_step=resolved.app.agent.max_tool_calls_per_step,
-        interrupt_on=resolved.app.agent.interrupt_on,
+        interrupt_on=interrupt_on,
         approval_hook=approval_hook,
     )
 
@@ -77,9 +79,10 @@ def build_agent(
         "agent_name": resolved.app.agent.name,
         "model": model_spec or resolved.app.model.primary,
         "tools": [tool.name for tool in tools],
+        "requires_approval": sorted(name for name, needed in interrupt_on.items() if needed),
         "system_prompt_chars": len(system_prompt),
     }
-    logger.debug("agent.built", **metadata)
+    logger.info("agent.built", **metadata)
 
     return AgentBundle(
         settings=resolved,

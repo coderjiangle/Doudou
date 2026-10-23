@@ -56,6 +56,63 @@ class ModelConfig(_Section):
     base_url: str | None = None
 
 
+# --------------------------------------------------------------------------- tools
+
+
+class HttpToolConfig(_Section):
+    """``http_request`` 的出站策略。
+
+    **默认拒绝一切**：``allowed_domains`` 为空时该工具根本不会注册，
+    因为一个永远失败的工具有害无益（占提示词、诱导模型乱试）。
+    """
+
+    #: 允许访问的域名。``example.com`` 同时匹配其子域；``*.example.com`` 只匹配子域。
+    allowed_domains: list[str] = Field(default_factory=list)
+    timeout: float = 20.0
+    max_response_chars: int = 20000
+    max_redirects: int = 2
+    user_agent: str = "Doudou/0.1 (+personal-assistant)"
+
+
+class WebSearchToolConfig(_Section):
+    provider: Literal["tavily"] = "tavily"
+    max_results: int = 5
+    timeout: float = 20.0
+    #: ``advanced`` 更准但更慢、更贵。
+    search_depth: Literal["basic", "advanced"] = "basic"
+    #: 是否附带 Tavily 生成的摘要答案。
+    include_answer: bool = True
+
+
+class NotesToolConfig(_Section):
+    #: 笔记目录（相对当前工作目录解析，不存在时自动创建）。
+    directory: str = "./data/notes"
+    max_list: int = 50
+    max_read_chars: int = 20000
+
+
+class FilesToolConfig(_Section):
+    """只读文件工具的限制。
+
+    读取根目录固定为 ``filesystem.root_dir``（即工作区），不单独配置 ——
+    避免出现「两个 root」的困惑；要与权限规则对齐时只需要改一处。
+    """
+
+    max_read_chars: int = 50000
+    max_list: int = 200
+
+
+class ToolsConfig(_Section):
+    #: 只启用这些分组；空列表表示全部启用。
+    enabled_groups: list[str] = Field(default_factory=list)
+    #: 逐个禁用的工具名（优先于 enabled_groups）。
+    disabled: list[str] = Field(default_factory=list)
+    http: HttpToolConfig = Field(default_factory=HttpToolConfig)
+    web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
+    notes: NotesToolConfig = Field(default_factory=NotesToolConfig)
+    files: FilesToolConfig = Field(default_factory=FilesToolConfig)
+
+
 # --------------------------------------------------------------------------- agent
 
 
@@ -77,8 +134,12 @@ class AgentConfig(_Section):
     #: Skill 根目录；默认指向仓库根的 ``skills/``（相对 ``config/`` 解析）。
     skills: list[str] = Field(default_factory=lambda: ["../skills/"])
     subagents_file: str | None = "agents.yaml"
-    #: 需要人工确认的工具：``{工具名: true}``
+    #: 需要人工确认的工具：``{工具名: true}``。
+    #: 只写需要**额外**确认的；声明了副作用的工具会被自动加进来（见下一项）。
     interrupt_on: dict[str, bool] = Field(default_factory=dict)
+    #: 是否自动拦截声明了副作用（``side_effects=True``）的工具。
+    #: 关掉它意味着「写文件、发消息」这类操作不经确认直接执行。
+    require_approval_for_side_effects: bool = True
     recursion_limit: int = 60
     #: ReAct 循环的单次运行最大步数（模型往返次数）
     max_steps: int = 8
@@ -206,6 +267,7 @@ class AppConfig(_Section):
     server: ServerConfig = Field(default_factory=ServerConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     filesystem: FilesystemConfig = Field(default_factory=FilesystemConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
@@ -221,17 +283,22 @@ __all__ = [
     "CliChannelConfig",
     "ContextConfig",
     "FeishuChannelConfig",
+    "FilesToolConfig",
     "FilesystemConfig",
     "FilesystemRouteConfig",
+    "HttpToolConfig",
     "LangSmithConfig",
     "McpConfig",
     "MetricsConfig",
     "ModelConfig",
+    "NotesToolConfig",
     "ObservabilityConfig",
     "OtelConfig",
     "PermissionRule",
     "RuntimeConfig",
     "ServerConfig",
     "StorageConfig",
+    "ToolsConfig",
+    "WebSearchToolConfig",
     "WebhookChannelConfig",
 ]

@@ -116,9 +116,46 @@ OPENAI_API_KEY=<网关签发的 Key>
 
 ## 3. config.yaml 主要段落
 
-`version` / `runtime` / `server` / `model` / `agent` / `filesystem` / `context` / `storage` / `mcp` / `channels` / `observability`
+`version` / `runtime` / `server` / `model` / `agent` / `tools` / `filesystem` / `context` / `storage` / `mcp` / `channels` / `observability`
 
 逐字段含义见 `config/config.example.yaml` 内注释。
+
+### tools
+
+```yaml
+tools:
+  enabled_groups: []          # 空 = 全部启用；分组：web / http / files / notes / clock
+  disabled: []                # 逐个禁用的工具名
+  http:
+    allowed_domains: []       # 空 = http_request 不注册（默认拒绝一切出站请求）
+  web_search:
+    max_results: 5
+  notes:
+    directory: ./data/notes
+  files:
+    max_read_chars: 50000
+```
+
+要点：
+
+- **分组开关**：`enabled_groups` 非空时只有列出的分组生效；`disabled` 按工具名精确禁用，
+  优先级更高。
+- **依赖不满足就不注册**：没有 `TAVILY_API_KEY` 就没有 `web_search`；
+  `allowed_domains` 为空就没有 `http_request`。
+  用 `doudou tools list` 查看「哪个分组为什么不在」。
+- `files` 的根目录固定用 `filesystem.root_dir`，没有独立配置项 —— 避免出现「两个 root」。
+- 域名匹配规则：`example.com` 含任意子域，`*.example.com` 只含子域。
+
+### agent 里的确认策略
+
+```yaml
+agent:
+  interrupt_on: {}                                  # 额外的需确认工具
+  require_approval_for_side_effects: true           # 有副作用的工具自动需确认
+```
+
+工具用 `side_effects=True` 自声明（见 `docs/tools.md`），因此大多数情况下不需要写 `interrupt_on`。
+显式写 `note_save: false` 可以关掉某个工具的确认。
 
 几个容易踩坑的点：
 

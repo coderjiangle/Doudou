@@ -4,68 +4,129 @@
 
 | 来源 | 位置 | 状态 |
 | --- | --- | --- |
-| 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock`（`now` / `days_between`） |
+| 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `notes` / `http` / `web_search` |
 | MCP 工具 | `config/mcp.servers.yaml` | ⏳ M5，届时通过 `build_tools(extra=...)` 注入 |
-| deepagents 内置 | 框架提供 | ⏳ M9（`ls` / `read_file` / `write_file` / `edit_file` / `delete` / `glob` / `grep` / `write_todos` / `task`） |
+| deepagents 内置 | 框架提供 | ⏳ M9（`ls` / `read_file` / `write_file` / `write_todos` / `task` …） |
 | 沙箱执行 | 沙箱后端 | ⏳ `execute`（shell），需显式启用 |
 
-全部在 `tools/registry.py` 汇总后交给 Agent。M1 的 ReAct 循环收到的就是这里的工具列表。
+全部在 `tools/registry.py` 汇总后交给 Agent。
 
-## 2. 写一个内置工具
+## 2. 两条硬约定
 
-要点（不写实现，只定规范）：
+### 2.1 每个工具都必须 `annotate()`
 
-1. 位于 `src/doudou/tools/builtin/<主题>.py`，一个模块一个主题。
-2. 用 LangChain 的 `@tool` 装饰；函数名即工具名（蛇形小写）。
-3. **docstring 是给模型看的**，必须写清：做什么、参数含义、返回值结构、何时不该用。
-4. 参数用类型注解 + 默认值；复杂入参用 Pydantic 模型。
-5. 返回字符串或可序列化结构；大结果要截断并说明截断（配合上下文卸载）。
-6. 阻塞 I/O 用 async；同步 SDK 用 `anyio.to_thread.run_sync` 包一层。
-7. 失败时**抛异常**并在消息里给出可操作的提示，不要返回 `"error"` 字符串让模型瞎猜。
+```python
+from doudou.tools.decorators import annotate
+
+annotate(my_tool, group="web", side_effects=False, timeout=None)
+```
+
+元数据挂在 `BaseTool.metadata["doudou"]` 下，包含：
+
+| 字段 | 作用 |
+| --- | --- |
+| `group` | 分组名，用于 `tools.enabled_groups` 开关与清单展示 |
+| `side_effects` | 是否会产生副作用。**只读工具必须显式写 `False`** |
+| `timeout` | 单次调用超时；留空用全局默认 |
+
+**未注解的工具会被当作「有副作用」** —— 这是安全默认（忘了声明的写操作不该静默放行），
+代价是只读工具会被要求逐一确认。因此 `build_tools` 遇到未注解的工具会打
+`tools.missing_annotations` 告警，让遗漏立刻可见。
+
+`side_effects=True` 的工具在默认策略下调用前需要人工确认，
+不需要再到 `agent.interrupt_on` 里逐个罗列（配置可以覆盖，见 §4）。
+
+### 2.2 依赖不满足就**不注册**，而不是注册一个永远失败的
+
+| 情况 | 行为 |
+| --- | --- |
+| 没有 `TAVILY_API_KEY` | `web_search` 整组不出现 |
+| `tools.http.allowed_domains` 为空 | `http_request` 不出现 |
+| `config.yaml` 里 `tools.disabled: [x]` | `x` 不出现 |
+
+理由：一个永远失败的工具只会占提示词、诱导模型反复乱试。
+`doudou tools list` 与 `doudou config check` 会用
+`registry.describe_groups()` 说明**每个分组为什么在/不在**列表里。
+
+## 3. 写一个内置工具
+
+1. 位于 `src/doudou/tools/builtin/<主题>.py`，导出 `build_tools(settings) -> Sequence[BaseTool]`。
+2. 在 `registry.BUILTIN_PROVIDERS` 里登记 `(分组名, 提供方)`。
+3. 用 LangChain 的 `@tool` 装饰；函数名即工具名。
+4. **docstring 是给模型看的**，必须写清：做什么、参数含义、返回值结构、何时不该用。
+   首行要是一句话摘要（`tools list` 只显示首行）。
+5. 出网工具要能注入 `httpx.AsyncClient`（`build_tools(settings, client=...)`），
+   这样单测可以用 `httpx.MockTransport` 完全离线跑。
+6. 失败时抛 `ValueError` 子类（如 `HttpToolError`），消息给出**可操作的下一步** ——
+   它会原样回填给模型，模型据此纠正或向用户说明。
+7. 阻塞调用用 `asyncio.to_thread` 下沉；重试统一走 `utils.async_utils.retry_async`。
 
 ### 命名与分组
 
 | 前缀 | 用途 |
 | --- | --- |
-| `web_` | 联网检索（`web_search`、`web_fetch`） |
-| `fs_` / 直接动词 | 文件操作 |
+| `web_` | 联网检索（`web_search`） |
+| `workspace_` | 工作区文件（避开 M9 的 `read_file` / `ls`，避免重名被静默丢弃） |
 | `note_` | 备忘与待办 |
-| `<平台>_` | 第三方平台（`github_create_issue`、`feishu_send_card`） |
+| `http_` | 原始出站请求 |
+| `now` / `days_between` | 时间类 |
 
-## 3. 副作用与人工确认
+## 4. 副作用与人工确认
 
-把工具分成三档，在 `config/config.yaml` 的 `agent.interrupt_on` 里登记需要确认的：
+三档策略：
 
-| 档位 | 例子 | 策略 |
+| 档位 | 例子 | 默认行为 |
 | --- | --- | --- |
-| 只读 | 搜索、读文件、查库 | 直接执行 |
-| 可逆写 | 写文件到 `/workspace/` | 记录日志，可选确认 |
-| 不可逆 / 对外 | 删文件、发消息、提交代码、支付 | **必须** `interrupt_on` |
+| 只读 | 检索、抓取、读文件、查时间 | 直接执行 |
+| 可逆写 | 写笔记、写工作区文件 | `side_effects=True` → 需要确认 |
+| 不可逆 / 对外 | 删文件、执行命令、发消息、提交代码 | 需要确认（M8 补权限规则兜底） |
 
-`interrupt_on` 生效需要 checkpointer（见 `agent/checkpointer.py`），
-在飞书通道下确认请求会渲染成互动卡片按钮。
+确认回调由入口层提供，语义各不相同：
 
-## 4. 注册与开关
+| 入口 | 行为 |
+| --- | --- |
+| `doudou chat` / `doudou ask` | 终端询问「是否执行工具 xxx？」 |
+| 加 `--no-confirm` | **一律同意**（用户明确表示不想被打断），每次都打 `cli.tool_auto_approved` 日志 |
+| 加 `--quiet` | **不提供回调 → 拒绝执行**。无人在场就不能替用户同意写操作 |
+| HTTP API | 同上：目前没有确认通道，因此副作用工具会被拒绝（M8 补持久化确认与飞书卡片） |
 
-- `registry.py` 负责：收集 → 过滤（按配置启用哪些分组）→ 重名检测 → 排序。
-- 单个工具或分组可通过配置关闭（如 `tools.disabled: [shell_exec]`）。
-- 需要 api key 的工具（`web_search`）在缺少 key 时应**自动不注册**，而不是运行时报错。
+配置可以覆盖自动拦截：
 
-## 5. 测试
+```yaml
+agent:
+  interrupt_on:
+    note_save: false          # 显式关掉某个工具的确认
+    "*": true                 # 或全部都要确认
+  require_approval_for_side_effects: false   # 或整体关掉「有副作用就拦」
+```
 
-- `tests/unit/`：用 fake / respx 打桩外部依赖，验证入参校验与错误分支。
-- 不要为工具写真实网络调用测试；放到 `tests/integration/` 并打 `@pytest.mark.integration`。
-- 新增工具后补一条「工具清单快照测试」，防止工具面无意变化。
+## 5. 出网工具的安全要求
 
-## 6. 清单
+`http_request` 是本仓库最容易变成 SSRF 入口的地方，策略是**默认拒绝**：
+
+1. 允许列表为空 → 工具不注册；
+2. 域名必须命中允许列表（`example.com` 含子域，`*.example.com` 只含子域）；
+3. **解析出来的 IP 若是内网/回环/链路本地/保留地址一律拒绝** ——
+   光校验域名挡不住「公网域名解析到 10.0.0.1」；
+4. 只允许 `GET` / `HEAD`，限制重定向次数、响应体大小与超时；
+5. 非文本类型（PDF、图片）直接说明「无法展示」，不把二进制塞进上下文。
+
+新增出网工具时请复用这些约束，不要另起一套。
+
+## 6. 测试
+
+- 出网工具：注入 `httpx.MockTransport` 客户端，**不依赖真实网络**。
+  DNS 相关的判定只对 `localhost` 这类 hosts 文件可解析的名字做真实查询。
+- 写操作工具：用 `tmp_path` 做根目录，避免污染仓库里的 `data/`。
+- 新增工具后补一条「工具清单快照」断言，防止工具面无意变化。
+- 工具的**拒绝路径**（越权、超大文件、非法参数）必须有测试。
+
+## 7. 清单
 
 ```powershell
-uv run doudou tools list           # 名称 + 分组 + 来源 + 是否需要确认 + 说明
+uv run doudou tools list           # 名称 + 分组 + 来源 + 副作用 + 需确认 + 说明
 uv run doudou tools list --args    # 附带参数列表
 uv run doudou tools show now       # 单个工具的完整信息（JSON）
 ```
 
-也可通过 `GET /api/v1/tools` 查看（M2 落地）。
-
-工具的 `group` 与 `source` 在 provider 处就确定（如 `group=clock`、`source=builtin:clock`），
-MCP 工具会标成 `group=mcp`，无需事后反查。
+也可通过 `GET /api/v1/tools` 查看（含 `side_effects` 与 `requires_approval`）。

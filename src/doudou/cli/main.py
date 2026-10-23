@@ -14,12 +14,12 @@ from rich.table import Table
 from doudou.agent.factory import AgentBundle, build_agent
 from doudou.agent.models import ModelBuildError, credential_hint, has_credential, parse_spec
 from doudou.agent.react import ApprovalHook
-from doudou.channels.cli_channel import CliChannel, make_approval_hook
+from doudou.channels.cli_channel import CliChannel, make_approval_hook, make_auto_approve_hook
 from doudou.config.loader import Settings, load_settings
 from doudou.gateway.runner import AgentRunner
 from doudou.observability.logging import configure_logging
 from doudou.skills.loader import discover_skills
-from doudou.tools.registry import tool_infos
+from doudou.tools.registry import describe_groups, tool_infos
 from doudou.utils.text import truncate
 from doudou.version import __version__
 
@@ -103,9 +103,22 @@ def _make_channel(
 
     顺序很重要：``ReactAgent`` 在创建时就固定了确认回调，
     因此必须先构造回调，再构造 agent。
+
+    确认策略三选一：
+
+    * 默认 —— 询问用户（``interactive=True``）；
+    * ``--no-confirm`` —— 一律同意（用户明确表示不想被打断）；
+    * ``--quiet`` —— 不提供回调。无回调时副作用工具会被**拒绝**，
+      这适合脚本场景：没有人在场就不能替用户同意写操作。
     """
     target = err_console if quiet else console
-    hook = make_approval_hook(target) if interactive else None
+    if quiet:
+        hook: ApprovalHook | None = None
+    elif interactive:
+        hook = make_approval_hook(target)
+    else:
+        hook = make_auto_approve_hook(target)
+
     bundle = _build_bundle(settings, model_spec, approval_hook=hook)
     runner = AgentRunner(bundle)
     return CliChannel(
@@ -134,9 +147,16 @@ def _cli_channel(
     )
 
 
-def _summary(text: str, limit: int = 48) -> str:
-    """把描述压成单行短摘要，便于放进表格单元格。"""
-    return truncate(" ".join(text.split()), limit)
+def _summary(text: str, limit: int = 44) -> str:
+    """把工具的 docstring 压成表格可用的单行摘要。
+
+    只取**首行**：工具的 docstring 首行本来就是一句话说明，
+    后面的 ``Args:`` / ``Returns:`` 是给模型看的，塞进表格只会把行高撑爆。
+    """
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    return truncate(stripped.splitlines()[0].strip(), limit)
 
 
 # --------------------------------------------------------------------------- 对话
@@ -148,7 +168,8 @@ def chat(
     conversation: Annotated[str, typer.Option("--conversation", "-c", help="会话标识。")] = "local",
     no_stream: Annotated[bool, typer.Option("--no-stream", help="关闭流式输出。")] = False,
     no_confirm: Annotated[
-        bool, typer.Option("--no-confirm", help="关闭工具执行前的人工确认。")
+        bool,
+        typer.Option("--no-confirm", help="不询问，直接同意有副作用的工具执行。"),
     ] = False,
     config_dir: ConfigDir = None,
     log_level: LogLevel = None,
@@ -176,7 +197,8 @@ def ask(
     conversation: Annotated[str, typer.Option("--conversation", "-c", help="会话标识。")] = "local",
     no_stream: Annotated[bool, typer.Option("--no-stream", help="关闭流式输出。")] = False,
     no_confirm: Annotated[
-        bool, typer.Option("--no-confirm", help="关闭工具执行前的人工确认。")
+        bool,
+        typer.Option("--no-confirm", help="不询问，直接同意有副作用的工具执行。"),
     ] = False,
     quiet: Annotated[
         bool, typer.Option("--quiet", "-q", help="只输出最终答复，适合脚本调用。")
@@ -220,6 +242,7 @@ def tools_list(
     table.add_column("名称", style="bold")
     table.add_column("分组", style="dim")
     table.add_column("来源", style="dim")
+    table.add_column("副作用", justify="center")
     table.add_column("需确认", justify="center")
     table.add_column("说明")
     for info in infos:
@@ -227,10 +250,20 @@ def tools_list(
             info.name,
             info.group,
             info.source,
+            "是" if info.side_effects else "—",
             "是" if info.requires_approval else "—",
             _summary(info.description),
         )
     console.print(table)
+
+    skipped = [status for status in describe_groups(settings) if not status.enabled]
+    if skipped:
+        console.print("\n[dim]未启用的分组：[/dim]")
+        for status in skipped:
+            label = "被配置关闭" if status.reason.startswith("未列入") else "依赖不满足"
+            console.print(
+                f"  [yellow]{status.name}[/yellow] [dim]（{label}：{status.reason}）[/dim]"
+            )
 
     if show_args:
         for info in infos:
@@ -344,17 +377,25 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
     if not infos:
         problems.append(("warn", "没有任何可用工具，Agent 只能凭模型知识作答"))
 
+    skipped = [status for status in describe_groups(settings) if not status.enabled]
+    for status in skipped:
+        level = "info" if status.reason.startswith("未列入") else "warn"
+        problems.append((level, f"工具分组 {status.name} 未启用：{status.reason}"))
+
     tool_names = ", ".join(info.name for info in infos) or "（无）"
     skill_names = ", ".join(info.name for info in skills) or "（无）"
+    guarded = [info.name for info in infos if info.requires_approval]
     console.print(f"[green]✓ 配置合法[/green]（{len(settings.loaded_files)} 个文件）")
     console.print(f"  模型      : {spec.raw}")
     console.print(f"  工具      : {len(infos)} 个 —— {tool_names}")
+    console.print(f"  需人工确认: {', '.join(guarded) if guarded else '（无）'}")
     console.print(f"  Skill     : {len(skills)} 个 —— {skill_names}")
     console.print(f"  飞书通道  : {'启用' if feishu.enabled else '关闭'}")
 
     for level, message in problems:
-        style = "red" if level == "error" else "yellow"
-        console.print(f"[{style}]  ! {message}[/]")
+        style = {"error": "red", "warn": "yellow", "info": "dim"}[level]
+        marker = {"error": "!", "warn": "!", "info": "·"}[level]
+        console.print(f"[{style}]  {marker} {message}[/]")
 
     if any(level == "error" for level, _ in problems):
         raise typer.Exit(EXIT_USAGE)

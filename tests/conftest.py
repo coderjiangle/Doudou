@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -50,6 +51,39 @@ def missing_env_file(tmp_path: Path) -> Path:
 def settings(config_dir: Path, missing_env_file: Path) -> Settings:
     """加载 ``config_dir`` 的配置，且不读环境变量。"""
     return load_settings(config_dir=config_dir, env_file=missing_env_file, use_env=False)
+
+
+@pytest.fixture
+def tools_settings(
+    tmp_path: Path, settings_factory: Callable[..., Settings]
+) -> Callable[..., Settings]:
+    """构造带临时工作区/笔记目录的配置。
+
+    ``filesystem.root_dir`` 与 ``tools.notes.directory`` 必须指向 ``tmp_path``，
+    否则工具会去读写仓库里的 ``data/``，测试之间互相污染。
+    """
+
+    def make(
+        *,
+        allowed_domains: tuple[str, ...] = ("example.com",),
+        max_response_chars: int | None = None,
+        **kwargs: object,
+    ) -> Settings:
+        workspace = (tmp_path / "workspace").as_posix()
+        notes = (tmp_path / "notes").as_posix()
+        limit_line = f"    max_response_chars: {max_response_chars}\n" if max_response_chars else ""
+        config_yaml = (
+            f'filesystem:\n  root_dir: "{workspace}"\n'
+            f"tools:\n"
+            f"  http:\n"
+            f"    allowed_domains: {json.dumps(list(allowed_domains))}\n"
+            f"{limit_line}"
+            f"  notes:\n"
+            f'    directory: "{notes}"\n'
+        )
+        return settings_factory(config_yaml=config_yaml, **kwargs)  # type: ignore[arg-type]
+
+    return make
 
 
 @pytest.fixture

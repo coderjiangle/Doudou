@@ -5,10 +5,10 @@
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M2 已完成** —— 配置、ReAct 循环、工具注册表、会话网关、CLI 与
-> **HTTP 服务（REST + SSE + 持久化 + 鉴权）** 均端到端可用，
-> 152 个离线测试 + `ruff` + `mypy --strict` 全绿。
-> 实用工具集（M3）、飞书通道（M4）、MCP（M5）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
+> **当前进度：M3 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
+> 会话网关、CLI 与 **HTTP 服务（REST + SSE + 持久化 + 鉴权）** 均端到端可用，
+> 270 个离线测试 + `ruff` + `mypy --strict` 全绿。
+> 飞书通道（M4）、MCP（M5）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
@@ -25,7 +25,7 @@
 | 人在回路 | `interrupt_on` + 终端确认 | `doudou.agent.react` | ✅ M1 |
 | HTTP API | FastAPI + SSE + 落库 + Bearer 鉴权 | `doudou.api` | ✅ M2 |
 | 会话持久化 | 消息/线程/渠道绑定落库，重启可续 | `doudou.storage` | ✅ M2 |
-| 实用工具集 | 检索 / 抓取 / 笔记 / 只读文件 | `doudou.tools.builtin` | ⏳ M3 |
+| 实用工具集 | 检索 / 抓取 / 笔记 / 只读文件，默认拒绝 | `doudou.tools.builtin` | ✅ M3 |
 | 飞书通道 | `lark-oapi` + 事件回调 + 互动卡片 | `doudou.channels.feishu` | ⏳ M4 |
 | MCP 工具 | `langchain-mcp-adapters` | `doudou.mcp` | ⏳ M5 |
 | Skill 加载 | Agent Skills 标准（`SKILL.md`）渐进式披露 | `doudou.skills` | 🚧 发现 ✅ / 加载 ⏳ M6 |
@@ -151,6 +151,38 @@ model:
 
 详见 [`docs/configuration.md`](docs/configuration.md) 的「接入兼容 OpenAI 协议的网关」。
 
+### 4.2 开启联网能力（可选）
+
+默认配置下**联网工具不注册**：没有凭据的工具只会占提示词、诱导模型乱试。
+想启用就补上对应的钥匙：
+
+```dotenv
+# 联网检索（Tavily）
+TAVILY_API_KEY=tvly-...
+```
+
+```yaml
+# config/config.yaml —— 出站抓取的域名白名单
+tools:
+  http:
+    allowed_domains:
+      - docs.python.org      # 含任意子域
+      - "*.github.com"       # 只含子域
+```
+
+| 工具 | 启用条件 |
+| --- | --- |
+| `web_search` | `TAVILY_API_KEY` 非空 |
+| `http_request` | `tools.http.allowed_domains` 非空，且目标域名命中（解析到内网地址也会被拒） |
+| `workspace_read` / `workspace_list` | 始终可用，根目录 = `filesystem.root_dir` |
+| `note_save` / `note_list` / `note_read` | 始终可用；**写笔记需要人工确认** |
+| `now` / `days_between` | 始终可用 |
+
+```powershell
+uv run doudou tools list          # 看哪些工具已装载、哪些分组未启用及原因
+uv run doudou config check        # 一次性检查配置、凭据、工具与 Skill
+```
+
 ### 4.3 HTTP 服务
 
 ```powershell
@@ -181,7 +213,6 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat -H "Content-Type: application/jso
 ```
 
 ### 4.4 其他入口
-
 ```powershell
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```

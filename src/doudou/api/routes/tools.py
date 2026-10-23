@@ -31,6 +31,8 @@ async def list_tools(settings: SettingsDep) -> ToolListResponse:
                 source=info.source,
                 args=info.args,
                 requires_approval=info.requires_approval,
+                side_effects=info.side_effects,
+                timeout=info.timeout,
             )
             for info in infos
         ]

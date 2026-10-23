@@ -33,6 +33,7 @@ from langchain_core.tools import BaseTool
 from doudou.agent.events import RunEvent, ToolOutcome
 from doudou.observability.logging import get_logger
 from doudou.security.secrets import redact
+from doudou.tools.decorators import annotations_of
 from doudou.utils.text import content_to_text, stringify_tool_result, truncate
 
 logger = get_logger(__name__)
@@ -355,28 +356,26 @@ class ReactAgent:
         started = perf_counter()
         # 工具执行是 Agent 真正产生副作用的地方，出入参必须留痕。
         # 参数与结果都可能含敏感值（api_key / token），先 redact 再截断。
+        # 超时优先用工具自己声明的（出网工具需要的余量不同），否则用全局默认。
+        timeout = annotations_of(tool).timeout or self.tool_timeout
         logger.info(
             "agent.tool_started",
             tool=name,
             step=step,
             call_id=call_id,
             args=_log_safe(args),
-            timeout=self.tool_timeout,
+            timeout=timeout,
         )
         try:
             invocation = tool.ainvoke(args)
-            result = (
-                await asyncio.wait_for(invocation, self.tool_timeout)
-                if self.tool_timeout
-                else await invocation
-            )
+            result = await asyncio.wait_for(invocation, timeout) if timeout else await invocation
         except TimeoutError:
             elapsed = perf_counter() - started
             logger.warning(
                 "agent.tool_timeout",
                 tool=name,
                 step=step,
-                timeout=self.tool_timeout,
+                timeout=timeout,
                 elapsed=round(elapsed, 4),
             )
             return ToolOutcome(
@@ -385,7 +384,7 @@ class ReactAgent:
                 args=args,
                 ok=False,
                 elapsed=elapsed,
-                content=f"错误：工具 {name} 执行超时（>{self.tool_timeout}s）。",
+                content=f"错误：工具 {name} 执行超时（>{timeout}s）。",
             )
         except Exception as exc:
             elapsed = perf_counter() - started

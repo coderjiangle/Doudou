@@ -27,9 +27,14 @@ agent:
   system_prompt_file: null
   skills: []
   max_steps: 4
+filesystem:
+  root_dir: "{workspace}"
 storage:
   history: database
   database_url: "sqlite+aiosqlite:///{db}"
+tools:
+  notes:
+    directory: "{notes}"
 """
 
 
@@ -37,7 +42,12 @@ def _write_config(tmp_path: Path, *, token: str = "", history: str = "database")
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     db = (tmp_path / "doudou.db").as_posix()
-    text = CONFIG_TEMPLATE.format(db=db).replace("history: database", f"history: {history}")
+    # 工作区与笔记目录都指向 tmp_path：否则测试会去动仓库里的 data/
+    text = CONFIG_TEMPLATE.format(
+        db=db,
+        workspace=(tmp_path / "workspace").as_posix(),
+        notes=(tmp_path / "notes").as_posix(),
+    ).replace("history: database", f"history: {history}")
     (config_dir / "config.yaml").write_text(text, encoding="utf-8")
     return load_settings(config_dir=config_dir, env_file=tmp_path / "no.env", use_env=False)
 
@@ -78,7 +88,9 @@ async def test_health_is_public_and_light(settings_for_api: Settings) -> None:
     assert body["status"] == "ok"
     assert body["engine"] == "react"
     assert body["model"] == "scripted:demo"
-    assert set(body["tools"]) == {"now", "days_between"}
+    # 默认配置下 web/http 因依赖不满足而不注册，其余分组全部可用
+    assert {"now", "days_between", "workspace_read", "note_save"} <= set(body["tools"])
+    assert "web_search" not in body["tools"]
     assert body["checks"]["history"] == "database"
 
 
@@ -149,8 +161,12 @@ async def test_tools_list(settings_for_api: Settings) -> None:
     async with api_client(settings_for_api) as client:
         response = await client.get("/api/v1/tools")
 
-    names = [item["name"] for item in response.json()["tools"]]
-    assert names == ["now", "days_between"]
+    tools = {item["name"]: item for item in response.json()["tools"]}
+    assert {"now", "days_between", "workspace_read", "note_save"} <= set(tools)
+    # 写笔记有副作用 → 清单里要标出来，客户端据此决定是否提示确认
+    assert tools["note_save"]["side_effects"] is True
+    assert tools["note_save"]["requires_approval"] is True
+    assert tools["now"]["side_effects"] is False
 
 
 # --------------------------------------------------------------------------- 对话

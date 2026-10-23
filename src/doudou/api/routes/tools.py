@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from doudou.api.deps import SettingsDep
+from doudou.api.deps import StateDep
 from doudou.api.schemas import ToolInfoOut, ToolListResponse
 from doudou.observability.logging import get_logger
 from doudou.tools.registry import tool_infos
@@ -15,13 +15,14 @@ router = APIRouter(tags=["tools"])
 
 
 @router.get("/tools", response_model=ToolListResponse, summary="工具清单")
-async def list_tools(settings: SettingsDep) -> ToolListResponse:
-    """列出当前会交给模型的工具。
+async def list_tools(state: StateDep) -> ToolListResponse:
+    """列出 Agent **实际装载**的工具（含 MCP 拉取到的那些）。
 
-    以配置为准重新构造清单（而不是复用运行中的实例），这样
-    ``/tools`` 反映的始终是「按当前配置应该装载什么」。
+    刻意用 ``state.bundle.tools`` 而不是从配置重新推导：MCP 工具是运行时
+    拉取的、不在 provider 里，只有这条路径能把它们如实列出来。
     """
-    infos = tool_infos(settings)
+    settings = state.settings
+    infos = tool_infos(settings, tools=state.bundle.tools)
     return ToolListResponse(
         tools=[
             ToolInfoOut(

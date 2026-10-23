@@ -4,22 +4,27 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
+from langchain_core.tools import BaseTool
 from rich.console import Console
 from rich.table import Table
 
 from doudou.agent.factory import AgentBundle, build_agent
 from doudou.agent.models import ModelBuildError, credential_hint, has_credential, parse_spec
-from doudou.agent.react import ApprovalHook
+from doudou.agent.react import ApprovalHook, RunResult
 from doudou.channels.cli_channel import CliChannel, make_approval_hook, make_auto_approve_hook
 from doudou.config.loader import Settings, load_settings
 from doudou.gateway.runner import AgentRunner
+from doudou.mcp.client import ServerOverview
+from doudou.mcp.config import McpConfigError
+from doudou.mcp.lifecycle import McpRuntime
 from doudou.observability.logging import configure_logging
 from doudou.skills.loader import discover_skills
-from doudou.tools.registry import describe_groups, tool_infos
+from doudou.tools.registry import build_tools, describe_groups, tool_infos
 from doudou.utils.text import truncate
 from doudou.version import __version__
 
@@ -32,9 +37,11 @@ app = typer.Typer(
 tools_app = typer.Typer(help="查看已装载的工具。", no_args_is_help=True)
 skills_app = typer.Typer(help="查看已发现的 Skill。", no_args_is_help=True)
 config_app = typer.Typer(help="查看与校验配置。", no_args_is_help=True)
+mcp_app = typer.Typer(help="查看与探测 MCP server。", no_args_is_help=True)
 app.add_typer(tools_app, name="tools")
 app.add_typer(skills_app, name="skills")
 app.add_typer(config_app, name="config")
+app.add_typer(mcp_app, name="mcp")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -83,12 +90,62 @@ def _build_bundle(
     model_spec: str | None,
     *,
     approval_hook: ApprovalHook | None = None,
+    extra_tools: Sequence[BaseTool] = (),
 ) -> AgentBundle:
     try:
-        return build_agent(settings, model_spec=model_spec, approval_hook=approval_hook)
+        return build_agent(
+            settings,
+            model_spec=model_spec,
+            approval_hook=approval_hook,
+            extra_tools=extra_tools,
+        )
     except ModelBuildError as exc:
         err_console.print(f"[bold red]模型不可用：[/bold red]{exc}")
         raise typer.Exit(EXIT_USAGE) from exc
+
+
+async def _prepare_channel(
+    settings: Settings,
+    model_spec: str | None,
+    *,
+    stream: bool,
+    interactive: bool,
+    quiet: bool,
+) -> tuple[CliChannel, McpRuntime | None]:
+    """组装 agent + runner + CLI 通道，并拉取 MCP 工具。
+
+    顺序很重要：``ReactAgent`` 在创建时就固定了工具列表与确认回调，
+    因此必须先拉 MCP 工具、先构造回调，再构造 agent。
+
+    确认策略三选一：
+
+    * 默认 —— 询问用户（``interactive=True``）；
+    * ``--no-confirm`` —— 一律同意（用户明确表示不想被打断）；
+    * ``--quiet`` —— 不提供回调。无回调时副作用工具会被**拒绝**，
+      这适合脚本场景：没有人在场就不能替用户同意写操作。
+    """
+    target = err_console if quiet else console
+    if quiet:
+        hook: ApprovalHook | None = None
+    elif interactive:
+        hook = make_approval_hook(target)
+    else:
+        hook = make_auto_approve_hook(target)
+
+    mcp = McpRuntime(settings)
+    mcp_tools = await mcp.start()
+
+    bundle = _build_bundle(settings, model_spec, approval_hook=hook, extra_tools=mcp_tools)
+    runner = AgentRunner(bundle)
+    channel = CliChannel(
+        runner,
+        stream=stream,
+        interactive=interactive,
+        echo_text=not quiet,
+        console=target,
+        show_tool_calls=not quiet,
+    )
+    return channel, mcp if mcp.enabled else None
 
 
 def _make_channel(
@@ -99,17 +156,10 @@ def _make_channel(
     interactive: bool,
     quiet: bool,
 ) -> CliChannel:
-    """组装 agent + runner + CLI 通道。
+    """同步构造通道（不含 MCP）。
 
-    顺序很重要：``ReactAgent`` 在创建时就固定了确认回调，
-    因此必须先构造回调，再构造 agent。
-
-    确认策略三选一：
-
-    * 默认 —— 询问用户（``interactive=True``）；
-    * ``--no-confirm`` —— 一律同意（用户明确表示不想被打断）；
-    * ``--quiet`` —— 不提供回调。无回调时副作用工具会被**拒绝**，
-      这适合脚本场景：没有人在场就不能替用户同意写操作。
+    保留它是因为 ``doudou chat`` 之外还有少量同步调用点；新代码请用
+    :func:`_prepare_channel`，否则 MCP 工具不会生效。
     """
     target = err_console if quiet else console
     if quiet:
@@ -176,16 +226,23 @@ def chat(
 ) -> None:
     """交互式对话（多轮，历史保存在内存中）。"""
     settings = _load(config_dir, log_level=log_level)
-    channel = _make_channel(
-        settings,
-        model,
-        stream=not no_stream,
-        interactive=not no_confirm,
-        quiet=False,
-    )
+
+    async def _run() -> None:
+        channel, _mcp = await _prepare_channel(
+            settings,
+            model,
+            stream=not no_stream,
+            interactive=not no_confirm,
+            quiet=False,
+        )
+        try:
+            await channel.repl(conversation_id=conversation)
+        finally:
+            if _mcp is not None:
+                await _mcp.stop()
 
     try:
-        asyncio.run(channel.repl(conversation_id=conversation))
+        asyncio.run(_run())
     except KeyboardInterrupt:  # pragma: no cover - 交互中断
         console.print("\n[dim]已中断。[/dim]")
 
@@ -208,15 +265,22 @@ def ask(
 ) -> None:
     """单轮对话：提问 → 执行 ReAct 循环 → 输出答复 → 退出。"""
     settings = _load(config_dir, log_level=log_level)
-    channel = _make_channel(
-        settings,
-        model,
-        stream=not no_stream,
-        interactive=not no_confirm and not quiet,
-        quiet=quiet,
-    )
 
-    result = asyncio.run(channel.ask(question, conversation_id=conversation))
+    async def _run() -> RunResult:
+        channel, _mcp = await _prepare_channel(
+            settings,
+            model,
+            stream=not no_stream,
+            interactive=not no_confirm and not quiet,
+            quiet=quiet,
+        )
+        try:
+            return await channel.ask(question, conversation_id=conversation)
+        finally:
+            if _mcp is not None:
+                await _mcp.stop()
+
+    result = asyncio.run(_run())
 
     if quiet:
         if result.text:
@@ -234,10 +298,25 @@ def ask(
 def tools_list(
     config_dir: ConfigDir = None,
     show_args: Annotated[bool, typer.Option("--args", help="显示参数列表。")] = False,
+    no_mcp: Annotated[bool, typer.Option("--no-mcp", help="不拉取 MCP 工具（只看内置）。")] = False,
 ) -> None:
-    """列出所有已装载的工具。"""
+    """列出 Agent 实际装载的工具（默认包含 MCP 拉取到的那些）。"""
     settings = _load(config_dir)
-    infos = tool_infos(settings)
+
+    async def _collect() -> tuple[list[Any], McpRuntime | None]:
+        if no_mcp:
+            return build_tools(settings), None
+        runtime = McpRuntime(settings)
+        mcp_tools = await runtime.start()
+        return build_tools(settings, extra=mcp_tools, extra_source="mcp"), runtime
+
+    tools, runtime = asyncio.run(_collect())
+    try:
+        infos = tool_infos(settings, tools=tools)
+    finally:
+        if runtime is not None:
+            asyncio.run(runtime.stop())
+
     table = Table(title=f"工具（{len(infos)}）")
     table.add_column("名称", style="bold")
     table.add_column("分组", style="dim")
@@ -268,6 +347,20 @@ def tools_list(
     if show_args:
         for info in infos:
             console.print(f"[bold]{info.name}[/bold] {info.args}")
+
+    # MCP 是运行时拉取的，不在 provider 里；单独报一下每个 server 的结果，
+    # 否则「工具怎么少了」只能靠翻日志。
+    if runtime is not None:
+        for entry in runtime.describe():
+            if entry.ok:
+                console.print(
+                    f"[dim]· MCP {entry.name}：{len(entry.tools)} 个工具"
+                    f"（{entry.transport}，{entry.elapsed}s）[/dim]"
+                )
+            else:
+                console.print(f"[red]· MCP {entry.name} 不可用：{entry.error}[/red]")
+            if entry.filtered_out:
+                console.print(f"[dim]  已过滤：{', '.join(entry.filtered_out)}[/dim]")
 
 
 @tools_app.command("show")
@@ -445,6 +538,110 @@ def serve(
 @app.command()
 def version() -> None:
     """打印版本号。"""
+    console.print(__version__)
+
+
+# --------------------------------------------------------------------------- MCP
+
+
+@mcp_app.command("list")
+def mcp_list(
+    config_dir: ConfigDir = None,
+    as_json: Annotated[bool, typer.Option("--json", help="以 JSON 输出。")] = False,
+) -> None:
+    """列出 MCP server、拉取到的工具与被过滤掉的工具。"""
+    settings = _load(config_dir)
+
+    async def _run() -> list[ServerOverview]:
+        runtime = McpRuntime(settings)
+        try:
+            await runtime.start()
+            return runtime.describe()
+        finally:
+            await runtime.stop()
+
+    try:
+        entries = asyncio.run(_run())
+    except McpConfigError as exc:
+        err_console.print(f"[bold red]MCP 配置有误：[/bold red]{exc}")
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    if as_json:
+        console.print_json(json.dumps([entry.as_dict() for entry in entries], ensure_ascii=False))
+        return
+    if not entries:
+        console.print("[yellow]没有配置任何 MCP server。[/yellow]")
+        console.print(
+            "[dim]清单路径："
+            f"{settings.mcp_config_path}（可从 config/mcp.servers.example.yaml 复制）[/dim]"
+        )
+        return
+
+    table = Table(title=f"MCP server（{len(entries)}）")
+    table.add_column("名称", style="bold")
+    table.add_column("传输", style="dim")
+    table.add_column("状态", justify="center")
+    table.add_column("工具数", justify="right")
+    table.add_column("只读", justify="center")
+    table.add_column("地址 / 命令", style="dim")
+    for entry in entries:
+        table.add_row(
+            entry.name,
+            entry.transport,
+            "[green]ok[/green]" if entry.ok else "[red]失败[/red]",
+            str(len(entry.tools)),
+            "是" if entry.read_only else "否",
+            truncate(entry.target, 46),
+        )
+    console.print(table)
+    for entry in entries:
+        if entry.error and not entry.ok:
+            console.print(f"[red]· {entry.name}：{entry.error}[/red]")
+        if entry.filtered_out:
+            console.print(f"[dim]· {entry.name} 过滤掉：{', '.join(entry.filtered_out)}[/dim]")
+
+
+@mcp_app.command("check")
+def mcp_check(
+    server: Annotated[str, typer.Argument(help="要探测的 server 名称。")],
+    config_dir: ConfigDir = None,
+) -> None:
+    """单独探测一个 MCP server 能否拉到工具。"""
+    settings = _load(config_dir)
+
+    async def _run() -> tuple[list[ServerOverview], dict[str, Any]]:
+        runtime = McpRuntime(settings)
+        try:
+            await runtime.refresh(reason="cli-check")
+            info = await runtime.manager.server_info()
+            return runtime.describe(), info
+        finally:
+            await runtime.stop()
+
+    try:
+        entries, info = asyncio.run(_run())
+    except McpConfigError as exc:
+        err_console.print(f"[bold red]探测失败：[/bold red]{exc}")
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    entry = next((item for item in entries if item.name == server), None)
+    if entry is None:
+        names = ", ".join(item.name for item in entries) or "（无）"
+        err_console.print(f"[red]没有名为 {server!r} 的 server。[/red]可用：{names}")
+        raise typer.Exit(EXIT_USAGE)
+
+    if entry.ok:
+        console.print(f"[green]✓ {server} 可用[/green]（耗时 {entry.elapsed}s）")
+    else:
+        console.print(f"[red]✗ {server} 不可用[/red]：{entry.error}")
+    console.print(f"  传输   : {entry.transport}")
+    console.print(f"  工具   : {', '.join(entry.tools) or '（无）'}")
+    if entry.filtered_out:
+        console.print(f"  已过滤 : {', '.join(entry.filtered_out)}")
+    if server in info:
+        console.print(f"  服务端 : {info[server]}")
+    if not entry.ok:
+        raise typer.Exit(EXIT_USAGE)
     console.print(__version__)
 
 

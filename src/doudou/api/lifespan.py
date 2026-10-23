@@ -18,6 +18,7 @@ from doudou.gateway.bus import MessageBus
 from doudou.gateway.history import HistoryStore, InMemoryHistoryStore
 from doudou.gateway.router import MessageRouter
 from doudou.gateway.runner import AgentRunner
+from doudou.mcp.lifecycle import McpRuntime
 from doudou.observability.logging import configure_logging, get_logger
 from doudou.observability.metrics import get_metrics
 from doudou.storage.database import Database, create_database
@@ -47,6 +48,7 @@ class AppState:
     bus: MessageBus | None = None
     router: MessageRouter | None = None
     channels: list[Channel] = field(default_factory=list)
+    mcp: McpRuntime | None = None
     started_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -87,13 +89,18 @@ def build_store(settings: Settings) -> tuple[HistoryStore, Database | None]:
 
 
 async def create_state(settings: Settings | None = None) -> AppState:
-    """构造运行期状态（首次需要时初始化数据库 schema，并按配置拉起常驻通道）。"""
+    """构造运行期状态（初始化数据库 schema、拉取 MCP 工具、按配置拉起常驻通道）。"""
     resolved = settings or get_settings()
     store, database = build_store(resolved)
     if database is not None:
         await database.create_schema()
 
-    bundle = build_agent(resolved)
+    # MCP 工具必须在建 Agent **之前**拉好：工具列表是 Agent 的一部分，
+    # 建完之后再补工具就只能重建 Agent 了。
+    mcp = McpRuntime(resolved)
+    mcp_tools = await mcp.start()
+
+    bundle = build_agent(resolved, extra_tools=mcp_tools)
     runner = AgentRunner(bundle, store=store)
 
     # 常驻通道（飞书长连接）需要一条「不阻塞事件循环」的执行路径，
@@ -107,6 +114,7 @@ async def create_state(settings: Settings | None = None) -> AppState:
         "api.state_ready",
         model=bundle.metadata.get("model"),
         tools=len(bundle.tools),
+        mcp_tools=len(mcp_tools),
         history_backend=resolved.app.storage.history,
         channels=[channel.name for channel in channels],
     )
@@ -119,14 +127,17 @@ async def create_state(settings: Settings | None = None) -> AppState:
         bus=bus,
         router=router,
         channels=channels,
+        mcp=mcp,
     )
 
 
 async def dispose_state(state: AppState) -> None:
-    """释放资源。先停通道（停止收新消息），再停 bus，最后关数据库。"""
+    """释放资源。先停通道（停止收新消息），再停 bus 与 MCP，最后关数据库。"""
     await stop_channels(state.channels)
     if state.bus is not None:
         await state.bus.stop()
+    if state.mcp is not None:
+        await state.mcp.stop()
     if state.database is not None:
         await state.database.dispose()
     logger.info("api.state_disposed", uptime_seconds=state.uptime_seconds)

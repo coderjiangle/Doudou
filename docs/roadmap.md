@@ -160,26 +160,37 @@ uv run doudou ask "抓取 https://example.com 看看写了什么"   # 需先配�
 
 ---
 
-### M5 — MCP
+### M5 — MCP ✅
 
-**目标**：工具来源从「写死在代码里」变成「配置声明」，接入现成生态。
+- [x] `mcp/config.py`：清单解析 + `${ENV}` 替换 + 严格校验（不碰网络）。
+      变量未设置**直接报错**，而不是把 ``Bearer ${TOKEN}`` 原样发出去换一个 401
+- [x] `mcp/loader.py`：声明 → 适配器连接字典；工具命名空间 `server__tool`
+- [x] `mcp/client.py`：**逐个 server** 拉取，失败只影响它自己；带重试
+- [x] `mcp/lifecycle.py`：启停、刷新、状态快照（对上层暴露唯一门面）
+- [x] `defaults` 段继承，**显式写在 server 上的值优先**（依据 `model_fields_set`）
+- [x] `read_only` 声明：第三方 server 默认按「有副作用」处理，声明后才免逐次确认
+- [x] `include_tools` / `exclude_tools` 工具面收敛；两者冲突直接报错
+- [x] `GET /api/v1/mcp`、`POST /api/v1/mcp/refresh`、`doudou mcp list|check`
+- [x] 失败降级：`fail_fast: false`（默认）时单个 server 挂掉只告警
+- [x] `/health` 汇总 MCP 状态（几个 server、几个工具、谁掉线了）
+- [x] 60 个新增测试，含**真实 stdio + 真实 http** 的协议往返
+- [x] 验收：真实模型正确选择了 MCP 工具；关掉一个 server 服务仍可用
 
-**交付物**
+**验收命令**
 
-- [ ] `mcp/config.py`：清单解析 + `${ENV}` 占位替换 + 严格校验
-- [ ] `mcp/client.py`：`MultiServerMCPClient` 封装，stdio / http / sse 三种 transport
-- [ ] `mcp/loader.py`：工具拉取 + include/exclude 过滤 + 名称前缀
-- [ ] `mcp/lifecycle.py`：随应用启停、健康检查、stdio 子进程回收
-- [ ] `GET /api/v1/mcp`、`POST /api/v1/mcp/refresh`
-- [ ] `doudou mcp list` / `doudou mcp check <server>`
-- [ ] 失败降级：单个 server 连不上只告警（`mcp.fail_fast: false`）
+```powershell
+uv run doudou mcp list
+uv run doudou ask "用你能用的 MCP 工具把这句话原样回显给我：hello"
+```
 
-**验收**：接入 1 个本地 stdio server + 1 个远程 http server，两者的工具都能被模型正确选择；
-关掉其中一个，服务仍然可用。
-
-**依赖**：M2（检视接口）；工具通道 M1 已预留 `build_tools(extra=...)`
-
-**风险**：MCP server 的工具面常常过大，必须靠白名单收敛，否则模型选错工具的概率显著上升。
+> **顺带修掉一个会立刻被撞上的不一致**：`GET /tools` 与 `doudou tools list`
+> 原本是「从配置推导」的，因此**不会显示 MCP 工具** —— 而 Agent 明明有它们。
+> 现在两者都描述 **Agent 实际装载的工具**（`tool_infos(tools=...)`），
+> 分组与来源从工具自身的注解读取。
+>
+> **另一个必须记下的代价**：适配器的 MCP 工具是无状态的，
+> **每次调用都会新建 session**；对 stdio 就是每次重新拉起子进程。
+> 这决定了「频繁调用的能力要用 http transport」。持久 session 列为后续优化。
 
 ---
 

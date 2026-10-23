@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,6 +43,7 @@ def build_agent(
     *,
     model: BaseChatModel | None = None,
     tools: list[BaseTool] | None = None,
+    extra_tools: Sequence[BaseTool] = (),
     model_spec: str | None = None,
     approval_hook: ApprovalHook | None = None,
 ) -> AgentBundle:
@@ -51,15 +53,21 @@ def build_agent(
         settings: 配置；缺省使用进程级缓存实例。
         model: 直接注入模型（测试用），优先于 ``model_spec`` 与配置。
         tools: 直接注入工具列表（测试用），优先于内置工具装配。
+        extra_tools: 追加给 Agent 的工具，例如 MCP 拉取到的那些。
+            它们与内置工具一起走注册表，因此同样会做重名检测与确认策略计算。
         model_spec: 覆盖 ``model.primary``，对应 CLI 的 ``--model``。
         approval_hook: 人工确认回调，配合 ``agent.interrupt_on``。
+
+    Note:
+        这是**同步**函数：MCP 工具的拉取是异步的，由调用方（lifespan / CLI）
+        先 ``await`` 拉好再传进来。这样工厂保持无 IO，测试更好写。
     """
     resolved = settings or get_settings()
 
     if model is None:
         model = build_model(resolved.app.model, secrets=resolved.secrets, spec=model_spec)
     if tools is None:
-        tools = build_tools(resolved)
+        tools = build_tools(resolved, extra=extra_tools, extra_source="mcp")
 
     system_prompt = load_system_prompt(resolved)
 

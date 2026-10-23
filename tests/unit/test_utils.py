@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from doudou.utils.async_utils import retry_async
-from doudou.utils.text import content_to_text, html_to_text, stringify_tool_result, truncate
+from doudou.utils.text import (
+    content_to_text,
+    html_to_text,
+    looks_like_content_blocks,
+    stringify_tool_result,
+    truncate,
+)
 
 # --------------------------------------------------------------------------- html_to_text
 
@@ -71,6 +77,61 @@ def test_stringify_tool_result_serialises_objects() -> None:
     assert stringify_tool_result({"a": 1}) == '{"a": 1}'
     assert stringify_tool_result("已经是字符串") == "已经是字符串"
     assert "已截断" in stringify_tool_result("y" * 100, limit=10)
+
+
+# --------------------------------------------------------------------------- 内容块拍平
+
+
+def test_stringify_content_blocks_flattens_text() -> None:
+    """MCP 工具返回的是内容块；模型应该看到纯文本而不是这层包装。"""
+    blocks = [{"type": "text", "text": "echo: 你好", "id": "lc_123"}]
+
+    assert stringify_tool_result(blocks) == "echo: 你好"
+
+
+def test_stringify_content_blocks_joins_multiple() -> None:
+    blocks = [{"type": "text", "text": "第一段"}, {"type": "text", "text": "第二段"}]
+
+    assert stringify_tool_result(blocks) == "第一段\n\n第二段"
+
+
+def test_stringify_content_blocks_marks_non_text() -> None:
+    """直接丢掉图片块会让模型完全察觉不到「这里本来有内容」。"""
+    blocks = [{"type": "image", "base64": "..."}, {"type": "text", "text": "配文"}]
+
+    flattened = stringify_tool_result(blocks)
+
+    assert "配文" in flattened
+    assert "图片" in flattened
+
+
+def test_stringify_data_with_unknown_type_stays_json() -> None:
+    """判据用白名单：普通 API 数据不能被误判成内容块而改写。"""
+    data = [{"type": "invoice", "amount": 100}]
+
+    assert stringify_tool_result(data) == '[{"type": "invoice", "amount": 100}]'
+
+
+def test_stringify_data_without_type_stays_json() -> None:
+    data = [{"name": "a", "score": 1}]
+
+    assert stringify_tool_result(data) == '[{"name": "a", "score": 1}]'
+
+
+def test_blocks_to_text_without_placeholders_drops_non_text() -> None:
+    """``content_to_text`` 服务于模型输出的增量文本，那里没有图片。"""
+    assert content_to_text([{"type": "image"}, {"type": "text", "text": "x"}]) == "x"
+
+
+def test_looks_like_content_blocks_edges() -> None:
+    assert looks_like_content_blocks([{"type": "text"}]) is True
+    assert looks_like_content_blocks([{"type": "image"}]) is True
+    assert looks_like_content_blocks([]) is False
+    assert looks_like_content_blocks("str") is False
+    assert looks_like_content_blocks([{"no_type": 1}]) is False
+    assert looks_like_content_blocks([{"type": "a"}, "mixed"]) is False
+    # 未知 type 一律不认——避免把普通数据当内容块改写
+    assert looks_like_content_blocks([{"type": "invoice"}]) is False
 
 
 # --------------------------------------------------------------------------- retry_async

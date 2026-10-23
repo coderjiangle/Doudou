@@ -8,15 +8,23 @@
 #   http     : Streamable HTTP，需 url
 #   sse      : SSE（兼容旧服务端），需 url
 #
-# 支持 ${ENV_VAR} 占位，从环境变量注入，避免明文密钥入库。
+# 支持 ${ENV_VAR} 占位，从环境变量注入，避免明文密钥入库；
+# **变量未设置时会直接报错**（而不是把占位符原样发出去换来一个 401）。
+#
+# 一个必须知道的代价：适配器的 MCP 工具是**无状态**的，每次调用都会新建
+# 一个 session —— 对 stdio 而言就是每次调用都重新拉起子进程。
+# 因此 npx / uvx 那类启动慢的 server 单次调用会到秒级；
+# 需要频繁调用的能力优先用 http（远端长驻进程，没有启动成本）。
 # ============================================================================
 
 version: 1
 
+# 可被各 server 继承；**显式写在 server 上的值优先**。
 defaults:
   enabled: true
   timeout: 60
   retries: 1
+  read_only: false
 
 servers:
   # ---------------- 本地 stdio 示例 ----------------
@@ -30,6 +38,9 @@ servers:
     # 只暴露部分工具；留空表示全部
     include_tools: []
     exclude_tools: [delete_path]
+    # 第三方 server 默认按「有副作用」处理：每次调用都要人工确认。
+    # 确认它确实是只读的之后，写上 true 就不必逐次确认了。
+    read_only: false
     description: 本地文件读写
 
   # ---------------- 远程 HTTP 示例 ----------------
@@ -56,4 +67,6 @@ servers:
     args: ["mcp-server-postgres", "${DOUDOU_DATABASE_URL}"]
     # 该 server 的工具默认为只读，禁止 DDL
     exclude_tools: [execute_ddl]
+    read_only: true
     description: 只读数据库查询
+

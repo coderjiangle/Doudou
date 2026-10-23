@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter
 
 from doudou.api.deps import StateDep
-from doudou.api.lifespan import CHECK_FAILED, CHECK_OK
+from doudou.api.lifespan import CHECK_FAILED, CHECK_OK, AppState
 from doudou.api.schemas import HealthResponse
 from doudou.observability.logging import get_logger
 
@@ -26,6 +28,8 @@ async def health(state: StateDep) -> HealthResponse:
         "history": settings.app.storage.history,
         "database": CHECK_OK if state.database is not None else "memory",
         "channels": ",".join(state.channel_names) if state.channel_names else "none",
+        "mcp": ",".join(status.name for status in (state.mcp.statuses if state.mcp else []))
+        or "none",
     }
     return HealthResponse(
         status=CHECK_OK,
@@ -36,9 +40,24 @@ async def health(state: StateDep) -> HealthResponse:
         uptime_seconds=state.uptime_seconds,
         tools=state.bundle.tool_names,
         channels=state.channel_names,
+        mcp=_mcp_summary(state),
         checks=checks,
         metrics=state.metrics_snapshot(),
     )
+
+
+def _mcp_summary(state: AppState) -> dict[str, Any]:
+    """MCP 的紧凑状态：几个 server、几个工具、有没有掉线的。"""
+    runtime = state.mcp
+    if runtime is None or not runtime.enabled:
+        return {"enabled": False, "servers": 0, "tools": 0, "failed": []}
+    statuses = runtime.statuses
+    return {
+        "enabled": True,
+        "servers": len(statuses),
+        "tools": len(runtime.tools),
+        "failed": [status.name for status in statuses if not status.ok],
+    }
 
 
 @router.get("/health/ready", summary="就绪检查")

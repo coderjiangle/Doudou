@@ -5,11 +5,11 @@
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M4 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
-> 会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）** 与
-> **飞书通道（WebSocket 长连接 + 流式卡片）** 均端到端可用，
-> 339 个离线测试 + `ruff` + `mypy --strict` 全绿。
-> MCP（M5）、Skill 渐进式加载（M6）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
+> **当前进度：M5 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
+> 会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）**、
+> **飞书通道（WebSocket 长连接 + 流式卡片）** 与 **MCP（stdio / http / sse）**
+> 均端到端可用，399 个离线测试 + `ruff` + `mypy --strict` 全绿。
+> Skill 渐进式加载（M6）、上下文工程（M7）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
@@ -29,7 +29,7 @@
 | 实用工具集 | 检索 / 抓取 / 笔记 / 只读文件，默认拒绝 | `doudou.tools.builtin` | ✅ M3 |
 | 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` | ✅ M4 |
 | 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` | ✅ M4 |
-| MCP 工具 | `langchain-mcp-adapters` | `doudou.mcp` | ⏳ M5 |
+| MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` | ✅ M5 |
 | Skill 加载 | Agent Skills 标准（`SKILL.md`）渐进式披露 | `doudou.skills` | 🚧 发现 ✅ / 加载 ⏳ M6 |
 | 上下文工程 | token 预算、摘要压缩、长期记忆 | `doudou.gateway` / `doudou.agent.memory` | ⏳ M7 |
 | 权限与子 Agent | 路径权限、子 Agent 委派、跨重启确认 | `doudou.agent.permissions` | ⏳ M8 |
@@ -232,7 +232,25 @@ FEISHU_APP_SECRET=xxxxxxxx
 群里的助手像一个同事。完整步骤、@ 判定、卡片流式与已知限制见
 [`docs/channels.md`](docs/channels.md)。
 
-### 4.5 其他入口
+### 4.5 接入 MCP（可选）
+
+MCP 让工具来源从「写死在代码里」变成「配置声明」：
+
+```powershell
+Copy-Item config/mcp.servers.example.yaml config/mcp.servers.yaml
+uv run doudou mcp list          # 看每个 server 拉到了什么
+uv run doudou mcp check github  # 单独探测一个
+uv run doudou tools list        # Agent 实际装载的工具（含 MCP）
+```
+
+清单支持 `${ENV}` 占位（密钥留在 `.env`）、`include_tools` / `exclude_tools`
+收敛工具面、`read_only` 声明免确认。三种 transport：`stdio` / `http` / `sse`。
+
+> ⚠️ 适配器的 MCP 工具是**无状态**的 —— **每次调用都会新建 session**。
+> 对 `stdio` 就是每次调用重新拉起子进程，`npx`/`uvx` 那类会到秒级；
+> 需要频繁调用优先用 `http`。详见 [`docs/mcp.md`](docs/mcp.md) §4。
+
+### 4.6 其他入口
 ```powershell
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```

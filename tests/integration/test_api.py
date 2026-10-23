@@ -491,3 +491,106 @@ async def test_channel_start_failure_does_not_break_service(
 
     # 坏通道被跳过，好通道仍然起来
     assert body["channels"] == ["fake"]
+
+
+# --------------------------------------------------------------------------- MCP
+
+
+async def test_mcp_endpoint_without_servers(settings_for_api: Settings) -> None:
+    """没配清单时接口仍然可用：``enabled`` 为真但 server 列表为空。"""
+    async with api_client(settings_for_api) as client:
+        response = await client.get("/api/v1/mcp")
+        refreshed = await client.post("/api/v1/mcp/refresh")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "enabled": True,
+        "started": True,
+        "servers": [],
+        "note": None,
+    }
+    # 刷新也必须能成功（没有 server 时就是空操作）
+    assert refreshed.status_code == 200
+    assert refreshed.json()["note"]
+
+
+async def test_health_summary_includes_mcp(settings_for_api: Settings) -> None:
+    async with api_client(settings_for_api) as client:
+        body = (await client.get("/api/v1/health")).json()
+
+    assert body["mcp"] == {"enabled": True, "servers": 0, "tools": 0, "failed": []}
+    assert body["checks"]["mcp"] == "none"
+
+
+def _write_mcp_manifest(config_dir: Path) -> None:
+    """在配置目录里放一份指向本地演示 server 的 MCP 清单。"""
+    import sys
+
+    server = Path(__file__).resolve().parents[1] / "fixtures" / "mcp" / "demo_server.py"
+    (config_dir / "mcp.servers.yaml").write_text(
+        "version: 1\n"
+        "servers:\n"
+        "  - name: demo\n"
+        "    transport: stdio\n"
+        f"    command: {sys.executable}\n"
+        f"    args: [{server.as_posix()!r}]\n"
+        "    read_only: true\n"
+        "    exclude_tools: [delete_everything]\n",
+        encoding="utf-8",
+    )
+
+
+async def test_mcp_tools_reach_the_agent_through_the_api(tmp_path: Path) -> None:
+    """端到端：清单 → 真实 stdio server → Agent 工具 → ``GET /tools``。
+
+    这是 M5 验收标准在 HTTP 层的版本：MCP 工具必须真的进到 Agent 的工具列表里，
+    而不只是「配置解析成功」。
+    """
+    settings = _write_config(tmp_path)
+    _write_mcp_manifest(settings.config_dir)
+
+    async with api_client(settings) as client:
+        tools = {item["name"]: item for item in (await client.get("/api/v1/tools")).json()["tools"]}
+        mcp = (await client.get("/api/v1/mcp")).json()
+
+    # 真实 MCP 工具进入了 Agent 的工具面
+    assert {"demo__echo", "demo__add"} <= set(tools)
+    # exclude_tools 挡住了危险工具
+    assert "demo__delete_everything" not in tools
+    # read_only 声明生效：只读 server 的工具不必逐次确认
+    assert tools["demo__echo"]["requires_approval"] is False
+    assert tools["demo__echo"]["group"] == "mcp:demo"
+
+    server = mcp["servers"][0]
+    assert server["ok"] is True
+    assert server["name"] == "demo"
+    assert "delete_everything" in server["filtered_out"]
+    assert server["elapsed"] is not None
+
+
+async def test_broken_mcp_server_degrades_but_service_works(tmp_path: Path) -> None:
+    """一个 MCP server 挂掉，服务必须照常可用（``fail_fast: false``）。"""
+    import sys
+
+    settings = _write_config(tmp_path)
+    (settings.config_dir / "mcp.servers.yaml").write_text(
+        "version: 1\n"
+        "servers:\n"
+        "  - name: broken\n"
+        "    transport: stdio\n"
+        f"    command: {sys.executable}\n"
+        "    args: ['-c', 'import sys; sys.exit(3)']\n",
+        encoding="utf-8",
+    )
+
+    async with api_client(settings) as client:
+        health = (await client.get("/api/v1/health")).json()
+        mcp = (await client.get("/api/v1/mcp")).json()
+        chat = await client.post("/api/v1/chat", json={"message": "你好"})
+
+    assert health["status"] == "ok"
+    assert health["mcp"]["failed"] == ["broken"]
+    assert mcp["servers"][0]["ok"] is False
+    assert mcp["servers"][0]["error"]
+    # 服务照常能对话
+    assert chat.status_code == 200

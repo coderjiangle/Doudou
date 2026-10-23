@@ -130,15 +130,29 @@ def _add(
 def tool_infos(
     settings: Settings,
     *,
+    tools: Sequence[BaseTool] | None = None,
     extra: Iterable[BaseTool] = (),
     extra_group: str = EXTRA_GROUP,
     extra_source: str = EXTRA_SOURCE,
 ) -> list[ToolInfo]:
     """生成工具清单（含是否需要人工确认）。
 
-    直接遍历 provider 而不是复用 :func:`build_tools` 的结果，
-    这样每个工具的分组与来源在产生处就确定，无需事后反查。
+    两种模式：
+
+    * **不给 ``tools``** —— 遍历 provider 从配置推导，分组与来源在产生处确定。
+      用于 ``config check``：那里想看的是「按当前配置**应该**装载什么」，
+      不应该去连 MCP。
+    * **给了 ``tools``** —— 描述**实际装载**的那批工具（``AgentBundle.tools``）。
+      MCP 工具是运行时拉取的、不在 provider 里，只有这条路径能把它们列出来；
+      分组与来源从工具自身的注解里读（``mcp:demo`` 之类）。
     """
+    if tools is not None:
+        return [
+            _info_from_annotations(settings, item)
+            for item in tools
+            if item.name not in settings.app.tools.disabled
+        ]
+
     infos: list[ToolInfo] = []
     seen: set[str] = set()
 
@@ -154,6 +168,27 @@ def tool_infos(
         _collect_info(infos, seen, item, group=extra_group, source=extra_source, settings=settings)
 
     return infos
+
+
+def _info_from_annotations(settings: Settings, item: BaseTool) -> ToolInfo:
+    """从工具自带的注解推导展示信息。
+
+    注解里的 ``group`` 已经带了来源语义（内置是 ``clock``，MCP 是 ``mcp:demo``），
+    因此用「有没有冒号」来区分来源 —— 比再引入一个字段更省，也够明确。
+    """
+    annotations = annotations_of(item)
+    group = annotations.group or "other"
+    source = group if ":" in group else f"builtin:{group}"
+    return ToolInfo(
+        name=item.name,
+        description=(item.description or "").strip(),
+        group=group,
+        source=source,
+        args=describe_args(item),
+        requires_approval=requires_approval(settings, item),
+        side_effects=annotations.side_effects,
+        timeout=annotations.timeout,
+    )
 
 
 def _collect_info(

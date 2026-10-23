@@ -42,6 +42,7 @@ class HealthResponse(BaseModel):
     uptime_seconds: float
     tools: list[str] = Field(default_factory=list)
     channels: list[str] = Field(default_factory=list, description="已启动的常驻通道。")
+    mcp: dict[str, Any] = Field(default_factory=dict, description="MCP server 与工具概况。")
     checks: dict[str, str] = Field(default_factory=dict, description="各依赖项的 ok / 说明。")
     metrics: dict[str, Any] = Field(default_factory=dict, description="运行计数与耗时摘要。")
 
@@ -96,11 +97,42 @@ class ThreadDetail(BaseModel):
     messages: list[MessageOut]
 
 
+class McpServerOut(BaseModel):
+    """单个 MCP server 的状态。"""
+
+    name: str
+    transport: str
+    enabled: bool = True
+    read_only: bool = False
+    description: str = ""
+    target: str = Field(default="", description="stdio 的命令行或 http 的地址。")
+    include_tools: list[str] = Field(default_factory=list)
+    exclude_tools: list[str] = Field(default_factory=list)
+    ok: bool = False
+    tools: list[str] = Field(default_factory=list, description="实际暴露的工具名（含前缀）。")
+    filtered_out: list[str] = Field(
+        default_factory=list, description="被 include/exclude 过滤掉的工具名。"
+    )
+    error: str | None = None
+    elapsed: float | None = None
+
+
+class McpStatusResponse(BaseModel):
+    """`GET /mcp` 的响应。"""
+
+    enabled: bool
+    started: bool
+    servers: list[McpServerOut] = Field(default_factory=list)
+    note: str | None = None
+
+
 __all__ = [
     "ChecksOut",
     "ErrorBody",
     "ErrorResponse",
     "HealthResponse",
+    "McpServerOut",
+    "McpStatusResponse",
     "MessageOut",
     "ThreadDetail",
     "ThreadListResponse",

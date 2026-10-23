@@ -1,0 +1,174 @@
+"""Pydantic Settings: env vars and .env loading.
+
+两类来源分开建模，避免前缀规则互相干扰：
+
+* :class:`EnvSettings` —— 带 ``DOUDOU_`` 前缀，嵌套字段用 ``__`` 分隔，
+  例如 ``DOUDOU_SERVER__PORT=8080``、``DOUDOU_MODEL__PRIMARY=openai:gpt-5.5``。
+  结构与 :class:`~doudou.config.schema.AppConfig` 一一对应，可直接深合并。
+* :class:`Secrets` —— **无前缀**，沿用各家官方环境变量名
+  （``OPENAI_API_KEY``、``FEISHU_APP_SECRET`` ...），只用于凭据。
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env"
+
+
+class _EnvSection(BaseModel):
+    """环境变量覆盖段的基类。
+
+    字段全部可选：未设置的项不会出现在 ``exclude_none`` 的导出结果里，
+    因此不会覆盖 YAML 中的值。
+    """
+
+    model_config = {"extra": "ignore"}
+
+
+class EnvRuntime(_EnvSection):
+    env: str | None = None
+    debug: bool | None = None
+    log_level: str | None = None
+    log_json: bool | None = None
+    timezone: str | None = None
+
+
+class EnvServer(_EnvSection):
+    host: str | None = None
+    port: int | None = None
+    base_path: str | None = None
+    workers: int | None = None
+    cors_origins: list[str] | None = None
+
+
+class EnvModel(_EnvSection):
+    primary: str | None = None
+    fallbacks: list[str] | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    timeout: float | None = None
+    max_retries: int | None = None
+    base_url: str | None = None
+
+
+class EnvAgent(_EnvSection):
+    name: str | None = None
+    system_prompt_file: str | None = None
+    skills: list[str] | None = None
+    max_steps: int | None = None
+    recursion_limit: int | None = None
+
+
+class EnvFilesystem(_EnvSection):
+    backend: str | None = None
+    root_dir: str | None = None
+    virtual_mode: bool | None = None
+
+
+class EnvContext(_EnvSection):
+    summarization: bool | None = None
+    todo_list: bool | None = None
+
+
+class EnvStorage(_EnvSection):
+    database_url: str | None = None
+    history: str | None = None
+    checkpointer: str | None = None
+    store: str | None = None
+    echo_sql: bool | None = None
+
+
+class EnvMcp(_EnvSection):
+    enabled: bool | None = None
+    config_file: str | None = None
+    fail_fast: bool | None = None
+
+
+class EnvCliChannel(_EnvSection):
+    enabled: bool | None = None
+
+
+class EnvFeishuChannel(_EnvSection):
+    enabled: bool | None = None
+    mode: str | None = None
+    base_url: str | None = None
+    bot_name: str | None = None
+    stream_reply: bool | None = None
+    allowed_chats: list[str] | None = None
+    allowed_users: list[str] | None = None
+
+
+class EnvWebhookChannel(_EnvSection):
+    enabled: bool | None = None
+
+
+class EnvChannels(_EnvSection):
+    cli: EnvCliChannel | None = None
+    feishu: EnvFeishuChannel | None = None
+    webhook: EnvWebhookChannel | None = None
+
+
+class EnvSettings(BaseSettings):
+    """``DOUDOU_*`` 环境变量。优先级高于 YAML。"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="DOUDOU_",
+        env_nested_delimiter="__",
+        env_file=_ENV_FILE,
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    #: 配置文件目录，默认 ``./config``
+    config_dir: str | None = None
+    #: 显式指定主配置文件（相对 ``config_dir`` 或绝对路径）
+    config_file: str | None = None
+    #: 覆盖 ``config.local.yaml`` 的名字，测试用
+    local_config_file: str | None = None
+    #: HTTP API 访问令牌（非空即开启鉴权）
+    api_token: str | None = None
+
+    runtime: EnvRuntime | None = None
+    server: EnvServer | None = None
+    model: EnvModel | None = None
+    agent: EnvAgent | None = None
+    filesystem: EnvFilesystem | None = None
+    context: EnvContext | None = None
+    storage: EnvStorage | None = None
+    mcp: EnvMcp | None = None
+    channels: EnvChannels | None = None
+
+
+class Secrets(BaseSettings):
+    """无前缀的凭据，沿用各家官方环境变量名。"""
+
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE,
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    openai_api_key: str | None = None
+    openai_base_url: str | None = None
+    anthropic_api_key: str | None = None
+    deepseek_api_key: str | None = None
+    tavily_api_key: str | None = None
+
+    feishu_app_id: str | None = None
+    feishu_app_secret: str | None = None
+    feishu_verification_token: str | None = None
+    feishu_encrypt_key: str | None = None
+    feishu_base_url: str | None = None
+
+    langsmith_api_key: str | None = None
+
+    def as_dict(self) -> dict[str, str | None]:
+        """导出为字典，便于日志与 ``config show`` 脱敏展示。"""
+        return self.model_dump()
+
+
+__all__ = ["EnvSettings", "Secrets"]

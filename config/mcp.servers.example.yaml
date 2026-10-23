@@ -1,0 +1,59 @@
+# ============================================================================
+# MCP server 清单模板
+# 复制为 config/mcp.servers.yaml 后按需修改（该文件已被 .gitignore 忽略）。
+# 被 config.yaml -> mcp.config_file 引用。
+#
+# transport 取值：
+#   stdio    : 本地子进程，需 command + args
+#   http     : Streamable HTTP，需 url
+#   sse      : SSE（兼容旧服务端），需 url
+#
+# 支持 ${ENV_VAR} 占位，从环境变量注入，避免明文密钥入库。
+# ============================================================================
+
+version: 1
+
+defaults:
+  enabled: true
+  timeout: 60
+  retries: 1
+
+servers:
+  # ---------------- 本地 stdio 示例 ----------------
+  - name: filesystem
+    enabled: true
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"]
+    env:
+      NODE_NO_WARNINGS: "1"
+    # 只暴露部分工具；留空表示全部
+    include_tools: []
+    exclude_tools: [delete_path]
+    description: 本地文件读写
+
+  # ---------------- 远程 HTTP 示例 ----------------
+  - name: github
+    enabled: false
+    transport: http
+    url: https://api.githubcopilot.com/mcp/
+    headers:
+      Authorization: "Bearer ${GITHUB_TOKEN}"
+    include_tools: [search_repositories, get_file_contents, create_issue]
+    description: GitHub 只读 + 建 issue
+
+  - name: fetch
+    enabled: false
+    transport: stdio
+    command: uvx
+    args: ["mcp-server-fetch"]
+    description: 网页抓取
+
+  - name: postgres
+    enabled: false
+    transport: stdio
+    command: uvx
+    args: ["mcp-server-postgres", "${DOUDOU_DATABASE_URL}"]
+    # 该 server 的工具默认为只读，禁止 DDL
+    exclude_tools: [execute_ddl]
+    description: 只读数据库查询

@@ -1,0 +1,65 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- 工具缓存 ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# ---- 环境与密钥 ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ---- 运行时数据 ----
+data/
+.doudou/
+*.db
+*.sqlite
+*.sqlite3
+logs/
+*.log
+tmp/
+.cache/
+
+# ---- 前端（如后续接入 Web UI）----
+node_modules/
+.next/
+dist/
+
+# ---- 编辑器 / 系统 ----
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ---- 本地覆盖配置 ----
+config/config.local.yaml
+config/*.local.yaml
+config/mcp.servers.yaml

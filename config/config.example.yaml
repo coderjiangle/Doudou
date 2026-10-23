@@ -1,0 +1,137 @@
+# ============================================================================
+# Doudou 主配置模板
+# 复制为 config/config.yaml 后按需修改。
+# 优先级：环境变量 > 本文件 > 代码内默认值（见 doudou.config.loader）
+# 密钥类字段一律不要写在这里，放到 .env。
+# ============================================================================
+
+version: 1
+
+# ---------------------------------------------------------------- 运行环境
+runtime:
+  env: local                 # local | dev | prod
+  debug: true
+  log_level: INFO
+  log_json: false            # prod 建议 true
+  timezone: Asia/Shanghai
+
+server:
+  host: 127.0.0.1
+  port: 8000
+  base_path: /api/v1
+  workers: 1
+  cors_origins:
+    - http://localhost:5173
+  # api_token 从环境变量 DOUDOU_API_TOKEN 读取，不在此处配置
+
+# ---------------------------------------------------------------- 模型
+model:
+  # provider:model 形式；也可写多行 fallback，第一个为主模型
+  primary: openai:gpt-5.5
+  fallbacks: []
+  temperature: 0.2
+  max_tokens: 4096
+  timeout: 120
+  max_retries: 2
+  # 供自建/兼容网关使用
+  base_url: null
+
+# ---------------------------------------------------------------- Agent
+agent:
+  name: Doudou
+  system_prompt_file: prompts/system.md   # 相对 config/ 目录；留空则用内置默认提示词
+  memory_files:
+    - AGENTS.md                            # deepagents memory=，始终加载
+  skills:
+    - ../skills/                           # Agent Skills 根目录
+  subagents_file: agents.yaml
+  # 需要人工确认（LangGraph interrupt）的工具
+  interrupt_on:
+    write_file: true
+    edit_file: true
+    delete: true
+    shell_exec: true
+  # 单次运行的步数上限，防止死循环
+  recursion_limit: 60
+  # 文件系统权限规则，按顺序首匹配生效
+  permissions:
+    - operations: [read, write]
+      paths: ["/workspace/**"]
+      mode: allow
+    - operations: [read, write]
+      paths: ["/**/.env", "/**/*.pem", "/**/*.key", "/**/secrets/**"]
+      mode: deny
+
+# ---------------------------------------------------------------- 虚拟文件系统
+filesystem:
+  backend: composite         # state | store | filesystem | composite
+  root_dir: ./data/workspace
+  virtual_mode: true
+  # composite 模式下：以这些前缀开头的路径落到本地磁盘，其余放内存
+  routes:
+    - prefix: /workspace/
+      backend: filesystem
+    - prefix: /
+      backend: state
+
+# ---------------------------------------------------------------- 上下文管理
+context:
+  todo_list: true            # 启用 write_todos
+  summarization: true
+  summarize_after_messages: 40
+  keep_recent_messages: 12
+  offload_large_results: true
+  offload_threshold_bytes: 20000
+
+# ---------------------------------------------------------------- 存储
+storage:
+  database_url: sqlite+aiosqlite:///./data/doudou.db
+  # 会话历史存哪：database = 落库（重启可续）；memory = 只在进程内
+  history: database
+  checkpointer: sqlite       # memory | sqlite | postgres
+  store: sqlite              # memory | sqlite | postgres
+  echo_sql: false
+
+# ---------------------------------------------------------------- MCP
+mcp:
+  enabled: true
+  config_file: mcp.servers.yaml
+  # 启动时拉取工具；失败是否阻塞启动
+  fail_fast: false
+  tool_name_prefix: true    # 给 MCP 工具加 server 前缀，避免重名
+  call_timeout: 60
+
+# ---------------------------------------------------------------- 通道
+channels:
+  cli:
+    enabled: true
+
+  feishu:
+    enabled: false
+    base_url: https://open.feishu.cn
+    bot_name: Doudou
+    # app_id / app_secret / encrypt_key / verification_token 从 .env 读取
+    event_path: /webhooks/feishu/events
+    reply_mode: card         # card | text
+    stream_reply: true       # 卡片流式更新
+    card_update_interval_ms: 800
+    allowed_chats: []        # 空表示不限制
+    allowed_users: []
+    group_require_at: true   # 群聊中必须 @ 机器人才响应
+    max_reply_chars: 4000
+    dedup_ttl_seconds: 600
+
+  webhook:
+    enabled: false
+    token_header: X-Doudou-Token
+
+# ---------------------------------------------------------------- 可观测性
+observability:
+  langsmith:
+    enabled: false
+    project: doudou
+  otel:
+    enabled: false
+    endpoint: null
+  metrics:
+    enabled: true

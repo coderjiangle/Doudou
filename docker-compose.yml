@@ -1,0 +1,52 @@
+name: doudou
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: doudou:local
+    container_name: doudou-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DOUDOU_ENV: prod
+      DOUDOU_HOST: 0.0.0.0
+      DOUDOU_PORT: "8000"
+      DOUDOU_ROOT_DIR: /data
+      DOUDOU_DATABASE_URL: sqlite+aiosqlite:////data/doudou.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - doudou-data:/data
+      - ./config:/app/config:ro
+      - ./skills:/app/skills:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  # 可选：需要 Postgres 时启用（并把 .env 的 DOUDOU_DATABASE_URL 换成 asyncpg）
+  postgres:
+    image: postgres:17-alpine
+    container_name: doudou-postgres
+    restart: unless-stopped
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: doudou
+      POSTGRES_PASSWORD: doudou
+      POSTGRES_DB: doudou
+    ports:
+      - "5432:5432"
+    volumes:
+      - doudou-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doudou"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  doudou-data:
+  doudou-pg:

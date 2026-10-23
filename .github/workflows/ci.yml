@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+  UV_LINK_MODE: copy
+
+jobs:
+  lint:
+    name: lint (ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src/doudou
+
+  test:
+    name: test (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --all-extras --group dev
+      - run: uv run pytest tests/unit --cov=src/doudou --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.12'
+        with:
+          name: coverage
+          path: coverage.xml
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: doudou:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

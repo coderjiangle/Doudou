@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: doudou-api
+  labels:
+    app.kubernetes.io/name: doudou
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1 # 状态在进程内，多副本前需先把会话/队列下沉到外部存储
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: doudou
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: doudou
+        app.kubernetes.io/component: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: doudou:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "doudou", "serve"]
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: doudou-config
+            - secretRef:
+                name: doudou-secrets
+          env:
+            - name: DOUDOU_ENV
+              value: prod
+            - name: DOUDOU_HOST
+              value: 0.0.0.0
+            - name: DOUDOU_ROOT_DIR
+              value: /data
+            - name: DOUDOU_DATABASE_URL
+              value: sqlite+aiosqlite:////data/doudou.db
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: skills
+              mountPath: /app/skills
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: doudou-data
+        - name: config
+          configMap:
+            name: doudou-config-files
+        - name: skills
+          configMap:
+            name: doudou-skills
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: doudou-api
+  labels:
+    app.kubernetes.io/name: doudou
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: doudou
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: doudou-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi

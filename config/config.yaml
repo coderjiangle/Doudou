@@ -1,0 +1,134 @@
+# ============================================================================
+# Doudou 本地配置
+# 由 config/config.example.yaml 生成，按实际环境调整。
+# 优先级：本文件 < config/config.local.yaml < DOUDOU_* 环境变量
+# 密钥一律放 .env，本文件可以提交（不含任何凭据）。
+# ============================================================================
+
+version: 1
+
+# ---------------------------------------------------------------- 运行环境
+runtime:
+  env: local
+  debug: true
+  log_level: INFO
+  log_json: false              # prod 建议 true
+  timezone: Asia/Shanghai      # now 工具的默认时区
+
+server:
+  host: 127.0.0.1
+  port: 8000
+  base_path: /api/v1
+  workers: 1
+
+# ---------------------------------------------------------------- 模型
+# 供应商：himodels 网关（OpenAI 兼容协议）
+#   base_url 指向网关，provider 用 openai
+#   API Key 从 .env 的 OPENAI_API_KEY 读取（见 model.models._secret_api_key）
+model:
+  primary: openai:deepseek-flash-official
+  fallbacks: []
+  temperature: 0.2
+  # 该模型输出上限为 384000 token（上下文 1000000），但把 max_tokens 设成上限
+  # 意味着「允许单次生成 38 万 token」——既慢又贵。这里只封顶单次生成，
+  # 需要长文时再临时调高（或走 DOUDOU_MODEL__MAX_TOKENS 覆盖）。
+  max_tokens: 16384
+  # 长文生成会明显超过默认 120s，这里放宽；网关侧若有更短超时会以网关为准。
+  timeout: 300
+  max_retries: 2
+  base_url: https://api.himodels.ai/v1
+
+# ---------------------------------------------------------------- Agent
+agent:
+  name: Doudou
+  system_prompt_file: prompts/system.md
+  memory_files:
+    - AGENTS.md                # M7 接入记忆后生效
+  skills:
+    - ../skills/               # 仓库根的 skills/ 目录
+  subagents_file: agents.yaml  # M8 接入子 Agent 后生效
+  # 需要人工确认的工具：CLI 会先询问再执行（见 docs/security.md）
+  interrupt_on:
+    write_file: true
+    edit_file: true
+    delete: true
+    shell_exec: true
+  recursion_limit: 60          # M9 接入 deepagents 后生效
+  max_steps: 10                # ReAct 循环单次运行的最大步数（模型往返次数）
+  max_tool_calls_per_step: 8
+  # M8 落地文件系统工具后生效；顺序即匹配顺序，拒绝规则要写在前面
+  permissions:
+    - operations: [read, write]
+      paths: ["/**/.env", "/**/*.pem", "/**/*.key", "/**/secrets/**"]
+      mode: deny
+    - operations: [read, write]
+      paths: ["/workspace/**"]
+      mode: allow
+
+# ---------------------------------------------------------------- 虚拟文件系统
+filesystem:
+  backend: state               # M9 落地；state 为进程内内存文件系统
+  root_dir: ./data/workspace
+  virtual_mode: true
+
+# ---------------------------------------------------------------- 上下文管理
+context:
+  todo_list: true
+  summarization: false         # M7 接入摘要压缩后打开
+  # 该模型上下文 100 万 token，历史窗口可以放得很宽；
+  # 当前（M1）实际生效的是 gateway.runner 的 max_history_messages 条数上限。
+  summarize_after_messages: 80
+  keep_recent_messages: 24
+  offload_large_results: true
+  offload_threshold_bytes: 20000
+
+# ---------------------------------------------------------------- 存储
+storage:
+  database_url: sqlite+aiosqlite:///./data/doudou.db
+  history: database
+  checkpointer: sqlite
+  store: sqlite
+  echo_sql: false
+
+# ---------------------------------------------------------------- MCP（M5 落地）
+mcp:
+  enabled: true
+  config_file: mcp.servers.yaml
+  fail_fast: false
+  tool_name_prefix: true
+  call_timeout: 60
+
+# ---------------------------------------------------------------- 通道
+channels:
+  cli:
+    enabled: true
+
+  feishu:                      # M4 落地
+    enabled: false
+    mode: callback
+    base_url: https://open.feishu.cn
+    bot_name: Doudou
+    event_path: /webhooks/feishu/events
+    reply_mode: card
+    stream_reply: true
+    card_update_interval_ms: 800
+    allowed_chats: []
+    allowed_users: []
+    group_require_at: true
+    max_reply_chars: 4000
+    dedup_ttl_seconds: 600
+
+  webhook:
+    enabled: false
+    token_header: X-Doudou-Token
+
+# ---------------------------------------------------------------- 可观测性
+observability:
+  langsmith:
+    enabled: false
+    project: doudou
+  otel:
+    enabled: false
+    endpoint: null
+  metrics:
+    enabled: true

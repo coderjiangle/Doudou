@@ -1,0 +1,30 @@
+# 仅存放非敏感配置；密钥请使用 Secret（参考同目录说明）。
+# 生成方式：
+#   kubectl create configmap doudou-config --from-literal=DOUDOU_LOG_LEVEL=INFO ...
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: doudou-config
+data:
+  DOUDOU_LOG_LEVEL: "INFO"
+  DOUDOU_MCP_ENABLED: "true"
+  DOUDOU_MCP_CONFIG: "/app/config/mcp.servers.yaml"
+  DOUDOU_FEISHU_ENABLED: "true"
+  FEISHU_BASE_URL: "https://open.feishu.cn"
+  FEISHU_BOT_NAME: "Doudou"
+  FEISHU_STREAM_REPLY: "true"
+  LANGSMITH_TRACING: "false"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: doudou-secrets
+type: Opaque
+stringData:
+  # 用真实值替换，或改用 sealed-secrets / 外部 KMS 注入
+  DOUDOU_API_TOKEN: "REPLACE_ME"
+  OPENAI_API_KEY: "REPLACE_ME"
+  FEISHU_APP_ID: "REPLACE_ME"
+  FEISHU_APP_SECRET: "REPLACE_ME"
+  FEISHU_VERIFICATION_TOKEN: "REPLACE_ME"
+  FEISHU_ENCRYPT_KEY: "REPLACE_ME"

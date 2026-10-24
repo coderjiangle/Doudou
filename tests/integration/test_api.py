@@ -868,3 +868,112 @@ async def test_approvals_require_token_when_configured(tmp_path: Path) -> None:
 
     assert authorized.status_code == 200
     assert denied.status_code == 401
+
+
+# --------------------------------------------------------------------------- 审计 / 用量（M9）
+
+
+async def test_run_is_audited_and_counted(tmp_path: Path) -> None:
+    """M9 验收：跑一轮 → 工具调用有审计记录、token 有归属。
+
+    用 ``scripted:demo``（离线脚本模型）而不是真模型：这条链路要能在 CI 里跑，
+    它验证的是**接线**（事件 → 观察者 → 库 → 接口），不是模型能力。
+    """
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        chat = await client.post("/api/v1/chat", json={"message": "现在几点？"})
+        assert chat.status_code == 200
+        thread_id = chat.json()["thread_id"]
+
+        audit = (await client.get(f"/api/v1/audit?thread_id={thread_id}")).json()
+        usage = (await client.get("/api/v1/usage")).json()
+        health = (await client.get("/api/v1/health")).json()
+
+    tool_rows = [item for item in audit["entries"] if item["kind"] == "tool"]
+    assert audit["backend"] == "database"
+    assert tool_rows, "工具调用没有被审计"
+    assert tool_rows[0]["tool_name"] == "now"
+    # demo 模型会先问时间再作答，所以这条记录一定是「不需要确认」的那种
+    assert tool_rows[0]["approved"] is None
+    assert tool_rows[0]["status"] == "ok"
+    assert tool_rows[0]["result_preview"]
+
+    run_rows = [item for item in audit["entries"] if item["kind"] == "run"]
+    assert run_rows and run_rows[0]["status"] == "ok"
+
+    assert usage["today"]["total_tokens"] >= 0
+    assert usage["by_thread"], "用量没有按会话归属"
+    assert usage["by_thread"][0]["runs"] >= 1
+
+    assert "audit" in health["checks"]["observability"]
+    assert health["observability"]["audit_backend"] == "database"
+
+
+async def test_audit_arguments_are_redacted(tmp_path: Path) -> None:
+    """审计要能事后还原，但**不能**把密钥抄一份进库。"""
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        # http_request 是出网工具，参数里常带 token；这里直接构造审计记录来验证打码
+        store = client._transport.app.state.doudou.observability.audit_store  # type: ignore[attr-defined]
+        from doudou.observability.audit import AuditEntry
+
+        await store.append(
+            AuditEntry(
+                audit_id="t1:tool:probe",
+                kind="tool",
+                thread_id="t1",
+                tool_name="http_request",
+                args={"api_key": "sk-should-not-be-here", "url": "https://example.com"},
+                status="ok",
+            )
+        )
+        body = (await client.get("/api/v1/audit")).json()
+
+    row = body["entries"][0]
+    assert "sk-should-not-be-here" not in json.dumps(row, ensure_ascii=False)
+    assert row["args"]["url"] == "https://example.com"
+
+
+async def test_usage_reports_unknown_price_as_null(tmp_path: Path) -> None:
+    """没配价格的模型 → ``cost`` 是 ``null``，不是 0。
+
+    把未知当 0 会让人以为成本在掌控之中，那比不显示更危险。
+    """
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        await client.post("/api/v1/chat", json={"message": "你好"})
+        usage = (await client.get("/api/v1/usage")).json()
+
+    assert usage["today"]["cost"] is None
+    assert usage["unknown_models"] == ["scripted:demo"]
+    assert usage["budget"]["cost_known"] is False
+    assert usage["budget"]["exceeded"] is False
+
+
+async def test_usage_computes_cost_with_prices(tmp_path: Path) -> None:
+    # config.local.yaml 必须在**加载配置之前**写好：settings 是加载时快照，
+    # 之后再改文件不会生效（这是配置系统的刻意设计，不是 bug）。
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "config.local.yaml").write_text(
+        "observability:\n"
+        "  cost:\n"
+        "    prices:\n"
+        "      scripted:demo:\n"
+        "        input: 1.0\n"
+        "        output: 1.0\n"
+        "    daily_budget: 100\n",
+        encoding="utf-8",
+    )
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        await client.post("/api/v1/chat", json={"message": "现在几点？"})
+        usage = (await client.get("/api/v1/usage")).json()
+
+    assert usage["today"]["cost"] is not None
+    assert usage["unknown_models"] == []
+    assert usage["budget"]["exceeded"] is False
+    assert "scripted:demo" in usage["prices_known"]

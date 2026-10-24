@@ -321,28 +321,65 @@ curl http://127.0.0.1:8000/api/v1/approvals  # 无人在场时从这里落决策
 
 ---
 
-### M9 — 生产化
+### M9 — 生产化 ✅
 
 **目标**：能长期稳定跑，出问题能定位。
 
 **交付物**
 
-- [ ] Postgres：`storage` 切到 Postgres（含 schema 迁移脚本）
-- [ ] 多副本：会话映射与队列下沉（Redis 锁 + 队列），去掉进程内状态
-- [ ] `observability/tracing.py`：LangSmith / OpenTelemetry
-- [ ] 审计日志：谁、何时、调用了什么工具、参数摘要、结果、是否人工确认
-      （`approvals` 表已有确认这一半，缺的是工具调用全量与导出）
-- [ ] 成本控制：token 预算告警、按会话用量统计
-- [ ] 安全：`pip-audit`、镜像扫描、密钥轮换流程
-- [ ] 压测与容量评估
+- [x] `observability/tracing.py`：Langfuse（低层 API，运行结束整批发；缺 key/缺包则安静降级）
+- [x] 审计日志：谁、何时、调用了什么工具、参数摘要、结果、是否人工确认
+      （`audit_events` 表 + `GET /api/v1/audit`；**没有写接口**，只能由运行产生）
+- [x] 成本控制：按天 × 会话累计 token 与费用、日预算告警、`GET /api/v1/usage`
+      （**查不到价格记为 `null`，不按 0 算**）
+- [x] 安全：`make audit`（pip-audit，只审运行时依赖）+ `make scan`（trivy 镜像扫描）
+      + CI 的 `security` job + 密钥轮换流程（`docs/security.md` §7.1）
+- [x] 压测与容量评估：`scripts/loadtest.py` + `docs/performance.md`（含瓶颈定位与据此做的修复）
+- [x] `RunEvent` 新增 `approval` 事件 —— 审计要能答「这次操作有没有经过人」，
+      而 `tool_result` 分不清「被拒绝」和「执行失败」
+- [x] 观测三件套共用一个 `RunObserver` 协议，挂在 `AgentRunner` 上；
+      观察者失败**只告警**（审计坏了不该让聊天不可用）
+- [x] 61 个新增测试（价格表 / 未知费用语义 / 观察者隔离 / 攒批 / trace 结构 / 端点）
 
-**验收**：两个副本并行处理不同会话不出错；一次异常请求能从审计日志完整还原。
+**验收**
 
-> **编排继续由自研循环负责。** 原计划在这里引入 LangGraph checkpointer 与
-> deepagents 的存储抽象，现已取消（见文末修正记录 #3）——因此「多副本续跑」
-> 靠的是我们自己的 `gateway.session` + `storage`，而不是外部运行时的
-> checkpointer / store。这条路上要自己解决的是**分布式锁与历史一致性**，
-> 不再是「换一个后端」。
+- 一次运行能从审计日志完整还原：`GET /api/v1/audit` 看到工具名、参数摘要
+  （已打码 + 截断上限）、结果摘要、耗时、`approved` 三态；
+- 能按会话查到 token 与估算费用：`GET /api/v1/usage`；
+- Langfuse 上能看到一次运行的完整 trace（step → generation + tool span，被拒绝的标 WARNING）；
+- 压测给出单副本容量结论并指出瓶颈（见下）。
+
+**命令**
+
+```powershell
+uv run python scripts/loadtest.py --concurrency 16 --turns 10
+curl http://127.0.0.1:8000/api/v1/audit?limit=20
+curl http://127.0.0.1:8000/api/v1/usage?days=7
+make audit && make scan
+```
+
+> **压测量出来一个真问题，并顺带修了一半。** 内存模式下编排层跑到
+> **169 轮/秒（p50 90ms）**，而 SQLite 落库只有 **6 轮/秒（p50 2.4s）** ——
+> 20 倍落差。逐层剥离后定位到：`aiosqlite` 每条语句有 ~1.4ms 固定成本
+> （跨线程往返），总吞吐封顶 ~450 条语句/秒，**与连接池大小无关**；
+> 而一轮运行要 3–5 条语句。
+>
+> 据此做了三处修改：SQLite 开 `WAL` + `synchronous=NORMAL` + `busy_timeout`，
+> 以及**审计/用量的写后缓冲**（一轮的提交从 ~5 次降到 ~1 次）。
+> 合起来 6.0 → 9.6 轮/秒（+60%），但没有改变量级 —— 瓶颈不在提交次数。
+> 完整数据与结论见 `docs/performance.md`。
+>
+> 攒批的代价必须说清：被 `SIGKILL` 时可能丢掉最后不足 `batch_size` 条的
+> 审计与用量记录；读接口会先 flush 再查，所以「刚发生的查不到」不会发生。
+
+> **不在本里程碑范围内的（据上述数据）**：SQLite 的单写者模型是**硬上限**，
+> 调参解决不了。要提升并发必须换外部数据库，并把会话映射与队列从进程内下沉
+> —— 那是独立的一块工作，本轮按范围**没做**，也不假装做了。
+> 当前建议见 `docs/performance.md` §5。
+
+**风险**：审计与用量都是「旁路」，最容易出的事是**它们被当成事实来源**——
+`docs/observability.md` §5 写清了攒批会丢什么，`/usage` 的 `note` 也说明了
+费用是估算而不是账单。
 
 ---
 
@@ -387,7 +424,8 @@ M2 服务化 ──▶ M4 飞书通道 ──▶ 「在飞书里可用」
 | 成本失控 | 100 万上下文 + 38 万输出上限 | M7 的 token 预算；`max_tokens` 只封顶不提满 |
 | 飞书回调超时导致重复回答 | M4 | 3 秒内返回 200 + `event_id` 幂等去重 |
 | 卡片更新频控被限流 | M4 | 节流合并更新，间隔可配 |
-| 多副本下会话状态分裂 | M9 | 会话映射与队列下沉到外部存储 |
+| 多副本下会话状态分裂 | 尚未排期 | 会话映射与队列下沉到外部存储（`docs/performance.md` §5 给出了证据） |
+| SQLite 单写者成为并发上限 | M9 压测实测 | 已做 WAL + 攒批（6 → 9.6 轮/秒）；量级提升需换外部数据库 |
 | 本地（Windows）与生产（Linux）行为差异 | 全程 | CI 跑 Linux；`tzdata`、路径、Makefile 已分别处理 |
 
 ---

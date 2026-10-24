@@ -15,6 +15,7 @@ from typing import Any, Literal
 #: - ``step_start``   进入新一轮「推理」
 #: - ``text_delta``   模型输出的增量文本
 #: - ``tool_call``    即将执行某个工具
+#: - ``approval``     该工具需要人工确认，这是确认结果（同意 / 拒绝）
 #: - ``tool_result``  工具执行结束（成功或失败）
 #: - ``run_end``      运行结束，``text`` 为最终答复
 #: - ``error``        运行以错误终止
@@ -23,6 +24,7 @@ EventType = Literal[
     "step_start",
     "text_delta",
     "tool_call",
+    "approval",
     "tool_result",
     "run_end",
     "error",
@@ -89,6 +91,34 @@ class RunEvent:
         )
 
     @classmethod
+    def approval(
+        cls,
+        *,
+        step: int,
+        name: str,
+        call_id: str,
+        approved: bool,
+        reason: str = "",
+        thread_id: str | None = None,
+    ) -> RunEvent:
+        """人工确认的结果。
+
+        为什么要单独一个事件而不是塞进 ``tool_result``：审计要回答的是
+        「这次操作**有没有经过人**」，而工具结果只能说明「执行成功了没」——
+        被拒绝的调用同样是 ``ok=False``，和参数错误、超时混在一起分不清。
+        ``tool_ok`` 这里表示「是否获批」，不是「是否执行成功」。
+        """
+        return cls(
+            type="approval",
+            step=step,
+            tool_name=name,
+            tool_call_id=call_id,
+            tool_ok=approved,
+            text=reason,
+            thread_id=thread_id,
+        )
+
+    @classmethod
     def tool_result(
         cls,
         *,
@@ -137,6 +167,9 @@ class ToolOutcome:
     content: str = ""
     ok: bool = True
     elapsed: float | None = None
+    #: 该工具是否需要人工确认，以及结果。``None`` = 不需要确认（没问过）。
+    approval: bool | None = None
+    approval_reason: str = ""
 
 
 __all__ = ["EventType", "RunEvent", "ToolOutcome"]

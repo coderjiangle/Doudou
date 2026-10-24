@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
+from time import perf_counter
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -20,6 +21,14 @@ from doudou.config.loader import Settings
 from doudou.gateway.history import HistoryStore, InMemoryHistoryStore, ThreadInfo, is_tool_message
 from doudou.gateway.schema import RunRequest
 from doudou.observability.logging import get_logger
+from doudou.observability.observers import (
+    RunContext,
+    RunObserver,
+    RunSummary,
+    notify_end,
+    notify_event,
+    notify_start,
+)
 
 logger = get_logger(__name__)
 
@@ -29,6 +38,9 @@ class AgentRunner:
 
     并发模型：**同一 thread 串行**（否则历史互相踩踏），不同 thread 完全并发。
     锁是进程内的，多副本部署需要换成分布式锁（见 docs/roadmap.md M9）。
+
+    ``observers`` 是审计 / 成本 / 追踪的挂载点：它们**只读**事件流，
+    而且失败了也不会影响运行（见 ``observability.observers``）。
     """
 
     def __init__(
@@ -36,11 +48,13 @@ class AgentRunner:
         bundle: AgentBundle,
         *,
         store: HistoryStore | None = None,
+        observers: Sequence[RunObserver] = (),
     ) -> None:
         self.bundle = bundle
         self.settings: Settings = bundle.settings
         self.store: HistoryStore = store if store is not None else InMemoryHistoryStore()
         self.context: ContextManager | None = bundle.context
+        self.observers: list[RunObserver] = list(observers)
         self._locks: dict[str, asyncio.Lock] = {}
         self._stats: dict[str, ContextStats] = {}
 
@@ -121,9 +135,18 @@ class AgentRunner:
     ) -> AsyncIterator[RunEvent]:
         """执行一次运行并流式产出事件。"""
         resolved_thread = thread_id or await self.resolve_thread(request)
+        context = RunContext(
+            thread_id=resolved_thread,
+            channel=request.channel,
+            conversation_id=request.conversation_id,
+            user_id=request.user_id,
+            text=request.text,
+        )
+        started = perf_counter()
 
         # 同一会话串行，避免历史互相踩踏；不同会话完全并发。
         async with self._lock(resolved_thread):
+            await notify_start(self.observers, context)
             stored = await self.store.load(resolved_thread)
             if self.context is not None:
                 history, stats = await self.context.prepare(resolved_thread, stored)
@@ -134,6 +157,9 @@ class AgentRunner:
             started_ok = False
             steps = 0
             tool_calls = 0
+            approvals = 0
+            rejections = 0
+            usage: dict[str, int] = {}
             error: str | None = None
             try:
                 async for event in self.bundle.agent.astream(
@@ -141,11 +167,18 @@ class AgentRunner:
                     thread_id=resolved_thread,
                     messages_out=produced,
                 ):
+                    await notify_event(self.observers, context, event)
                     if event.type == "run_end":
                         started_ok = True
                         steps = event.step
+                        usage = dict(event.usage or {})
                     elif event.type == "tool_call":
                         tool_calls += 1
+                    elif event.type == "approval":
+                        if event.tool_ok:
+                            approvals += 1
+                        else:
+                            rejections += 1
                     elif event.type == "error":
                         error = event.text
                     yield event
@@ -160,6 +193,7 @@ class AgentRunner:
                     conversation_id=request.conversation_id,
                 )
                 stored_info = await self.store.get_thread(resolved_thread)
+                elapsed = perf_counter() - started
                 logger.info(
                     "runner.run_finished",
                     thread_id=resolved_thread,
@@ -168,6 +202,11 @@ class AgentRunner:
                     ok=started_ok and error is None,
                     steps=steps,
                     tool_calls=tool_calls,
+                    approvals=approvals,
+                    rejections=rejections,
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                    elapsed=round(elapsed, 3),
                     history_messages=stored_info.message_count if stored_info else 0,
                     new_messages=len(committed) + 1,
                     # 上下文占用：排查「它为什么忘了」全靠这几个数
@@ -184,6 +223,20 @@ class AgentRunner:
                         thread_id=resolved_thread,
                         committed=len(committed),
                     )
+                await notify_end(
+                    self.observers,
+                    context,
+                    RunSummary(
+                        ok=started_ok and error is None,
+                        steps=steps,
+                        tool_calls=tool_calls,
+                        approvals=approvals,
+                        rejections=rejections,
+                        usage=usage,
+                        elapsed=elapsed,
+                        error=error,
+                    ),
+                )
 
     async def ainvoke(self, request: RunRequest, *, thread_id: str | None = None) -> RunResult:
         """执行一次运行并返回聚合结果。"""

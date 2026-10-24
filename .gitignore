@@ -63,3 +63,6 @@ Thumbs.db
 config/config.local.yaml
 config/*.local.yaml
 config/mcp.servers.yaml
+
+# ---- make audit 的临时依赖清单 ----
+.audit-requirements.txt

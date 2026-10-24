@@ -315,11 +315,16 @@ class ChannelsConfig(_Section):
 
 
 class LangSmithConfig(_Section):
+    """**未使用**：早期预留的 LangSmith 开关。追踪改用 Langfuse（见下）。
+    保留字段只为兼容既有配置文件。"""
+
     enabled: bool = False
     project: str = "doudou"
 
 
 class OtelConfig(_Section):
+    """**未使用**：早期预留的 OTel 导出配置。"""
+
     enabled: bool = False
     endpoint: str | None = None
 
@@ -328,10 +333,58 @@ class MetricsConfig(_Section):
     enabled: bool = True
 
 
+class AuditConfig(_Section):
+    """审计：每次工具调用都留一条痕。"""
+
+    enabled: bool = True
+    #: 参数摘要的**单字段**长度上限（先打码再截断）。
+    max_arg_chars: int = 2000
+    #: 结果只留开头一段，全文在历史消息与日志里。
+    max_result_chars: int = 500
+    #: 无数据库时的内存上限（环形缓冲，超出丢最旧）。
+    max_memory_entries: int = 5000
+    #: 有数据库时保留的总条数，超出按时间清理（避免无限增长）。
+    max_rows: int = 50000
+    #: 攒多少条写一次库。``1`` = 逐条严格持久化（慢但丢得最少）；
+    #: 默认 50 是为了绕开 SQLite 的单写者瓶颈，见 docs/performance.md。
+    batch_size: int = 50
+
+
+class CostConfig(_Section):
+    """成本核算：按会话/按天累计，超预算只告警。"""
+
+    enabled: bool = True
+    currency: str = "USD"
+    #: 每日预算；``0`` 表示不设。超了只告警（见 docs/observability.md）。
+    daily_budget: float = 0.0
+    #: 模型 → 每 100 万 token 的价格。键可以是 ``provider:model`` 或模型短名，
+    #: ``default`` 兜底。**查不到价格时 cost 记为 null，绝不按 0 算。**
+    prices: dict[str, dict[str, float]] = Field(default_factory=dict)
+    #: 攒多少条用量写一次库（同 ``audit.batch_size``，合并写入还能少几次读改写）。
+    batch_size: int = 50
+
+
+class TracingConfig(_Section):
+    """Langfuse 追踪。"""
+
+    #: 显式开关：默认关闭，避免无意间把对话内容发到第三方。
+    enabled: bool = False
+    host: str = "https://cloud.langfuse.com"
+    #: 打进 trace 标签，便于区分环境（prod / staging）。
+    environment: str | None = None
+    release: str | None = None
+    #: 采样率（0–1）。全量追踪很贵时压低它。
+    sample_rate: float = 1.0
+
+
 class ObservabilityConfig(_Section):
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+    audit: AuditConfig = Field(default_factory=AuditConfig)
+    cost: CostConfig = Field(default_factory=CostConfig)
+    tracing: TracingConfig = Field(default_factory=TracingConfig)
+    #: 下面两个**未使用**，保留以兼容既有配置（见各自的 docstring）。
     langsmith: LangSmithConfig = Field(default_factory=LangSmithConfig)
     otel: OtelConfig = Field(default_factory=OtelConfig)
-    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 
 
 # --------------------------------------------------------------------------- root
@@ -357,9 +410,11 @@ class AppConfig(_Section):
 __all__ = [
     "AgentConfig",
     "AppConfig",
+    "AuditConfig",
     "ChannelsConfig",
     "CliChannelConfig",
     "ContextConfig",
+    "CostConfig",
     "FeishuChannelConfig",
     "FilesToolConfig",
     "FilesystemConfig",
@@ -378,6 +433,7 @@ __all__ = [
     "ShellToolConfig",
     "StorageConfig",
     "ToolsConfig",
+    "TracingConfig",
     "WebSearchToolConfig",
     "WebhookChannelConfig",
 ]

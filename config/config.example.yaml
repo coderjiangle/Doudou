@@ -201,12 +201,45 @@ channels:
     token_header: X-Doudou-Token
 
 # ---------------------------------------------------------------- 可观测性
+# 审计 / 成本 / 追踪都挂在同一份事件流上，见 docs/observability.md。
 observability:
-  langsmith:
-    enabled: false
-    project: doudou
-  otel:
-    enabled: false
-    endpoint: null
   metrics:
     enabled: true
+
+  # 审计：每次工具调用一条记录（谁、何时、什么工具、参数摘要、结果、是否经人确认）
+  audit:
+    enabled: true
+    max_arg_chars: 2000        # 单个参数值的长度上限（先打码再截断）
+    max_result_chars: 500      # 结果只留开头一段，全文在历史与日志里
+    max_rows: 50000            # 落库时的行数上限，超出按时间清理
+    # 攒多少条写一次库。1 = 逐条严格持久化（慢但丢得最少）。
+    # 默认 50 是为了绕开 SQLite 的单写者瓶颈，见 docs/performance.md。
+    batch_size: 50
+
+  # 成本：按天 × 会话累计 token 与费用，超预算只告警（不拦截）
+  cost:
+    enabled: true
+    daily_budget: 0.0          # 0 = 不设预算
+    batch_size: 50
+    # 价格是部署相关的，因此不写死在代码里。键可以是 provider:model 或模型短名。
+    # **没配价格的模型 cost 记为 null（未知 ≠ 0）**，并在 /usage 的 unknown_models 里列出。
+    prices:
+      default: {input: 0.0, output: 0.0}
+      # openai:gpt-x: {input: 3.0, output: 15.0}   # 每 100 万 token
+
+  # 追踪：Langfuse。默认关闭 —— 把对话内容发到第三方必须是明确的决定。
+  # 打开还需 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY，以及装好 SDK
+  # （uv sync --extra tracing）。缺任一条都会安静降级并告警。
+  tracing:
+    enabled: false
+    host: https://cloud.langfuse.com
+    environment: null          # prod / staging，会打进 trace 标签
+    release: null
+    sample_rate: 1.0
+    # 下面两个**未使用**（早期预留的 LangSmith / OTel 开关），保留以兼容既有配置
+    langsmith:
+      enabled: false
+      project: doudou
+    otel:
+      enabled: false
+      endpoint: null

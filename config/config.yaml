@@ -197,12 +197,29 @@ channels:
     token_header: X-Doudou-Token
 
 # ---------------------------------------------------------------- 可观测性
+# 审计 / 成本 / 追踪（见 docs/observability.md）
 observability:
+  metrics:
+    enabled: true
+  audit:
+    enabled: true
+    batch_size: 50             # 攒批写：1 = 逐条严格持久化（SQLite 下慢很多）
+    max_rows: 50000
+  cost:
+    enabled: true
+    daily_budget: 0.0          # 0 = 不设；超了只告警
+    batch_size: 50
+    # 你的网关价格。没配 → cost 记为 null（未知 ≠ 0），并在 /usage 里列出 unknown_models
+    prices:
+      default: {input: 0.0, output: 0.0}
+  tracing:
+    enabled: false             # 需要 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
+    host: https://cloud.langfuse.com
+    sample_rate: 1.0
+  # 以下两项未使用（早期预留），保留以兼容既有配置
   langsmith:
     enabled: false
     project: doudou
   otel:
     enabled: false
     endpoint: null
-  metrics:
-    enabled: true

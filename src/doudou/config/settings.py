@@ -153,6 +153,31 @@ class EnvChannels(_EnvSection):
     webhook: EnvWebhookChannel | None = None
 
 
+class EnvAudit(_EnvSection):
+    enabled: bool | None = None
+    max_arg_chars: int | None = None
+    max_result_chars: int | None = None
+
+
+class EnvCost(_EnvSection):
+    enabled: bool | None = None
+    daily_budget: float | None = None
+
+
+class EnvTracing(_EnvSection):
+    enabled: bool | None = None
+    host: str | None = None
+    environment: str | None = None
+    release: str | None = None
+    sample_rate: float | None = None
+
+
+class EnvObservability(_EnvSection):
+    audit: EnvAudit | None = None
+    cost: EnvCost | None = None
+    tracing: EnvTracing | None = None
+
+
 class EnvSettings(BaseSettings):
     """``DOUDOU_*`` 环境变量。优先级高于 YAML。"""
 
@@ -184,6 +209,7 @@ class EnvSettings(BaseSettings):
     storage: EnvStorage | None = None
     mcp: EnvMcp | None = None
     channels: EnvChannels | None = None
+    observability: EnvObservability | None = None
 
 
 class Secrets(BaseSettings):
@@ -209,6 +235,10 @@ class Secrets(BaseSettings):
     feishu_base_url: str | None = None
 
     langsmith_api_key: str | None = None
+    #: Langfuse 凭据（``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY``）。
+    #: 两者齐备且 ``observability.tracing.enabled`` 为真时才会发 trace。
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
 
     def as_dict(self) -> dict[str, str | None]:
         """导出为字典，便于日志与 ``config show`` 脱敏展示。"""

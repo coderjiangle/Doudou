@@ -30,6 +30,9 @@ async def health(state: StateDep) -> HealthResponse:
         "channels": ",".join(state.channel_names) if state.channel_names else "none",
         "mcp": ",".join(status.name for status in (state.mcp.statuses if state.mcp else []))
         or "none",
+        # 观测能力是排查的前提，所以放在 health 里 —— 别让人以为没开追踪时
+        # 「trace 里什么都没有」是出了问题。
+        "observability": ",".join(state.observability.names) or "none",
     }
     return HealthResponse(
         status=CHECK_OK,
@@ -43,6 +46,7 @@ async def health(state: StateDep) -> HealthResponse:
         mcp=_mcp_summary(state),
         checks=checks,
         metrics=state.metrics_snapshot(),
+        observability=state.observability.describe(),
     )
 
 

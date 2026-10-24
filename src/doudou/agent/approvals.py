@@ -179,6 +179,21 @@ class ApprovalBroker:
                 await self.on_request(request)
             except Exception as exc:
                 logger.warning("approval.notify_failed", error=str(exc), exc_info=True)
+        else:
+            # 没有任何人负责「把这件事告诉用户」时必须自己喊一声 ——
+            # 否则这次运行只会静静等到超时，用户以为卡住了、运维也不知道它在等什么。
+            logger.warning(
+                "approval.awaiting_decision",
+                approval_id=request.approval_id,
+                tool=request.tool_name,
+                timeout=self.timeout,
+                hint=(
+                    "无人可问：GET /api/v1/approvals 查看待确认请求，"
+                    f"POST /api/v1/approvals/{request.approval_id} 落决策"
+                    "（或让通道接管 broker.on_request，例如飞书卡片按钮）。"
+                    f"超过 {self.timeout:.0f}s 未决将按拒绝处理。"
+                ),
+            )
 
         return await self._wait(request)
 

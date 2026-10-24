@@ -179,6 +179,17 @@ class ReactAgent:
             )
 
             for outcome in outcomes:
+                if outcome.approval is not None:
+                    # 先报确认结果，再报执行结果：顺序反过来会让人以为
+                    # 「先执行了、后来才补的确认」。
+                    yield RunEvent.approval(
+                        step=step,
+                        name=outcome.name,
+                        call_id=outcome.call_id,
+                        approved=outcome.approval,
+                        reason=outcome.approval_reason,
+                        thread_id=thread_id,
+                    )
                 history.append(
                     ToolMessage(
                         content=outcome.content,
@@ -336,6 +347,10 @@ class ReactAgent:
                 content=f"错误：工具 {name} 的参数无法解析（{error}），请重新给出合法 JSON。",
             )
 
+        # 需要人工确认的工具：先问人，再把结果带回 ToolOutcome ——
+        # 审计要能答「这次操作有没有经过人」，这件事只有这里知道。
+        approval: bool | None = None
+        approval_reason = ""
         if self._needs_approval(name):
             request = ToolApprovalRequest(tool_name=name, args=args, step=step, call_id=call_id)
             if self.approval_hook is None:
@@ -344,6 +359,8 @@ class ReactAgent:
                     name=name,
                     args=args,
                     ok=False,
+                    approval=False,
+                    approval_reason="需要人工确认，但当前运行没有确认回调",
                     content=(
                         f"错误：工具 {name} 被配置为需要人工确认，"
                         "但当前运行未提供确认回调，已跳过执行。"
@@ -357,8 +374,11 @@ class ReactAgent:
                     name=name,
                     args=args,
                     ok=False,
+                    approval=False,
+                    approval_reason="用户拒绝",
                     content=f"用户拒绝执行工具 {name}，请改用其他方式或询问用户。",
                 )
+            approval, approval_reason = True, "用户同意"
 
         started = perf_counter()
         # 工具执行是 Agent 真正产生副作用的地方，出入参必须留痕。
@@ -391,6 +411,8 @@ class ReactAgent:
                 args=args,
                 ok=False,
                 elapsed=elapsed,
+                approval=approval,
+                approval_reason=approval_reason,
                 content=f"错误：工具 {name} 执行超时（>{timeout}s）。",
             )
         except Exception as exc:
@@ -410,6 +432,8 @@ class ReactAgent:
                 args=args,
                 ok=False,
                 elapsed=elapsed,
+                approval=approval,
+                approval_reason=approval_reason,
                 content=f"错误：工具 {name} 执行失败（{type(exc).__name__}: {exc}）。",
             )
 
@@ -433,6 +457,8 @@ class ReactAgent:
             args=args,
             ok=True,
             elapsed=elapsed,
+            approval=approval,
+            approval_reason=approval_reason,
             content=content,
         )
 

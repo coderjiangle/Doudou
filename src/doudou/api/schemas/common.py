@@ -45,6 +45,9 @@ class HealthResponse(BaseModel):
     mcp: dict[str, Any] = Field(default_factory=dict, description="MCP server 与工具概况。")
     checks: dict[str, str] = Field(default_factory=dict, description="各依赖项的 ok / 说明。")
     metrics: dict[str, Any] = Field(default_factory=dict, description="运行计数与耗时摘要。")
+    observability: dict[str, Any] = Field(
+        default_factory=dict, description="审计 / 成本 / 追踪的启用情况。"
+    )
 
 
 class ToolInfoOut(BaseModel):

@@ -86,6 +86,14 @@ OPENAI_API_KEY=<网关签发的 Key>
 | `DOUDOU_STORAGE__DATABASE_URL` | `sqlite+aiosqlite:///./data/doudou.db` | 业务库 |
 | `DOUDOU_STORAGE__HISTORY` | `database` | 会话历史存哪：`database`（重启可续）/ `memory`（进程内，轻量） |
 | `DOUDOU_STORAGE__CHECKPOINTER` | `sqlite` | **未使用**：LangGraph 概念，接入 deepagents 的计划已取消（同 `store`） |
+| `DOUDOU_OBSERVABILITY__AUDIT__ENABLED` | `true` | 审计开关（M9） |
+| `DOUDOU_OBSERVABILITY__AUDIT__BATCH_SIZE` | `50` | 攒批写；`1` = 逐条严格持久化（SQLite 下慢 20 倍，见 `docs/performance.md`） |
+| `DOUDOU_OBSERVABILITY__AUDIT__MAX_ROWS` | `50000` | 审计表行数上限，超出按时间清理 |
+| `DOUDOU_OBSERVABILITY__COST__ENABLED` | `true` | 成本统计开关 |
+| `DOUDOU_OBSERVABILITY__COST__DAILY_BUDGET` | `0` | 日预算（美元）；`0` = 不设。**超了只告警不拦截** |
+| `DOUDOU_OBSERVABILITY__TRACING__ENABLED` | `false` | Langfuse 追踪；需同时有 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` |
+| `DOUDOU_OBSERVABILITY__TRACING__HOST` | `https://cloud.langfuse.com` | 自建填自己的地址 |
+| `DOUDOU_OBSERVABILITY__LANGSMITH__ENABLED` | `false` | **未使用**（早期预留） |
 | `DOUDOU_STORAGE__STORE` | `sqlite` | 长期记忆存储（M7） |
 
 > SQLite 文件所在目录不存在时会自动创建；生产建议换 Postgres：

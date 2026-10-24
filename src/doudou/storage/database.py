@@ -54,23 +54,42 @@ class Database:
             pool_pre_ping=not config.database_url.startswith("sqlite"),
         )
         if config.database_url.startswith("sqlite"):
-            self._enable_sqlite_foreign_keys()
+            self._configure_sqlite()
         self.session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             self.engine, expire_on_commit=False
         )
 
-    def _enable_sqlite_foreign_keys(self) -> None:
-        """打开 SQLite 的外键约束。
+    def _configure_sqlite(self) -> None:
+        """SQLite 的开关：外键约束 + 并发写参数。
 
-        SQLite 默认**不**强制外键，于是 ``ondelete="CASCADE"`` 形同虚设 ——
-        删了 thread，messages 会留下成为孤儿行。Postgres 无此问题，所以这里只对
-        SQLite 生效。
+        **外键**：SQLite 默认不强制外键，于是 ``ondelete="CASCADE"`` 形同虚设 ——
+        删了 thread，messages 会留下成为孤儿行。
+
+        **并发**（M9 压测实测出来的，见 ``docs/performance.md``）：
+
+        * ``journal_mode=WAL`` —— 默认的回滚日志会让**写操作阻塞所有读**，
+          而我们是「每轮若干次读 + 若干次写」的混合负载，16 并发下实测吞吐
+          只有 6 次/秒；WAL 之后读不再被写挡住；
+        * ``synchronous=NORMAL`` —— WAL 下每次提交仍要 fsync，而一轮运行有
+          五六次提交，「每次提交都等落盘」于是成了主导开销；``NORMAL`` 只牺牲
+          「断电时可能丢掉最后几个已提交事务」，不会损坏数据库；
+        * ``busy_timeout`` —— 撞锁时等待，而不是立刻抛 "database is locked"。
+
+        这些只对 SQLite 生效；换 Postgres 时整个方法不会执行。
         """
+        pragmas = ["PRAGMA foreign_keys=ON"]
+        if ":memory:" not in self.config.database_url:
+            pragmas += [
+                "PRAGMA journal_mode=WAL",
+                "PRAGMA synchronous=NORMAL",
+                "PRAGMA busy_timeout=5000",
+            ]
 
         @event.listens_for(self.engine.sync_engine, "connect")
         def _set_pragma(dbapi_connection: Any, _record: Any) -> None:
             cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
+            for statement in pragmas:
+                cursor.execute(statement)
             cursor.close()
 
     async def create_schema(self) -> None:

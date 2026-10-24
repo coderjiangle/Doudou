@@ -66,7 +66,33 @@ async def test_decide_rejects(broker: ApprovalBroker) -> None:
     assert outcome.reason == "不要"
 
 
-async def test_timeout_is_rejected() -> None:
+async def test_broker_warns_when_nobody_can_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """没有人负责通知用户时，broker 必须自己喊一声。
+
+    否则这次运行只会静静地等到超时 —— 用户以为卡住了，运维不知道它在等什么。
+    这里钉的是**可发现性**：告警里必须带上「去哪里落决策」。
+    """
+    from doudou.agent import approvals as approvals_module
+
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        approvals_module.logger, "warning", lambda event, **kw: calls.append((event, kw))
+    )
+
+    broker = ApprovalBroker(timeout=0.05)
+    assert broker.on_request is None
+
+    outcome = await broker.request(tool_name="workspace_write", args={"path": "a.md"}, call_id="c1")
+
+    assert outcome.status == "expired"
+    events = [event for event, _ in calls]
+    assert "approval.awaiting_decision" in events
+    hint = next(kw for event, kw in calls if event == "approval.awaiting_decision")["hint"]
+    assert "/approvals/" in hint
+    assert "拒绝" in hint
+
+
+async def test_timeout_is_rejected(caplog: pytest.LogCaptureFixture) -> None:
     """等不到决策 → 拒绝。悬着的确认等于没有确认，默认必须偏向安全。"""
     broker = ApprovalBroker(timeout=1.0)
     expiry_marker: list[str] = []

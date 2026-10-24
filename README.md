@@ -5,12 +5,9 @@
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M8 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 工作区文件 /
-> 命令执行 / 委派）、会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）**、
-> **飞书通道（WebSocket 长连接 + 流式卡片 + 确认按钮）**、**MCP（stdio / http / sse）**、
-> **Skill 渐进式加载**、**上下文工程（token 预算 / 摘要压缩 / 大结果卸载 / 长期记忆）**
-> 与 **权限 / 子 Agent / 人在回路** 均端到端可用，590 个离线测试 + `ruff` + `mypy --strict` 全绿。
-> 剩下一个里程碑（生产化 M9），详见 [`docs/roadmap.md`](docs/roadmap.md)。
+> **当前进度：M9 已完成**（生产化：Langfuse 追踪 / 审计日志 / 成本核算 / 安全扫描 /
+> 压测容量评估），见 [`docs/roadmap.md`](docs/roadmap.md)。
+> 642 个离线测试 + `ruff` + `mypy --strict` 全绿。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
@@ -35,6 +32,9 @@
 | 上下文工程 | token 预算、摘要压缩、大结果卸载、长期记忆 | `doudou.agent.context` | ✅ M7 |
 | 权限与子 Agent | 路径权限 + 子 Agent 委派 + 跨重启确认 | `doudou.agent.permissions` | ✅ M8 |
 | 确认中介 | 超时按拒绝、决策复用、落库审计 | `doudou.agent.approvals` | ✅ M8 |
+| 审计日志 | 工具调用全量留痕（参数打码 + 截断） | `doudou.observability.audit` | ✅ M9 |
+| 成本核算 | 按天×会话的 token/费用、日预算告警 | `doudou.observability.cost` | ✅ M9 |
+| 追踪 | Langfuse（可选，缺 key 则降级） | `doudou.observability.tracing` | ✅ M9 |
 
 ## 1.1 立刻可跑（不需要任何 API Key）
 

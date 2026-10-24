@@ -50,6 +50,24 @@ jobs:
           name: coverage
           path: coverage.xml
 
+  security:
+    name: security (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
+      # 只审**运行时依赖**：dev 工具不进生产镜像，它们的告警没有处置路径。
+      # 查不到可用升级（上游未修）时用 `--ignore-vuln` 显式登记，并且要写清原因 ——
+      # 「静默忽略」会让这个 job 慢慢变成装饰品。
+      - name: pip-audit
+        run: |
+          uv export --no-dev --no-emit-project --format requirements-txt > /tmp/requirements.txt
+          uv run pip-audit -r /tmp/requirements.txt --progress-spinner off
+
   docker:
     name: docker build
     runs-on: ubuntu-latest
@@ -64,3 +82,14 @@ jobs:
           tags: doudou:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # 镜像扫描（trivy）需要拉漏洞库，网络抖动会让 job 假失败；
+      # 因此放在**构建之后**单独一步，只扫本次构建的产物，
+      # 有 HIGH/CRITICAL 就失败。本地同款命令见 `make scan`。
+      - name: trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: doudou:ci
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true

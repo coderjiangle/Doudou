@@ -22,6 +22,7 @@ from doudou.gateway.runner import AgentRunner
 from doudou.mcp.lifecycle import McpRuntime
 from doudou.observability.logging import configure_logging, get_logger
 from doudou.observability.metrics import get_metrics
+from doudou.observability.setup import ObservabilityStack, build_observability
 from doudou.storage.approvals import SqlApprovalStore
 from doudou.storage.database import Database, create_database
 from doudou.storage.history import SqlHistoryStore
@@ -54,6 +55,8 @@ class AppState:
     #: 人工确认的中介。所有通道共用它 —— 确认动作可能来自 CLI、HTTP 或飞书卡片。
     broker: ApprovalBroker | None = None
     approval_store: SqlApprovalStore | None = None
+    #: 审计 / 成本 / 追踪。API 从它读存储（``/audit``、``/usage``）。
+    observability: ObservabilityStack = field(default_factory=ObservabilityStack)
     started_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -123,7 +126,10 @@ async def create_state(settings: Settings | None = None) -> AppState:
     mcp_tools = await mcp.start()
 
     bundle = build_agent(resolved, extra_tools=mcp_tools, approval_hook=broker.hook())
-    runner = AgentRunner(bundle, store=store)
+
+    # 审计 / 成本 / 追踪在 runner 之前装好：观察者是在构造时固定的。
+    observability = build_observability(resolved, database=database)
+    runner = AgentRunner(bundle, store=store, observers=observability.observers)
 
     # 常驻通道（飞书长连接）需要一条「不阻塞事件循环」的执行路径，
     # 因此装配 bus → router → channels 三级。
@@ -140,6 +146,7 @@ async def create_state(settings: Settings | None = None) -> AppState:
         history_backend=resolved.app.storage.history,
         channels=[channel.name for channel in channels],
         approvals_backend="database" if approval_store else "memory",
+        observers=observability.names,
     )
     return AppState(
         settings=resolved,
@@ -153,16 +160,19 @@ async def create_state(settings: Settings | None = None) -> AppState:
         mcp=mcp,
         broker=broker,
         approval_store=approval_store,
+        observability=observability,
     )
 
 
 async def dispose_state(state: AppState) -> None:
-    """释放资源。先停通道（停止收新消息），再停 bus 与 MCP，最后关数据库。"""
+    """释放资源。先停通道（停止收新消息），再停 bus / MCP / 观测，最后关数据库。"""
     await stop_channels(state.channels)
     if state.bus is not None:
         await state.bus.stop()
     if state.mcp is not None:
         await state.mcp.stop()
+    # 观测放在数据库之前关：追踪还要 flush 一次，而 flush 可能读库。
+    await state.observability.aclose()
     if state.database is not None:
         await state.database.dispose()
     logger.info("api.state_disposed", uptime_seconds=state.uptime_seconds)

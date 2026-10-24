@@ -36,11 +36,21 @@ from doudou.api.schemas.common import (
     ToolInfoOut,
     ToolListResponse,
 )
+from doudou.api.schemas.observability import (
+    AuditEntryOut,
+    AuditListResponse,
+    UsageBucketOut,
+    UsageBudgetOut,
+    UsageResponse,
+    UsageTotalOut,
+)
 
 __all__ = [
     "ApprovalDecisionRequest",
     "ApprovalListResponse",
     "ApprovalOut",
+    "AuditEntryOut",
+    "AuditListResponse",
     "ChatRequest",
     "ChatResponse",
     "ChecksOut",
@@ -66,4 +76,8 @@ __all__ = [
     "ThreadSummary",
     "ToolInfoOut",
     "ToolListResponse",
+    "UsageBucketOut",
+    "UsageBudgetOut",
+    "UsageResponse",
+    "UsageTotalOut",
 ]

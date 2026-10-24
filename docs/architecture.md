@@ -91,10 +91,26 @@ run_start
 | `testing` | 确定性脚本模型，供单元测试、CI 与 `--model scripted:demo` 离线自检共用。 |
 | `prompts` | 系统提示词加载与模板变量渲染。 |
 | `memory` | M7：`AGENTS.md` 等记忆文件的加载与回写。 |
-| `context` | M7：上下文工程（预算裁剪 / 摘要压缩 / 大结果卸载）。 |
-| `subagents` | M8：从 `agents.yaml` 生成子 Agent 定义。 |
-| `permissions` | M8：文件系统读写权限规则（首匹配生效 + containment 兜底）。 |
-| `approvals` | M8：人工确认中介（待决登记 / 超时按拒绝 / 决策复用）。 |
+| `context` | M7：上下文工程（预算裁剪 / 摘要压缩 / 大结果卸载）。✅ |
+| `subagents` | M8：从 `agents.yaml` 生成子 Agent 定义。✅ |
+| `permissions` | M8：文件系统读写权限规则（首匹配生效 + containment 兜底）。✅ |
+| `approvals` | M8：人工确认中介（待决登记 / 超时按拒绝 / 决策复用）。✅ |
+
+### 2.3.1 可观测性（M9）
+
+审计、成本、追踪挂在**同一份事件流**上，runner 只认识一个很薄的协议：
+
+| 模块 | 职责 |
+| --- | --- |
+| `observability.observers` | `RunObserver` 协议 + `RunContext` / `RunSummary`；回调失败只告警（观察者是旁路） |
+| `observability.audit` | 审计记录与 `AuditObserver`；参数**构造即打码**（`__post_init__`） |
+| `observability.cost` | 价格表 + 用量累计 + `UsageObserver`（超预算只告警） |
+| `observability.tracing` | Langfuse（运行结束整批发；缺包/缺 key 则 no-op） |
+| `observability.buffering` | 审计 / 用量的**写后缓冲**（SQLite 单写者下的必要优化） |
+| `observability.setup` | `build_observability()`：按配置装配，零配置零开销 |
+| `storage.audit` / `storage.usage` | 落库实现（`audit_events` / `usage_daily` 两张表） |
+
+设计取舍见 `docs/observability.md`，容量数据见 `docs/performance.md`。
 
 > **没有 `middleware` / `backends` / `checkpointer` 这三个模块。**
 > 它们原本属于「接入 deepagents 引擎」的计划（旧 M9），该计划已取消 ——

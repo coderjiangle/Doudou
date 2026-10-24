@@ -1,10 +1,13 @@
-"""ORM models: threads, messages, channel bindings.
+"""ORM models: threads, messages, channel bindings, approvals, audit, usage.
 
-三张表的分工：
+六张表的分工：
 
 * ``threads``          —— 一个会话（= 一个 agent thread），承载渠道归属与时间戳；
 * ``messages``         —— 线程内的消息，``seq`` 保证顺序，工具调用字段以 JSON 存；
-* ``session_bindings`` —— 「渠道会话 → thread」的映射，让会话归属在重启后仍然成立。
+* ``session_bindings`` —— 「渠道会话 → thread」的映射，让会话归属在重启后仍然成立；
+* ``approvals``        —— 人工确认的请求与决策（跨重启可查）；
+* ``audit_events``     —— 每次工具调用与每次运行的审计留痕；
+* ``usage_daily``      —— 按「天 × 会话」累计的 token 与费用。
 
 时间戳统一存 UTC。注意 SQLite 不保留时区信息，读出来的可能是 naive datetime，
 因此对外输出前一律走 :func:`as_utc` 补上 UTC。
@@ -16,7 +19,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -133,12 +138,74 @@ class ApprovalModel(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class AuditModel(Base):
+    """审计：每次工具调用（以及每次运行）一条记录。
+
+    与 ``approvals`` 的分工：那张表记「确认请求与理由」，这张表记
+    「工具调用与它的结果」。两者用 ``tool_call_id`` 对得上。
+
+    一条工具记录会写两次（先建、后补结果），因此 ``audit_id`` 是主键、
+    用 upsert 写入 —— 分开写会造出两行，审计就变成噪声了。
+    """
+
+    __tablename__ = "audit_events"
+
+    audit_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    thread_id: Mapped[str] = mapped_column(String(120), index=True)
+    channel: Mapped[str | None] = mapped_column(String(32))
+    conversation_id: Mapped[str | None] = mapped_column(String(200))
+    user_id: Mapped[str | None] = mapped_column(String(120))
+    tool_name: Mapped[str | None] = mapped_column(String(120), index=True)
+    tool_call_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    step: Mapped[int] = mapped_column(Integer, default=0)
+    #: 参数摘要（已打码 + 截断）。
+    args: Mapped[Any] = mapped_column(JSON, nullable=True)
+    args_truncated: Mapped[int] = mapped_column(Integer, default=0)
+    result_preview: Mapped[str | None] = mapped_column(Text)
+    result_chars: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    #: 是否经过人工确认：``NULL`` = 该工具不需要确认（根本没问过）。
+    approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    elapsed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UsageModel(Base):
+    """按「天 × 会话」累计的 token 与费用。
+
+    粒度选 (day, thread_id) 而不是每次运行一行：用量查询几乎总是
+    「某条会话花了多少」「今天花了多少」，逐运行记录会让表无界增长，
+    而聚合结果并不需要那么细。真要逐次对账，日志里每次运行都有 token 数。
+    """
+
+    __tablename__ = "usage_daily"
+
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    channel: Mapped[str | None] = mapped_column(String(32))
+    model: Mapped[str | None] = mapped_column(String(120))
+    runs: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    tool_calls: Mapped[int] = mapped_column(Integer, default=0)
+    approvals: Mapped[int] = mapped_column(Integer, default=0)
+    rejections: Mapped[int] = mapped_column(Integer, default=0)
+    #: 累计费用。``NULL`` = 有运行的价格查不到，**不能当 0**。
+    cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 __all__ = [
     "ApprovalModel",
+    "AuditModel",
     "Base",
     "MessageModel",
     "SessionBindingModel",
     "ThreadModel",
+    "UsageModel",
     "as_utc",
     "utcnow",
 ]

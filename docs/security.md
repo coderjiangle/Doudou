@@ -132,23 +132,63 @@ agent:
 - 单一入口：`security/secrets.py` 读取，其他模块禁止直接 `os.environ`。
 - 日志与 `doudou config show` 输出自动脱敏（匹配 `*_KEY`、`*_SECRET`、`*_TOKEN`、`*_PASSWORD`）。
 - 生产建议用容器 Secret / 云 KMS 注入环境变量，不要落盘明文。
-- 轮换：`FEISHU_APP_SECRET`、`DOUDOU_API_TOKEN` 支持热更新（重启即生效，无需改代码）。
+
+### 7.1 轮换流程
+
+密钥轮换是**一次性动作**，成本远低于事后清理历史。触发时机：
+怀疑泄漏（提交进了 git、贴进了聊天记录）、人员变动、定期到期。
+
+| 密钥 | 怎么轮换 | 生效方式 |
+| --- | --- | --- |
+| 模型网关（`OPENAI_API_KEY` 等） | 在网关后台新建 key → 改环境变量 → **确认能跑通**再吊销旧 key | 重启进程 |
+| `FEISHU_APP_SECRET` | 飞书开放平台重置 → 改环境变量 | 重启进程（长连接需重连） |
+| `DOUDOU_API_TOKEN` | 直接换一个新随机串，同时通知调用方 | 重启进程 |
+| `LANGFUSE_SECRET_KEY` | Langfuse 项目设置里重建 | 重启进程 |
+| `TAVILY_API_KEY` | Tavily 后台重建 | 重启进程 |
+
+顺序很重要：**先让新 key 生效并验证，再吊销旧的**。反过来会出现一段
+「配置是新的、凭据是废的」的窗口，表现是「服务在跑但每个请求都 401」。
+
+验证方式：`uv run doudou config check`（校验配置与凭据是否存在）+
+一次真实调用（`uv run doudou ask "现在几点？"`）。
+
+**吊销旧 key 之后**再检查有没有历史泄漏：`git log -p -- . | grep -i "sk-"` 之类。
+本仓库的 `.gitignore` 已经覆盖 `.env` / `config/config.local.yaml` / `data/`，
+但**已经把密钥提交进去的历史不会因此消失** —— 该轮换就得轮换，
+不改写历史也能靠轮换把风险关掉。
 
 ## 8. 审计
 
-`storage` 中保留审计记录：
+审计落在 `audit_events` 表（见 `docs/observability.md` §2），`GET /api/v1/audit` 可查：
 
 | 记录项 | 内容 |
 | --- | --- |
-| 谁 | 通道 + user_id |
-| 何时 | 时间戳 |
-| 做了什么 | 工具名 + 参数摘要（脱敏） |
-| 结果 | 成功/失败 + 耗时 |
-| 是否确认 | 是否经人工批准 |
+| 谁 | 通道 + `user_id` + 会话（`thread_id` / `conversation_id`） |
+| 何时 | `created_at`（请求时）/ `updated_at`（出结果时） |
+| 做了什么 | 工具名 + 参数摘要（**先打码再截断**，`args_truncated` 说明截了多少） |
+| 结果 | 成功/失败 + 耗时 + 结果开头一段（`result_chars` 是全长） |
+| 是否确认 | `approved` 三态：`true` / `false`（被拒） / `null`（该工具不需要确认） |
 
-审计日志不可被 Agent 修改，也不放入模型上下文。
+三条设计约束：
 
-## 9. 运行时加固
+- **Agent 改不了它**：没有写接口，只能由运行产生；
+- **不进模型上下文**：审计是给人看的，塞进上下文只会污染对话；
+- **密钥不可能进表**：`AuditEntry.__post_init__` 里强制打码，
+  这样「审计含明文密钥」不是「记得调那个函数」的问题，而是构造就做不到。
+
+## 9. 依赖与镜像
+
+| 手段 | 命令 | CI |
+| --- | --- | --- |
+| 依赖漏洞 | `make audit`（`pip-audit`，只审**运行时**依赖） | 独立的 `security` job |
+| 镜像漏洞 | `make scan`（`trivy`，HIGH/CRITICAL 即失败） | docker job 里构建后扫 |
+| 依赖更新 | `make lock`（`uv lock --upgrade`）+ 跑全量测试 | — |
+
+只审运行时依赖是有意的：dev 工具不进生产镜像，它们的告警没有处置路径，
+留在 CI 里只会训练人忽略这个 job。上游未修的漏洞要用 `--ignore-vuln` 显式登记
+**并写清原因**，否则这个 job 会慢慢变成装饰品。
+
+## 10. 运行时加固
 
 - 容器以非 root 用户运行（见 `Dockerfile`）。
 - `shell_exec` **默认禁用**（`tools.shell.enabled: false`）。它是唯一没有约束机制的出口：

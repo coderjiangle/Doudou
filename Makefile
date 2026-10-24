@@ -56,6 +56,17 @@ cov: ## 测试并输出覆盖率
 pre-commit: ## 安装 git hooks
 	$(PY) pre-commit install
 
+# ---------------------------------------------------------------- 安全
+.PHONY: audit
+audit: ## 依赖漏洞扫描（只审运行时依赖）
+	@uv export --no-dev --no-emit-project --format requirements-txt > .audit-requirements.txt
+	@$(PY) pip-audit -r .audit-requirements.txt --progress-spinner off; \
+	 status=$$?; rm -f .audit-requirements.txt; exit $$status
+
+.PHONY: scan
+scan: docker-build ## 扫描镜像漏洞（trivy，需本地有 docker）
+	trivy image --severity HIGH,CRITICAL --ignore-unfixed doudou:local
+
 # ---------------------------------------------------------------- 辅助
 .PHONY: skills
 skills: ## 列出已发现的 Skill

@@ -66,3 +66,8 @@ config/mcp.servers.yaml
 
 # ---- make audit 的临时依赖清单 ----
 .audit-requirements.txt
+
+# ---- 编码助手的工作会话记录 ----
+# 里面会抄进完整对话与 .env 的内容（曾经把明文 API Key 带到了远程）。
+# 需要留档请自己另存到仓库之外。
+opencode-session/

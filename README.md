@@ -7,7 +7,7 @@
 
 > **当前进度：M9 已完成**（生产化：Langfuse 追踪 / 审计日志 / 成本核算 / 安全扫描 /
 > 压测容量评估），见 [`docs/roadmap.md`](docs/roadmap.md)。
-> 642 个离线测试 + `ruff` + `mypy --strict` 全绿。
+> 665 个离线测试 + `ruff` + `mypy --strict` 全绿。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 

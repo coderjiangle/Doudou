@@ -63,6 +63,10 @@ audit: ## 依赖漏洞扫描（只审运行时依赖）
 	@$(PY) pip-audit -r .audit-requirements.txt --progress-spinner off; \
 	 status=$$?; rm -f .audit-requirements.txt; exit $$status
 
+.PHONY: secrets
+secrets: ## 检查被跟踪的文件里有没有凭据（提交前跑）
+	$(PY) python scripts/check_secrets.py
+
 .PHONY: scan
 scan: docker-build ## 扫描镜像漏洞（trivy，需本地有 docker）
 	trivy image --severity HIGH,CRITICAL --ignore-unfixed doudou:local

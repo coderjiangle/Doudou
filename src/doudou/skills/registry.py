@@ -7,9 +7,9 @@
 * ``read_skill`` 工具在被调用时读全文 —— 这就是渐进式披露；
 * CLI 与 ``GET /skills`` 用它做检视。
 
-**不依赖 deepagents**：deepagents 的 ``SkillsMiddleware`` 做的是同一件事
-（启动只读 frontmatter、按需读全文），我们用「索引注入 + ``read_skill`` 工具」
-就能覆盖，而且不必引入 langgraph 运行时。
+**刻意自研，不引入 deepagents / LangGraph**：它们的 ``SkillsMiddleware`` 做的是
+同一件事（启动只读 frontmatter、按需读全文），我们用「索引注入 + ``read_skill`` 工具」
+就能覆盖，而且不必为此背上一整套运行时与事件映射层。
 """
 
 from __future__ import annotations

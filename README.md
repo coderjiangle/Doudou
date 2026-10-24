@@ -1,16 +1,16 @@
 # Doudou
 
-基于 [deepagents](https://github.com/langchain-ai/deepagents) 构建的**个人助手 Agent**。
+**内核自研**的个人助手 Agent（`doudou.agent.react` 的 ReAct 循环），不依赖 deepagents / LangGraph。
 
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M7 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
-> 会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）**、
-> **飞书通道（WebSocket 长连接 + 流式卡片）**、**MCP（stdio / http / sse）**、
-> **Skill 渐进式加载** 与 **上下文工程（token 预算 / 摘要压缩 / 大结果卸载 / 长期记忆）**
-> 均端到端可用，511 个离线测试 + `ruff` + `mypy --strict` 全绿。
-> 权限与子 Agent（M8）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
+> **当前进度：M8 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 工作区文件 /
+> 命令执行 / 委派）、会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）**、
+> **飞书通道（WebSocket 长连接 + 流式卡片 + 确认按钮）**、**MCP（stdio / http / sse）**、
+> **Skill 渐进式加载**、**上下文工程（token 预算 / 摘要压缩 / 大结果卸载 / 长期记忆）**
+> 与 **权限 / 子 Agent / 人在回路** 均端到端可用，590 个离线测试 + `ruff` + `mypy --strict` 全绿。
+> 剩下一个里程碑（生产化 M9），详见 [`docs/roadmap.md`](docs/roadmap.md)。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
@@ -33,9 +33,8 @@
 | MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` | ✅ M5 |
 | Skill 渐进式加载 | 索引注入 + `read_skill` 按需读 + 热重载 | `doudou.skills` | ✅ M6 |
 | 上下文工程 | token 预算、摘要压缩、大结果卸载、长期记忆 | `doudou.agent.context` | ✅ M7 |
-| 权限与子 Agent | 路径权限、子 Agent 委派、跨重启确认 | `doudou.agent.permissions` | ⏳ M8 |
-| 任务规划 | `write_todos`（deepagents 引擎） | `doudou.agent.middleware` | ⏳ M9 |
-| 虚拟文件系统 | 可插拔 backend | `doudou.agent.backends` | ⏳ M9 |
+| 权限与子 Agent | 路径权限 + 子 Agent 委派 + 跨重启确认 | `doudou.agent.permissions` | ✅ M8 |
+| 确认中介 | 超时按拒绝、决策复用、落库审计 | `doudou.agent.approvals` | ✅ M8 |
 
 ## 1.1 立刻可跑（不需要任何 API Key）
 
@@ -62,14 +61,16 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
    HTTP 客户端 ──▶ │  session 映射 · 消息总线 · agent 执行 · 事件回流    │
    (FastAPI)      └───────────────────────┬───────────────────────────┘
                                           ▼
-                        ┌──────── Agent Core（deepagents）────────┐
-                        │  create_deep_agent                      │
-                        │  ├─ middleware: todo / skills / fs      │
-                        │  ├─ subagents                           │
+                        ┌──────── Agent Core（自研 ReAct）────────┐
+                        │  doudou.agent.react                     │
+                        │  ├─ 系统提示词：记忆 + Skill 索引        │
+                        │  ├─ 上下文工程：预算裁剪 / 摘要 / 卸载   │
+                        │  ├─ 权限规则 + 确认（ApprovalBroker）    │
                         │  ├─ tools  ◀── Tool Registry            │
                         │  │            ├─ builtin tools          │
-                        │  │            └─ MCP tools              │
-                        │  └─ checkpointer / store                │
+                        │  │            ├─ MCP tools              │
+                        │  │            └─ task → 子 Agent         │
+                        │  └─ 事件流 RunEvent → 通道渲染           │
                         └────────────────────────────────────────┘
 ```
 
@@ -95,7 +96,7 @@ Doudou/
 ├─ src/doudou/
 │  ├─ cli/                    # 命令行入口
 │  ├─ config/                 # 配置加载与校验
-│  ├─ agent/                  # deepagents 组装：模型/中间件/后端/子 Agent
+│  ├─ agent/                  # ReAct 循环、提示词、上下文工程、权限、确认、子 Agent
 │  ├─ tools/                  # 工具注册表与内置工具
 │  ├─ mcp/                    # MCP 客户端与生命周期
 │  ├─ skills/                 # Skill 发现与索引

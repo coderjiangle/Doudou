@@ -41,7 +41,7 @@ agent:
   name: Doudou
   system_prompt_file: prompts/system.md   # 相对 config/ 目录；留空则用内置默认提示词
   memory_files:
-    - AGENTS.md                            # deepagents memory=，始终加载
+    - AGENTS.md                            # 启动时读进系统提示词；助手可用 remember 回写
   skills:
     - ../skills/                           # Agent Skills 根目录
   # 提示词里最多列出几个技能。索引必须**有界**：技能一多，
@@ -120,25 +120,23 @@ tools:
     max_read_chars: 20000
 
 # ---------------------------------------------------------------- 虚拟文件系统
+# 目前只有 root_dir 生效：所有文件类工具的读写都被钉在这个目录里
+# （`resolve()` 之后再校验，软链接也逃不出去）。
 filesystem:
-  backend: composite         # state | store | filesystem | composite
   root_dir: ./data/workspace
-  virtual_mode: true
-  # composite 模式下：以这些前缀开头的路径落到本地磁盘，其余放内存
-  routes:
-    - prefix: /workspace/
-      backend: filesystem
-    - prefix: /
-      backend: state
+  # 下面三个字段**未使用**，原本是「接入 deepagents 的虚拟文件系统」的配置项，
+  # 该计划已取消（见 docs/roadmap.md 修正记录 #3）。这里不列出来，避免误导。
+  # 兼容大型配置文件的用户可以在自己的 config.yaml 里保留它们，不会报错。
 
 # ---------------------------------------------------------------- 上下文管理
 context:
-  todo_list: true            # 启用 write_todos
   summarization: true        # 早期历史超阈值时压成摘要（**原文不删**）
   summarize_after_messages: 40   # 次要触发条件：条数超过它时也考虑压缩
   keep_recent_messages: 12       # 压缩时始终保留的最近消息条数
   offload_large_results: true    # 超大工具结果落盘，上下文里只留预览 + 路径
   offload_threshold_bytes: 20000
+  # 注：context.todo_list 未使用（原为 deepagents 的 write_todos 预留，计划已取消）。
+  # 需要任务清单时现在用 note_* 工具写进工作区/笔记，模型能看到、人也能改。
   # ---- M7 新增：这三个数决定「窗口有多大」 ----
   # 送进模型的历史 token 预算。**最关键的一个数**：
   # 默认 80000 刻意保守（成本可预期）；100 万上下文的大模型应该调高。

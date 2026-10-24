@@ -215,13 +215,22 @@ def tool_infos(
     seen: set[str] = set()
 
     for group, provider in BUILTIN_PROVIDERS:
-        if group in CONTEXT_GROUPS:
-            # 这几个分组需要模型/索引/记忆/工具清单，配置派生视图构造不出来；
-            # 它们的实际状态请用 `doudou tools list`（走 `tools=` 那条路径）。
-            continue
         if not group_enabled(settings, group):
             continue
-        for item in provider(settings):
+        # skills / memory 的提供方在此会各自去加载索引与记忆文件，构造得出来；
+        # delegation（``task``）不行 —— 它需要**主模型**与「其它工具的清单」，
+        # 那是运行期才有的东西。因此配置派生视图里没有 ``task``，
+        # 要看实际装载请用 ``doudou tools list``（走 ``tools=`` 那条路径）。
+        if group == DELEGATION_GROUP:
+            continue
+        items: Sequence[BaseTool] = (
+            skills.build_tools(settings)
+            if group == SKILLS_GROUP
+            else memory.build_tools(settings)
+            if group == MEMORY_GROUP
+            else provider(settings)
+        )
+        for item in items:
             _collect_info(
                 infos, seen, item, group=group, source=f"builtin:{group}", settings=settings
             )

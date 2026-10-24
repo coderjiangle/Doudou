@@ -21,8 +21,11 @@ from doudou.tools.registry import build_tools, effective_interrupt_on
 
 logger = get_logger(__name__)
 
-#: 保留的入口签名提示：M9 会用 ``create_deep_agent`` 作为可选引擎，
-#: 届时 :class:`AgentBundle` 的字段保持不变，只替换 ``agent`` 的构造方式。
+#: :class:`AgentBundle` 是**唯一**的装配产物：模型、工具、系统提示词、Agent 实例
+#: 都挂在这一个对象上，gateway / channels / api 共享同一份引用。
+#: 需要换提示词时走 ``refresh_skills`` / ``refresh_memory`` 就地替换，
+#: 而不是重建 Agent —— 重建会让「新会话看到新提示词、老会话看到旧的」这种
+#: 半新半旧状态变得不可预测。
 
 
 @dataclass(slots=True)

@@ -6,8 +6,8 @@
 | --- | --- | --- |
 | 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `notes` / `http` / `web_search` / `shell` / `skills` / `memory` / `delegation` |
 | MCP 工具 | `config/mcp.servers.yaml` | ✅ 通过 `build_tools(extra=...)` 注入（M5） |
-| deepagents 内置 | 框架提供 | ⏳ M9（`ls` / `read_file` / `write_file` / `write_todos` / `task` …） |
-| 沙箱执行 | 沙箱后端 | ⏳ M9 评估；当前 `shell_exec` 自带，默认禁用 |
+| deepagents / LangGraph 内置工具 | 框架提供 | ❌ 不采用：自研循环已覆盖 Skill / 上下文 / 子 Agent / 确认（见 roadmap 修正记录 #3） |
+| 沙箱执行 | 容器 / 沙箱后端 | ⏳ M9 生产化评估；当前 `shell_exec` 自带，默认禁用 |
 
 全部在 `tools/registry.py` 汇总后交给 Agent。
 
@@ -66,7 +66,7 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 | 前缀 / 名 | 用途 |
 | --- | --- |
 | `web_` | 联网检索（`web_search`） |
-| `workspace_` | 工作区文件读写（避开 M9 的 `read_file` / `ls`，避免重名被静默丢弃） |
+| `workspace_` | 工作区文件读写（前缀即边界说明；也让第三方工具撞名的风险降到最低） |
 | `note_` | 备忘与待办 |
 | `http_` | 原始出站请求 |
 | `now` / `days_between` | 时间类 |

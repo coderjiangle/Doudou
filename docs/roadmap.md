@@ -308,9 +308,10 @@ curl http://127.0.0.1:8000/api/v1/approvals  # 无人在场时从这里落决策
 > 等待决策的协程随进程消失。`pending` 与 `expired` 都不算决策：把「还没问完」当成
 > 答案会让重试静默跳过确认。超时一律按拒绝处理 —— 悬着的确认等于没有确认。
 >
-> **写工具命名避开 `read_file` / `write_file`**：M9 接 deepagents 的
-> `FilesystemMiddleware` 会提供同名工具，而 `tools.registry` 对重名是「留前者、
-> 丢后者」，静默失效比报错更难查。
+> **写工具命名为 `workspace_*`。** 起因是当时预判 M9 会接入 deepagents 的
+> `FilesystemMiddleware`（提供 `read_file` / `write_file`），而 `tools.registry`
+> 对重名是「留前者、丢后者」，静默失效比报错更难查。M9 现已取消，但命名保留：
+> 加前缀本身就说明了「操作的边界是工作区」，也免得日后装任何工具时撞名。
 >
 > **又修掉同类循环导入**：`tools.registry` → `tools.builtin.delegation` → `agent.react`
 > → `tools.decorators` →（包 `__init__`）→ `tools.registry`。三处修：
@@ -320,48 +321,28 @@ curl http://127.0.0.1:8000/api/v1/approvals  # 无人在场时从这里落决策
 
 ---
 
-### M9 — 引擎可选化（deepagents）
-
-**目标**：把 deepagents 的能力接成**可选项**，而不是重写地基。
-
-**交付物**
-
-- [ ] `agent/factory.py` 增加 `agent.engine: react | deep` 配置
-- [ ] `agent/middleware.py`：`TodoListMiddleware`、`SummarizationMiddleware`、`AnthropicPromptCachingMiddleware`
-- [ ] `agent/backends.py`：虚拟文件系统后端（state / store / filesystem / composite）
-- [ ] `agent/checkpointer.py`：LangGraph checkpointer / store（Postgres 切换）
-- [ ] deepagents 事件流 → `RunEvent` 的适配层（`gateway` 与通道**不改**）
-- [ ] `doudou config check` 报告当前生效引擎
-
-**验收**：`agent.engine: deep` 时 CLI 与飞书行为一致；同一套测试对两个引擎都通过。
-
-**依赖**：M6、M7 已交付（否则无法判断哪些能力需要它）
-
-**⚠️ 这一项可能被取消。** 判断标准：如果 M6 的 Skill 加载与 M7 的上下文压缩自研效果够用，
-deepagents 剩下的独特价值只有「虚拟文件系统 + 子 Agent 的内置实现 + 任务规划 UI」，
-那就不值得引入 `langgraph` 运行时与 `create_deep_agent` 的事件适配成本。
-**在 M6/M7 完成后重新评估，而不是提前投入。**
-
-**风险**：`deepagents` 仍是 0.7.x，API 可能变动；`astream_events` 的事件形态与我们的
-`RunEvent` 需要映射，映射层是新的出错面。
-
----
-
-### M10 — 生产化
+### M9 — 生产化
 
 **目标**：能长期稳定跑，出问题能定位。
 
 **交付物**
 
-- [ ] Postgres：`storage` + checkpointer / store 切换
+- [ ] Postgres：`storage` 切到 Postgres（含 schema 迁移脚本）
 - [ ] 多副本：会话映射与队列下沉（Redis 锁 + 队列），去掉进程内状态
 - [ ] `observability/tracing.py`：LangSmith / OpenTelemetry
 - [ ] 审计日志：谁、何时、调用了什么工具、参数摘要、结果、是否人工确认
+      （`approvals` 表已有确认这一半，缺的是工具调用全量与导出）
 - [ ] 成本控制：token 预算告警、按会话用量统计
 - [ ] 安全：`pip-audit`、镜像扫描、密钥轮换流程
 - [ ] 压测与容量评估
 
 **验收**：两个副本并行处理不同会话不出错；一次异常请求能从审计日志完整还原。
+
+> **编排继续由自研循环负责。** 原计划在这里引入 LangGraph checkpointer 与
+> deepagents 的存储抽象，现已取消（见文末修正记录 #3）——因此「多副本续跑」
+> 靠的是我们自己的 `gateway.session` + `storage`，而不是外部运行时的
+> checkpointer / store。这条路上要自己解决的是**分布式锁与历史一致性**，
+> 不再是「换一个后端」。
 
 ---
 
@@ -373,7 +354,7 @@ M2 服务化 ──▶ M4 飞书通道 ──▶ 「在飞书里可用」
    └──▶ M3 工具集 ───────────────┘
               │
               ├──▶ M5 MCP（纯增量，可并行）
-              └──▶ M6 Skill ──▶ M7 上下文 ──▶ M8 子Agent/权限 ──▶ M9 引擎（可选）──▶ M10 生产化
+              └──▶ M6 Skill ──▶ M7 上下文 ──▶ M8 子Agent/权限 ──▶ M9 生产化
 ```
 
 **最短可用路径**：M2 → M3 → M4。三件事做完就是一个「能在飞书里用、会查资料」的助手。
@@ -389,9 +370,11 @@ M2 服务化 ──▶ M4 飞书通道 ──▶ 「在飞书里可用」
 | 1 | 飞书接入方式 | 事件回调（需公网地址）vs WebSocket 长连接（本地友好） | 影响 M4 的开发与部署方式 |
 | 2 | 会话隔离粒度 | 群聊内共享一个上下文 vs 每人独立 | 影响 `SessionStore` 的键设计 |
 | 3 | 是否引入 `shell_exec` / 写文件 | 引入（能力大、风险大）vs 只做只读 | 影响 M8 的范围与安全投入 |
-| 4 | 引擎选择 | 自研（M6/M7 之后评估）vs 引入 deepagents | 影响 M9 是否要做 |
-| 5 | 上下文压缩策略 | 纯截断 vs 摘要 vs 向量检索召回 | 影响 M7 的实现复杂度 |
-| 6 | Web UI | 只做 API vs 提供独立前端 | 影响 M2 的接口形态（是否要 WebSocket） |
+| 4 | 上下文压缩策略 | 纯截断 vs 摘要 vs 向量检索召回 | 影响 M7 的实现复杂度 |
+| 5 | Web UI | 只做 API vs 提供独立前端 | 影响 M2 的接口形态（是否要 WebSocket） |
+
+> 原表中的「引擎选择（自研 vs deepagents）」已定案：**自研**，不再评估引入 deepagents
+> （见文末修正记录 #3），因此该项已从表中移除。
 
 ---
 
@@ -404,8 +387,7 @@ M2 服务化 ──▶ M4 飞书通道 ──▶ 「在飞书里可用」
 | 成本失控 | 100 万上下文 + 38 万输出上限 | M7 的 token 预算；`max_tokens` 只封顶不提满 |
 | 飞书回调超时导致重复回答 | M4 | 3 秒内返回 200 + `event_id` 幂等去重 |
 | 卡片更新频控被限流 | M4 | 节流合并更新，间隔可配 |
-| 多副本下会话状态分裂 | M10 | 会话映射与队列下沉到外部存储 |
-| `deepagents` API 变动 | M9 | 适配层隔离；M9 本身可取消 |
+| 多副本下会话状态分裂 | M9 | 会话映射与队列下沉到外部存储 |
 | 本地（Windows）与生产（Linux）行为差异 | 全程 | CI 跑 Linux；`tzdata`、路径、Makefile 已分别处理 |
 
 ---
@@ -424,10 +406,18 @@ M2 服务化 ──▶ M4 飞书通道 ──▶ 「在飞书里可用」
    实际上「注入 Skill 索引 + 提供 `read_skill` 工具」用自研循环几十行就能实现，
    于是升格为独立里程碑 M6，并从 M6 的验收标准上明确「不加载无关 Skill」。
 
-3. **「引擎可选化」从 M1.5 降级到 M9，且标记为可能取消。**
+3. **「引擎可选化」原计划降级为 M9，最终**取消**。**
    旧版紧随 M1，但它的价值（规划 / 子 Agent / 虚拟文件系统）都要等 Skill 与上下文工程
-   就位后才能判断是否必要。提前引入只会让 M2–M8 都建在一个更重的运行时上。
-   改为「M6/M7 完成后重新评估」。
+   就位后才能判断是否必要。提前引入只会让 M2–M8 都建在一个更重的运行时上，
+   因此当时改为「M6/M7 完成后重新评估」。
+   **M8 完成后评估结论是：不做。** 自研循环已经把 deepagents 的卖点逐个覆盖掉了
+   （Skill 渐进加载 = M6、上下文压缩与卸载 = M7、子 Agent 委派与人在回路 = M8），
+   剩下的只有「虚拟文件系统 + 任务规划 UI」，而代价是引入 `langgraph` 运行时、
+   一整套事件映射层，以及把我们自己写的权限/确认模型改写进它的中间件。
+   收益不足以抵消「多一个必须跟随的框架」。**因此 M10 顺位成为新的 M9。**
+
+   附带影响：`agent.factory` 不再需要「引擎可切换」的抽象；
+   `storage.checkpointer` 这类「为 LangGraph 预留」的配置不再有兑现路径。
 
 另外新增两个旧版遗漏的里程碑：**M3 实用工具集**（旧版只在 M1 里提过一句，实际是助手可用性的前提）
 与 **M7 上下文工程**（旧版只在 M3 里夹带一句「摘要压缩」，但它是长会话可用的必要条件）。
@@ -436,11 +426,11 @@ M2 服务化 ──▶ M4 飞书通道 ──▶ 「在飞书里可用」
 
 | 旧 | 新 | 说明 |
 | --- | --- | --- |
-| M1.5 引擎可选化 | **M9** | 降级并标记可能取消 |
+| M1.5 引擎可选化 | **取消** | 自研循环已覆盖其价值，不再引入 deepagents |
 | M2 HTTP 服务 | **M2** | 内容修正：改用自研 storage |
 | M3 Skill 与上下文管理 | **M6** + **M7** | 拆成 Skill 加载与上下文工程两项 |
 | M4 MCP | **M5** | 内容不变 |
 | M5 飞书通道 | **M4** | 提到 MCP 之前（它是核心诉求） |
 | M6 子 Agent 与人在回路 | **M8** | 增加权限与写类工具 |
-| M7 生产化 | **M10** | 内容不变 |
+| M7 生产化 | **M9** | 原为 M10；因「引擎可选化」取消而顺位前移 |
 | — | **M3** 实用工具集 | 新增 |

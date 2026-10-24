@@ -1,7 +1,7 @@
 """Counters and timers for runs, tools and channels.
 
 刻意做成极简的进程内实现：M2 需要的只是「跑过多少次、慢在哪」，
-真正的指标体系（Prometheus / OTel）放到 M10。
+真正的指标体系（Prometheus / OTel）放到 M9 生产化。
 """
 
 from __future__ import annotations

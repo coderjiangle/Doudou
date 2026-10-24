@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | `DOUDOU_AGENT__NAME` | `Doudou` | 助手名称（会渲染进提示词） |
 | `DOUDOU_AGENT__MAX_STEPS` | `8` | ReAct 循环单次运行的最大步数（模型往返次数） |
-| `DOUDOU_AGENT__RECURSION_LIMIT` | `60` | 预留：接入 deepagents 后的步数上限 |
+| `DOUDOU_AGENT__RECURSION_LIMIT` | `60` | **未使用**（原为接入 deepagents 预留，计划已取消） |
 
 ### 模型
 
@@ -85,7 +85,7 @@ OPENAI_API_KEY=<网关签发的 Key>
 | --- | --- | --- |
 | `DOUDOU_STORAGE__DATABASE_URL` | `sqlite+aiosqlite:///./data/doudou.db` | 业务库 |
 | `DOUDOU_STORAGE__HISTORY` | `database` | 会话历史存哪：`database`（重启可续）/ `memory`（进程内，轻量） |
-| `DOUDOU_STORAGE__CHECKPOINTER` | `sqlite` | `memory` / `sqlite` / `postgres`（M9 启用 deepagents 引擎时才用） |
+| `DOUDOU_STORAGE__CHECKPOINTER` | `sqlite` | **未使用**：LangGraph 概念，接入 deepagents 的计划已取消（同 `store`） |
 | `DOUDOU_STORAGE__STORE` | `sqlite` | 长期记忆存储（M7） |
 
 > SQLite 文件所在目录不存在时会自动创建；生产建议换 Postgres：
@@ -160,8 +160,10 @@ agent:
 几个容易踩坑的点：
 
 - `agent.system_prompt_file` 相对于 `config/` 目录解析。
-- `agent.skills` 里可以写多个根目录，deepagents 会把它们全部扫成 skill 索引。
-- `filesystem.backend: composite` 时，`routes` 顺序即匹配顺序，最后一条务必是兜底。
+- `agent.skills` 里可以写多个根目录，全部会被扫成 skill 索引（只注入索引，正文按需读）。
+- `filesystem.root_dir` 是所有文件类工具的边界，改它等于改「助手能碰哪里」。
+  同一段里还有几个字段（`backend` / `virtual_mode` / `routes`）**未被使用** ——
+  它们来自「接入 deepagents 虚拟文件系统」的计划，该计划已取消，保留只为兼容旧配置。
 - `agent.permissions` 首匹配生效，**没有匹配到任何规则时放行**，所以「默认拒绝」那条兜底
   必须写在最后（而显式拒绝要写在最前）。匹配的是相对工作区、以 `/` 开头的 POSIX 路径；
   `/**/.env` 能匹配根目录的 `/.env`，`/secrets/**` 也能匹配 `secrets` 目录本身。

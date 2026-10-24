@@ -1,4 +1,4 @@
-"""Doudou: personal assistant agent built on deepagents."""
+"""Doudou: personal assistant agent with a self-built ReAct loop."""
 
 from __future__ import annotations
 

@@ -56,7 +56,7 @@ agent:
     edit_file: true
     delete: true
     shell_exec: true
-  recursion_limit: 60          # M9 接入 deepagents 后生效
+  recursion_limit: 60          # 未使用（原为接入 deepagents 预留，计划已取消）
   max_steps: 10                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
   # M8 落地文件系统工具后生效；顺序即匹配顺序，拒绝规则要写在前面
@@ -122,13 +122,16 @@ tools:
 
 # ---------------------------------------------------------------- 虚拟文件系统
 filesystem:
-  backend: state               # M9 落地；state 为进程内内存文件系统
+  # 所有文件类工具都被钉在这个目录里（resolve 之后再校验，软链接也逃不出去）
   root_dir: ./data/workspace
+  # 以下字段未使用（原为 deepagents 的虚拟文件系统预留，计划已取消），
+  # 保留只为兼容你的既有配置：backend / virtual_mode / routes
+  backend: state
   virtual_mode: true
 
 # ---------------------------------------------------------------- 上下文管理
 context:
-  todo_list: true
+  todo_list: true              # 未使用（原为 deepagents 的 write_todos 预留）
   summarization: true          # 早期历史超阈值时压成摘要（原文不删）
   # 次要触发条件：消息条数超过它时也考虑压缩
   summarize_after_messages: 40

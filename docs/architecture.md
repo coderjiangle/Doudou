@@ -90,18 +90,23 @@ run_start
 | `models` | 通过 `init_chat_model` 解析 `provider:model`，配置超时/重试/回退；含 `scripted:*` 离线模型。 |
 | `testing` | 确定性脚本模型，供单元测试、CI 与 `--model scripted:demo` 离线自检共用。 |
 | `prompts` | 系统提示词加载与模板变量渲染。 |
-| `middleware` | M9：接入 deepagents 中间件（todo / 摘要 / 提示词缓存）。 |
-| `backends` | M9：虚拟文件系统后端（state / store / filesystem / composite）。 |
 | `memory` | M7：`AGENTS.md` 等记忆文件的加载与回写。 |
+| `context` | M7：上下文工程（预算裁剪 / 摘要压缩 / 大结果卸载）。 |
 | `subagents` | M8：从 `agents.yaml` 生成子 Agent 定义。 |
-| `permissions` | M8：文件系统读写权限规则。 |
-| `checkpointer` | M9：LangGraph checkpointer / store 选型（仅在切换到 deepagents 引擎时用）。 |
+| `permissions` | M8：文件系统读写权限规则（首匹配生效 + containment 兜底）。 |
+| `approvals` | M8：人工确认中介（待决登记 / 超时按拒绝 / 决策复用）。 |
+
+> **没有 `middleware` / `backends` / `checkpointer` 这三个模块。**
+> 它们原本属于「接入 deepagents 引擎」的计划（旧 M9），该计划已取消 ——
+> 规划、子 Agent、虚拟文件系统、上下文压缩都由 `react` / `context` / `subagents` /
+> `tools.builtin.files` 自己实现。见 `docs/roadmap.md` 修正记录 #3。
 
 ### 2.4 能力供给
 
 - **`tools`**：`registry` 汇总三类工具 —— 内置工具、MCP 工具、外部插件工具，并做重名检测与分组。所有工具进入 agent 前都是 LangChain `BaseTool`。
 - **`mcp`**：`config` 解析 server 声明 → `client` 用 `MultiServerMCPClient` 建立会话 → `loader` 拉取并适配工具（含 include/exclude 过滤与名称前缀）→ `lifecycle` 随应用启停与健康检查。
-- **`skills`**：`loader` 扫描 `skills/*/SKILL.md` 校验 frontmatter，`registry` 建索引，交给 `SkillsMiddleware` 做渐进式加载。
+- **`skills`**：`loader` 扫描 `skills/*/SKILL.md` 校验 frontmatter，`registry` 建索引；
+  系统提示词只注入索引，正文由 `read_skill` 工具按需读取（自研的渐进式加载）。
 
 ### 2.5 支撑
 
@@ -188,7 +193,7 @@ GET  /api/v1/health[/ready]  → 健康 / 就绪（免鉴权）
 - 同一 `thread_id` 上串行执行（`AgentRunner` 持进程内锁），避免历史互相踩踏；不同会话完全并发。
 - 进程内状态只剩「thread 锁」与指标计数器；**历史与渠道绑定都已落库**，
   因此重启进程后同一 thread 仍可继续对话。
-- 多副本时 thread 锁需要换成分布式锁（见 docs/roadmap.md M10）。
+- 多副本时 thread 锁需要换成分布式锁（见 docs/roadmap.md M9）。
 
 ## 5. 扩展点
 

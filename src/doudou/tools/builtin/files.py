@@ -11,9 +11,9 @@
 三层各管一件事：**确认**决定「要不要做」，**权限**决定「能不能碰这个路径」，
 **硬边界**保证「跑不出工作区」。
 
-工具名刻意用 ``workspace_*`` 前缀：M9 接入 deepagents 的
-``FilesystemMiddleware`` 时会提供 ``read_file`` / ``write_file`` 等，重名会被
-``tools.registry`` 判为冲突并丢掉后者，这里避免那种静默失效。
+工具名刻意用 ``workspace_*`` 前缀：前缀本身说明了「操作的边界是工作区」，
+也避免日后接入任何工具时撞名 —— ``tools.registry`` 对重名是「留前者、丢后者」，
+那种静默失效比报错更难查。
 """
 
 from __future__ import annotations

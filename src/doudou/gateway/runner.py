@@ -28,7 +28,7 @@ class AgentRunner:
     """把 :class:`AgentBundle` 跑起来，并维护每个会话的多轮历史。
 
     并发模型：**同一 thread 串行**（否则历史互相踩踏），不同 thread 完全并发。
-    锁是进程内的，多副本部署需要换成分布式锁（见 docs/roadmap.md M10）。
+    锁是进程内的，多副本部署需要换成分布式锁（见 docs/roadmap.md M9）。
     """
 
     def __init__(

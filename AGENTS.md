@@ -1,16 +1,24 @@
 # AGENTS.md
 
-本文件是 Doudou Agent 的**长期记忆**（deepagents `memory=` 参数读取的文件），
+本文件是 Doudou Agent 的**长期记忆**（由 `agent.memory_files` 声明的文件，
+启动时读进系统提示词；助手也能通过 `remember` 工具回写），
 同时也可作为 AI 编码助手（Claude Code / OpenCode / Cursor 等）在本仓库工作时的约定说明。
 
 ---
 
 ## 项目定位
 
-Doudou 是一个个人助手 Agent，内核是 `deepagents.create_deep_agent`。
-它需要支持：自定义 Tool、MCP server、Agent Skill、飞书通道，以及 FastAPI HTTP 服务。
+Doudou 是一个个人助手 Agent。**内核是自研的 ReAct 循环**（`doudou.agent.react`），
+**不引入 deepagents / LangGraph**：Skill 渐进加载、上下文压缩与卸载、子 Agent 委派、
+人在回路这四件事都由本仓库自己实现（各自对应 M6/M7/M8）。
+决定与取舍见 `docs/roadmap.md` 的修正记录 #3 —— 评估结论是收益不足以抵消
+「多一个必须跟随的框架」。
 
-**当前状态：骨架阶段。** 大部分模块只有模块级 docstring 与 `# TODO` 标记，功能待实现。
+能力面：自定义 Tool、MCP server、Agent Skill、飞书通道（WebSocket 长连接），
+以及 FastAPI HTTP 服务。
+
+**当前状态：M1–M8 已完成**（工具集 / 服务化 / 飞书 / MCP / Skill / 上下文工程 /
+权限与子 Agent）。进度与验收记录见 `docs/roadmap.md`。
 
 ## 分层与依赖方向
 
@@ -71,7 +79,8 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
 - **破坏性能力默认关闭**：`shell_exec` 只有在 `tools.shell.enabled: true` 时才注册。
   新加这类「没有约束机制」的出口时请照此办理。
 - **工具名不要与预期重名**：`tools.registry` 对重名是「留前者、丢后者」并只打告警，
-  静默失效比报错更难查（`workspace_*` 就是为了避开 M9 deepagents 的 `read_file`）。
+  静默失效比报错更难查。因此内置工具一律带前缀（`workspace_*`、`note_*`、
+  `web_*`、`server__tool` 的 MCP 命名空间），装任何第三方的工具时先看 `tools list`。
 - **子 Agent 定义**放 `config/agents.yaml` 的 `subagents` 段；`tools` 白名单里请写
   **实际装载**的工具名（用 `doudou tools list` 核对），写错只告警不报错。
 

@@ -11,10 +11,20 @@ from doudou.utils.text import (
     stringify_tool_result,
     truncate,
 )
+from doudou.utils.tokens import (
+    count_message_tokens,
+    count_messages_tokens,
+    count_tokens,
+    estimate_tokens,
+)
 
 __all__ = [
     "blocks_to_text",
     "content_to_text",
+    "count_message_tokens",
+    "count_messages_tokens",
+    "count_tokens",
+    "estimate_tokens",
     "html_to_text",
     "looks_like_content_blocks",
     "retry_async",

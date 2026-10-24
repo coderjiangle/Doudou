@@ -88,8 +88,9 @@ def load_system_prompt(
     extra_instructions: str | None = None,
     skills: Sequence[SkillInfo] = (),
     skill_index_limit: int | None = None,
+    memory: str = "",
 ) -> str:
-    """组装系统提示词：模板文件（或内置默认） + 补充指令 + 技能索引。
+    """组装系统提示词：模板 + 补充指令 + 长期记忆 + 技能索引。
 
     Args:
         settings: 已解析的配置。
@@ -97,6 +98,7 @@ def load_system_prompt(
         extra_instructions: 追加在结尾的补充约束；默认从 ``agents.yaml`` 读取。
         skills: 已发现的 Skill，**只注入索引**（name + description）。
         skill_index_limit: 索引里最多列几个；缺省取 ``agent.skill_index_limit``。
+        memory: 长期记忆正文。它**每轮都会带**，因此调用方需要控制长度。
     """
     path = settings.system_prompt_path
     if path and path.is_file():
@@ -109,6 +111,9 @@ def load_system_prompt(
     merged_vars = default_variables(settings)
     merged_vars.update(variables or {})
     prompt = render_template(template, merged_vars).strip()
+
+    if memory.strip():
+        prompt = f"{prompt}\n\n{memory.strip()}"
 
     if extra_instructions is None:
         extra_instructions = load_extra_instructions(settings.subagents_path)

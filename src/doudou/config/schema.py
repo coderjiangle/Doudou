@@ -170,12 +170,34 @@ class FilesystemConfig(_Section):
 
 
 class ContextConfig(_Section):
+    """上下文工程：把「模型能装多少」真正用起来。
+
+    三件事分别对应三个失败模式：
+
+    * ``max_input_tokens`` —— 历史无限增长把请求顶坏（按 token 预算裁剪）；
+    * 摘要压缩 —— 单纯裁剪会让助手「忘事」；
+    * 大结果卸载 —— 一次 5 万字的工具返回会挤掉后续所有请求。
+    """
+
     todo_list: bool = True
     summarization: bool = True
+    #: 次要触发条件：消息条数超过它时也考虑压缩。
     summarize_after_messages: int = 40
+    #: 压缩时**始终保留**的最近消息条数（它们对当前对话最相关）。
     keep_recent_messages: int = 12
     offload_large_results: bool = True
+    #: 单条工具结果超过这个字节数就落盘，上下文里只留预览 + 路径。
     offload_threshold_bytes: int = 20000
+    #: 送进模型的历史 token 预算。**这是最关键的一个数**：
+    #: 默认值刻意保守（成本可预期），大上下文模型应该调高。
+    max_input_tokens: int = 80000
+    #: 用量超过预算的这个比例时触发压缩（0–1）。
+    summarize_threshold_ratio: float = 0.7
+    #: 卸载目录。默认 `<filesystem.root_dir>/.offload` ——
+    #: 必须落在工作区内，否则模型拿不到路径也读不回来。
+    offload_dir: str | None = None
+    #: 注入系统提示词的记忆上限（记忆是**每轮都带**的，必须精简）。
+    max_memory_chars: int = 8000
 
 
 # --------------------------------------------------------------------------- storage
@@ -185,6 +207,10 @@ class StorageConfig(_Section):
     database_url: str = "sqlite+aiosqlite:///./data/doudou.db"
     #: 会话历史的存储位置：``database`` 落库（重启可续），``memory`` 只在进程内。
     history: Literal["memory", "database"] = "database"
+    #: 单个会话在库里保留的消息条数上限（**保留**，不是送进模型的窗口 ——
+    #: 后者由 ``context.max_input_tokens`` 决定）。
+    #: 保留得多一些是有意的：压缩是有损的，原始历史要能回溯。
+    max_messages_per_thread: int = 500
     checkpointer: CheckpointerName = "sqlite"
     store: CheckpointerName = "sqlite"
     echo_sql: bool = False

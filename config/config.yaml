@@ -114,18 +114,32 @@ filesystem:
 # ---------------------------------------------------------------- 上下文管理
 context:
   todo_list: true
-  summarization: false         # M7 接入摘要压缩后打开
-  # 该模型上下文 100 万 token，历史窗口可以放得很宽；
-  # 当前（M1）实际生效的是 gateway.runner 的 max_history_messages 条数上限。
-  summarize_after_messages: 80
-  keep_recent_messages: 24
+  summarization: true          # 早期历史超阈值时压成摘要（原文不删）
+  # 次要触发条件：消息条数超过它时也考虑压缩
+  summarize_after_messages: 40
+  # 压缩时始终保留的最近消息条数（它们对当前对话最相关）
+  keep_recent_messages: 12
   offload_large_results: true
   offload_threshold_bytes: 20000
+  # ---- 以下三项是 M7 新增的关键参数 ----
+  # 送进模型的历史 token 预算。**这是最关键的一个数**：
+  # 默认值刻意保守（成本可预期），大上下文模型应该调高。
+  max_input_tokens: 80000
+  # 用量超过预算的这个比例时触发压缩（0–1）
+  summarize_threshold_ratio: 0.7
+  # 卸载目录。默认 <filesystem.root_dir>/.offload
+  # 必须落在工作区内，否则模型拿不到路径也读不回来。
+  offload_dir: null
+  # 注入系统提示词的记忆上限（记忆每轮都带，必须精简）
+  max_memory_chars: 8000
 
 # ---------------------------------------------------------------- 存储
 storage:
   database_url: sqlite+aiosqlite:///./data/doudou.db
   history: database
+  # 单个会话在库里保留的消息条数（**保留**，不是送进模型的窗口）。
+  # 保留得多一些是有意的：压缩是有损的，原始历史要能回溯。
+  max_messages_per_thread: 500
   checkpointer: sqlite
   store: sqlite
   echo_sql: false

@@ -8,7 +8,13 @@ from fastapi import APIRouter, Query
 
 from doudou.api.deps import RunnerDep
 from doudou.api.errors import ApiError
-from doudou.api.schemas import MessageOut, ThreadDetail, ThreadListResponse, ThreadSummary
+from doudou.api.schemas import (
+    ContextReport,
+    MessageOut,
+    ThreadDetail,
+    ThreadListResponse,
+    ThreadSummary,
+)
 from doudou.gateway.history import ThreadInfo
 from doudou.observability.logging import get_logger
 from doudou.utils.text import content_to_text
@@ -65,6 +71,20 @@ async def get_thread(thread_id: str, runner: RunnerDep) -> ThreadDetail:
             for message in messages
         ],
     )
+
+
+@router.get("/threads/{thread_id}/context", response_model=ContextReport, summary="上下文占用")
+async def get_thread_context(thread_id: str, runner: RunnerDep) -> ContextReport:
+    """查看某个会话的上下文占用、压缩情况与预算。
+
+    排查「它为什么忘了刚才说的事」时先看这里：``last_run.compressed`` 为真说明
+    这一轮用过摘要，``dropped`` 是被裁掉的消息数，而 ``stored_messages``
+    始终是全部原始历史 —— **压缩只影响送给模型的窗口，不删历史**。
+    """
+    info = await runner.get_thread(thread_id)
+    if info is None:
+        raise ApiError(404, "thread_not_found", f"会话 {thread_id} 不存在")
+    return ContextReport.model_validate(await runner.context_report(thread_id))
 
 
 @router.delete("/threads/{thread_id}", summary="删除会话")

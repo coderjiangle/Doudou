@@ -417,6 +417,30 @@ async def test_memory_backend_does_not_persist(tmp_path: Path) -> None:
         assert (await client.get(f"/api/v1/threads/{thread_id}")).status_code == 404
 
 
+async def test_thread_context_endpoint(settings_for_api: Settings) -> None:
+    """``GET /threads/{id}/context`` 必须回答「占多少、压过没、原文还在不在」。"""
+    async with api_client(settings_for_api) as client:
+        created = await client.post("/api/v1/chat", json={"message": "你好"})
+        thread_id = created.json()["thread_id"]
+        report = (await client.get(f"/api/v1/threads/{thread_id}/context")).json()
+
+    assert report["thread_id"] == thread_id
+    assert report["stored_messages"] == 2
+    assert report["stored_tokens"] > 0
+    assert report["budget"] > 0
+    assert report["last_run"] is not None
+    assert report["last_run"]["tokens"] <= report["budget"]
+    assert report["summary"]["present"] is False
+    assert "原始历史全部保留在库里" in report["note"]
+
+
+async def test_thread_context_unknown_returns_404(settings_for_api: Settings) -> None:
+    async with api_client(settings_for_api) as client:
+        response = await client.get("/api/v1/threads/nope/context")
+
+    assert response.status_code == 404
+
+
 # --------------------------------------------------------------------------- 常驻通道
 
 

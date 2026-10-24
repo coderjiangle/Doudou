@@ -23,7 +23,7 @@ import asyncio
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from doudou.agent.events import RunEvent
 from doudou.channels.base import InboundMessage, OutboundMessage
@@ -31,10 +31,14 @@ from doudou.channels.feishu import cards
 from doudou.channels.feishu.client import FeishuClient, FeishuError
 from doudou.channels.feishu.events import CHANNEL_NAME, EventDedup, parse_message_event
 from doudou.config.loader import Settings
-from doudou.gateway.router import MessageRouter
 from doudou.observability.logging import get_logger
 from doudou.observability.metrics import get_metrics
 from doudou.utils.text import truncate
+
+if TYPE_CHECKING:  # pragma: no cover - 只为类型检查
+    # 运行时不能 import：channels.feishu.channel ← gateway.router 是反向依赖，
+    # 而 gateway.router 又要通过 channels.base 触发本包的 __init__，会成环。
+    from doudou.gateway.router import MessageRouter
 
 logger = get_logger(__name__)
 

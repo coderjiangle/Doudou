@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
+from doudou.agent.context import ContextManager, ContextStats
 from doudou.agent.events import RunEvent
 from doudou.agent.factory import AgentBundle
 from doudou.agent.react import RunResult
@@ -38,7 +40,9 @@ class AgentRunner:
         self.bundle = bundle
         self.settings: Settings = bundle.settings
         self.store: HistoryStore = store if store is not None else InMemoryHistoryStore()
+        self.context: ContextManager | None = bundle.context
         self._locks: dict[str, asyncio.Lock] = {}
+        self._stats: dict[str, ContextStats] = {}
 
     # ---------------------------------------------------------------- 会话
 
@@ -82,7 +86,33 @@ class AgentRunner:
         return await self.store.list_threads(limit=limit)
 
     async def clear_thread(self, thread_id: str) -> bool:
+        self.context.forget(thread_id) if self.context else None
+        self._stats.pop(thread_id, None)
         return await self.store.clear(thread_id)
+
+    # ---------------------------------------------------------------- 上下文检视
+
+    def context_stats(self, thread_id: str) -> ContextStats | None:
+        """上一次运行时的上下文占用。"""
+        return self._stats.get(thread_id)
+
+    async def context_report(self, thread_id: str) -> dict[str, Any]:
+        """给 ``GET /threads/{id}/context`` 的报告。
+
+        它回答的是排查时最想问的问题：「这条会话现在占多少上下文、
+        有没有被压缩过、原始历史还在不在」。
+        """
+        from doudou.agent.context import context_report
+
+        history = await self.store.load(thread_id)
+        summary = self.context.summary_for(thread_id) if self.context else None
+        return context_report(
+            thread_id=thread_id,
+            messages=history,
+            stats=self._stats.get(thread_id),
+            summary=summary,
+            budget=self.context.budget if self.context else 0,
+        )
 
     # ---------------------------------------------------------------- 运行
 
@@ -94,7 +124,12 @@ class AgentRunner:
 
         # 同一会话串行，避免历史互相踩踏；不同会话完全并发。
         async with self._lock(resolved_thread):
-            history = await self.store.load(resolved_thread)
+            stored = await self.store.load(resolved_thread)
+            if self.context is not None:
+                history, stats = await self.context.prepare(resolved_thread, stored)
+                self._stats[resolved_thread] = stats
+            else:
+                history, stats = stored, ContextStats()
             produced: list[BaseMessage] = []
             started_ok = False
             steps = 0
@@ -124,7 +159,7 @@ class AgentRunner:
                     channel=request.channel,
                     conversation_id=request.conversation_id,
                 )
-                stored = await self.store.get_thread(resolved_thread)
+                stored_info = await self.store.get_thread(resolved_thread)
                 logger.info(
                     "runner.run_finished",
                     thread_id=resolved_thread,
@@ -133,8 +168,14 @@ class AgentRunner:
                     ok=started_ok and error is None,
                     steps=steps,
                     tool_calls=tool_calls,
-                    history_messages=stored.message_count if stored else 0,
+                    history_messages=stored_info.message_count if stored_info else 0,
                     new_messages=len(committed) + 1,
+                    # 上下文占用：排查「它为什么忘了」全靠这几个数
+                    ctx_messages=stats.messages,
+                    ctx_tokens=stats.tokens,
+                    ctx_budget=stats.budget,
+                    ctx_compressed=stats.compressed,
+                    ctx_summarized=stats.summarized,
                     error=error,
                 )
                 if not started_ok:

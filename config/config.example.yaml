@@ -118,17 +118,30 @@ filesystem:
 # ---------------------------------------------------------------- 上下文管理
 context:
   todo_list: true            # 启用 write_todos
-  summarization: true
-  summarize_after_messages: 40
-  keep_recent_messages: 12
-  offload_large_results: true
+  summarization: true        # 早期历史超阈值时压成摘要（**原文不删**）
+  summarize_after_messages: 40   # 次要触发条件：条数超过它时也考虑压缩
+  keep_recent_messages: 12       # 压缩时始终保留的最近消息条数
+  offload_large_results: true    # 超大工具结果落盘，上下文里只留预览 + 路径
   offload_threshold_bytes: 20000
+  # ---- M7 新增：这三个数决定「窗口有多大」 ----
+  # 送进模型的历史 token 预算。**最关键的一个数**：
+  # 默认 80000 刻意保守（成本可预期）；100 万上下文的大模型应该调高。
+  max_input_tokens: 80000
+  # 用量超过预算的这个比例时触发压缩
+  summarize_threshold_ratio: 0.7
+  # 卸载目录；默认 <filesystem.root_dir>/.offload。
+  # 必须落在工作区内 —— 否则模型读不回来，卸载等于丢弃。
+  offload_dir: null
+  # 注入系统提示词的记忆上限（记忆每轮都带，必须精简）
+  max_memory_chars: 8000
 
 # ---------------------------------------------------------------- 存储
 storage:
   database_url: sqlite+aiosqlite:///./data/doudou.db
   # 会话历史存哪：database = 落库（重启可续）；memory = 只在进程内
   history: database
+  # 库里保留的消息条数（**保留**，不是送进模型的窗口 —— 后者由 context 决定）
+  max_messages_per_thread: 500
   checkpointer: sqlite       # memory | sqlite | postgres
   store: sqlite              # memory | sqlite | postgres
   echo_sql: false

@@ -89,6 +89,11 @@ def test_ask_without_tool(config_dir: Path) -> None:
 
 
 def test_ask_stream_and_non_stream_agree(config_dir: Path) -> None:
+    """流式与非流式的**答复结构**应当一致。
+
+    刻意不比较完整输出：这个用例问的是「现在几点了」，工具返回真实时间戳，
+    两次运行跨过秒边界就会不同 —— 那是个 flaky 断言（确实偶发失败过）。
+    """
     common = [
         "ask",
         "现在几点了？",
@@ -99,10 +104,13 @@ def test_ask_stream_and_non_stream_agree(config_dir: Path) -> None:
         "--quiet",
     ]
 
-    streamed = invoke(*common)
-    plain = invoke(*common, "--no-stream")
+    streamed = invoke(*common).stdout  # type: ignore[attr-defined]
+    plain = invoke(*common, "--no-stream").stdout  # type: ignore[attr-defined]
 
-    assert streamed.stdout == plain.stdout  # type: ignore[attr-defined]
+    for output in (streamed, plain):
+        assert "工具返回结果" in output
+        assert "CST" in output
+    assert len(streamed.splitlines()) == len(plain.splitlines())
 
 
 def test_ask_reports_unusable_model(config_dir: Path) -> None:

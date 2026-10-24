@@ -5,12 +5,12 @@
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M6 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
+> **当前进度：M7 已完成** —— 配置、ReAct 循环、工具集（检索 / 抓取 / 笔记 / 只读文件）、
 > 会话网关、CLI、**HTTP 服务（REST + SSE + 持久化 + 鉴权）**、
-> **飞书通道（WebSocket 长连接 + 流式卡片）**、**MCP（stdio / http / sse）** 与
-> **Skill 渐进式加载（索引注入 + 按需读全文 + 热重载）** 均端到端可用，
-> 451 个离线测试 + `ruff` + `mypy --strict` 全绿。
-> 上下文工程（M7）、权限与子 Agent（M8）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
+> **飞书通道（WebSocket 长连接 + 流式卡片）**、**MCP（stdio / http / sse）**、
+> **Skill 渐进式加载** 与 **上下文工程（token 预算 / 摘要压缩 / 大结果卸载 / 长期记忆）**
+> 均端到端可用，511 个离线测试 + `ruff` + `mypy --strict` 全绿。
+> 权限与子 Agent（M8）尚在路线图中，详见 [`docs/roadmap.md`](docs/roadmap.md)。
 >
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
@@ -32,7 +32,7 @@
 | 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` | ✅ M4 |
 | MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` | ✅ M5 |
 | Skill 渐进式加载 | 索引注入 + `read_skill` 按需读 + 热重载 | `doudou.skills` | ✅ M6 |
-| 上下文工程 | token 预算、摘要压缩、长期记忆 | `doudou.gateway` / `doudou.agent.memory` | ⏳ M7 |
+| 上下文工程 | token 预算、摘要压缩、大结果卸载、长期记忆 | `doudou.agent.context` | ✅ M7 |
 | 权限与子 Agent | 路径权限、子 Agent 委派、跨重启确认 | `doudou.agent.permissions` | ⏳ M8 |
 | 任务规划 | `write_todos`（deepagents 引擎） | `doudou.agent.middleware` | ⏳ M9 |
 | 虚拟文件系统 | 可插拔 backend | `doudou.agent.backends` | ⏳ M9 |
@@ -200,6 +200,7 @@ uv run doudou serve --port 9000 --reload
 | `POST /api/v1/chat` | 单轮对话，一次返回完整答复 |
 | `POST /api/v1/chat/stream` | SSE 流式：`start → (delta\|tool_call\|tool_result)* → done` |
 | `GET /api/v1/threads` / `GET /api/v1/threads/{id}` | 会话列表 / 会话详情（含完整历史） |
+| `GET /api/v1/threads/{id}/context` | 上下文占用、预算与压缩明细（排查用） |
 | `DELETE /api/v1/threads/{id}` | 删除会话 |
 | `GET /api/v1/tools` | 工具清单 |
 | `GET /api/v1/health` / `/health/ready` | 健康 / 就绪检查（**不需要鉴权**） |
@@ -277,7 +278,38 @@ uv run doudou skills reload               # 重新扫描（HTTP 侧会热更新�
 
 详见 [`docs/skills.md`](docs/skills.md)。
 
-### 4.7 其他入口
+### 4.7 让它记住你（长期记忆）
+
+`agent.memory_files` 指向的文件会**每轮**注入系统提示词：
+
+```yaml
+agent:
+  memory_files:
+    - AGENTS.md          # 默认；指向你自己的偏好文件也可以
+```
+
+助手也能自己记 —— 说「记住我不喜欢大段贴原文」时它会调用 `remember` 工具追加到该文件，
+**并立刻刷新提示词**（写操作有副作用，默认需要确认）。
+
+### 4.8 长会话与上下文预算
+
+三个旋钮在 `context` 段，决定「窗口有多大」：
+
+```yaml
+context:
+  max_input_tokens: 80000        # 送进模型的历史 token 预算（最关键的一个数）
+  summarize_threshold_ratio: 0.7 # 用量超过预算这个比例时压缩
+  offload_threshold_bytes: 20000 # 单条工具结果超过它落盘，只留预览 + 路径
+```
+
+默认 80000 刻意保守；**100 万上下文的大模型应该调高**（例如 300000）。
+压缩**不会删除原文** —— 库里的完整历史始终可用：
+
+```powershell
+curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
+```
+
+### 4.9 其他入口
 ```powershell
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```

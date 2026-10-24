@@ -15,6 +15,7 @@ from doudou.api.schemas.chat import (
 )
 from doudou.api.schemas.common import (
     ChecksOut,
+    ContextReport,
     ErrorBody,
     ErrorResponse,
     HealthResponse,
@@ -35,6 +36,7 @@ __all__ = [
     "ChatRequest",
     "ChatResponse",
     "ChecksOut",
+    "ContextReport",
     "ErrorBody",
     "ErrorResponse",
     "HealthResponse",

@@ -28,6 +28,10 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
 - `config` 不得 import 其他业务模块
 - `RunEvent`（Agent 的输出）定义在 `agent/events.py`：它被上层消费，所以归 agent 层
 - `InboundMessage` / `OutboundMessage`（通道的输入输出）定义在 `channels/base.py`
+- **`channels/__init__.py` 必须保持轻量**：任何 `import doudou.channels.x` 都会先执行它，
+  而 `gateway.router` 只依赖 `channels.base`。在里面 import `registry` 会拖进
+  `channels.feishu.channel`，而后者反向依赖 `gateway.router` → 循环导入。
+  造通道请显式 `from doudou.channels.registry import ...`。
 
 ## 编码约定
 

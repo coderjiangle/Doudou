@@ -76,16 +76,24 @@ def build_store(settings: Settings) -> tuple[HistoryStore, Database | None]:
     """按配置选择历史存储。
 
     ``storage.history: database`` 时落库（重启可续），``memory`` 时只在进程内。
+
+    **保留条数**由 ``storage.max_messages_per_thread`` 决定，它管的是库的增长；
+    送进模型的窗口由 ``context.max_input_tokens`` 决定 —— 两者刻意分开：
+    压缩是有损的，原始历史要留得下、能回溯。
     """
+    retention = settings.app.storage.max_messages_per_thread
     if settings.app.storage.history == "memory":
-        logger.info("storage.history_backend", backend="memory")
-        return InMemoryHistoryStore(), None
+        logger.info("storage.history_backend", backend="memory", retention=retention)
+        return InMemoryHistoryStore(max_messages=retention), None
 
     database = create_database(settings.app.storage)
     logger.info(
-        "storage.history_backend", backend="database", url=settings.app.storage.database_url
+        "storage.history_backend",
+        backend="database",
+        url=settings.app.storage.database_url,
+        retention=retention,
     )
-    return SqlHistoryStore(database), database
+    return SqlHistoryStore(database, max_messages=retention), database
 
 
 async def create_state(settings: Settings | None = None) -> AppState:

@@ -97,6 +97,22 @@ class ThreadDetail(BaseModel):
     messages: list[MessageOut]
 
 
+class ContextReport(BaseModel):
+    """`GET /threads/{id}/context` 的响应。
+
+    回答排查时最想问的问题：这条会话占多少上下文、有没有被压缩过、
+    原始历史还在不在。
+    """
+
+    thread_id: str
+    stored_messages: int = Field(description="库里保留的原始消息数（压缩不会删除它们）。")
+    stored_tokens: int = Field(description="原始历史的估算 token 数。")
+    budget: int = Field(description="送进模型的历史 token 预算。")
+    last_run: dict[str, Any] | None = Field(default=None, description="上一次运行的占用统计。")
+    summary: dict[str, Any] = Field(default_factory=dict, description="摘要是否存在与长度。")
+    note: str = ""
+
+
 class McpServerOut(BaseModel):
     """单个 MCP server 的状态。"""
 
@@ -159,6 +175,7 @@ class SkillReloadResponse(BaseModel):
 
 __all__ = [
     "ChecksOut",
+    "ContextReport",
     "ErrorBody",
     "ErrorResponse",
     "HealthResponse",

@@ -57,6 +57,7 @@ class EnvAgent(_EnvSection):
     name: str | None = None
     system_prompt_file: str | None = None
     skills: list[str] | None = None
+    memory_files: list[str] | None = None
     max_steps: int | None = None
     recursion_limit: int | None = None
     require_approval_for_side_effects: bool | None = None
@@ -101,11 +102,19 @@ class EnvFilesystem(_EnvSection):
 class EnvContext(_EnvSection):
     summarization: bool | None = None
     todo_list: bool | None = None
+    max_input_tokens: int | None = None
+    summarize_threshold_ratio: float | None = None
+    keep_recent_messages: int | None = None
+    offload_large_results: bool | None = None
+    offload_threshold_bytes: int | None = None
+    offload_dir: str | None = None
+    max_memory_chars: int | None = None
 
 
 class EnvStorage(_EnvSection):
     database_url: str | None = None
     history: str | None = None
+    max_messages_per_thread: int | None = None
     checkpointer: str | None = None
     store: str | None = None
     echo_sql: bool | None = None

@@ -114,7 +114,35 @@ run_start
 | `storage.history` | `HistoryStore` 的 SQL 实现 + LangChain 消息 ↔ ORM 行的编解码。✅ |
 | `observability` | structlog 结构化日志（含噪音压制与脱敏）、运行指标。✅ |
 | `security.secrets` / `security.auth` | 脱敏、Bearer 令牌校验。✅ |
+| `utils.tokens` | token 计数（tiktoken `cl100k_base`，离线回退字符启发式）。✅ |
+| `agent.context` | 上下文工程：预算裁剪、摘要压缩、大结果卸载。✅ |
+| `agent.memory` | 长期记忆：`memory_files` 的加载与回写。✅ |
 | `storage/migrations` | Alembic 迁移。（暂缓，见该目录 README） |
+
+## 2.6 上下文工程
+
+三个机制对三种「上下文被顶坏」的方式，都在 `agent/context.py`：
+
+| 问题 | 机制 | 不做会怎样 |
+| --- | --- | --- |
+| 历史无限增长 | 按 token 预算**裁剪** | 请求被 provider 拒绝 |
+| 裁剪等于丢信息 | **摘要压缩**（原文不删） | 助手「忘了刚才说的事」 |
+| 单条结果过大 | **卸载到文件** | 一次 5 万字返回挤掉后续请求 |
+
+压缩是**有损**的，出错表现是「悄悄忘事」而不是报错，因此设计上有四条约束：
+
+1. **原始历史不删** —— 压缩只影响「这次送给模型的窗口」，库里保留完整消息，
+   `GET /threads/{id}` 能回看；`GET /threads/{id}/context` 同时给出两边的数字；
+2. **摘要可增量复用** —— 逐轮把「上一版摘要 + 新纳入的旧消息」再压一次，
+   而不是从零重压（既慢又贵，且会让摘要随轮次漂移）；
+3. **卸载目录落在工作区内** —— 模型要靠 `workspace_read` 读回来；
+   配到工作区外会让「卸载」变成「丢弃」，因此配置错位置会告警；
+4. **所有数字都上报** —— `runner.run_finished` 带 `ctx_tokens` / `ctx_compressed` /
+   `ctx_summarized` / `ctx_dropped`。
+
+`AgentRunner` 每轮：加载完整历史 → 需要时压缩 → 按预算取最近一段 → 执行。
+注意 `storage.max_messages_per_thread` 管的是**库的增长**，
+与「送进模型的窗口」（`context.max_input_tokens`）是两件事。
 
 ## 3. 两条主链路
 

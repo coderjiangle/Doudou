@@ -9,6 +9,8 @@ from typing import Any
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
+from doudou.agent.context import ContextManager, HistorySummarizer, ResultOffloader
+from doudou.agent.memory import MemoryStore
 from doudou.agent.models import build_model
 from doudou.agent.prompts import load_system_prompt
 from doudou.agent.react import ApprovalHook, ReactAgent
@@ -33,6 +35,8 @@ class AgentBundle:
     system_prompt: str
     agent: ReactAgent
     skills: SkillRegistry | None = None
+    memory: MemoryStore | None = None
+    context: ContextManager | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -53,10 +57,34 @@ class AgentBundle:
         if self.skills is None:
             return 0
         count = self.skills.reload()
-        self.system_prompt = load_system_prompt(self.settings, skills=self.skills.skills)
-        self.agent.system_prompt = self.system_prompt
+        self._apply_prompt()
         logger.info("agent.skills_refreshed", count=count)
         return count
+
+    def refresh_memory(self) -> int:
+        """重新读取记忆文件并更新系统提示词（``remember`` 工具写回后调用）。
+
+        Returns:
+            记忆正文字符数。
+        """
+        if self.memory is None:
+            return 0
+        self._apply_prompt()
+        content = self.memory.load()
+        logger.info("agent.memory_refreshed", chars=content.chars, files=len(content.files))
+        return content.chars
+
+    def _apply_prompt(self) -> None:
+        """按当前的技能索引与记忆重新组装提示词，并交给 Agent。
+
+        单点收敛：技能与记忆的更新都走它，避免两处各拼一遍导致顺序不一致。
+        """
+        skills = self.skills or SkillRegistry([])
+        memory_text = self.memory.render() if self.memory is not None else ""
+        self.system_prompt = load_system_prompt(
+            self.settings, skills=skills.skills, memory=memory_text
+        )
+        self.agent.system_prompt = self.system_prompt
 
 
 def build_agent(
@@ -88,15 +116,27 @@ def build_agent(
     if model is None:
         model = build_model(resolved.app.model, secrets=resolved.secrets, spec=model_spec)
 
+    # 记忆每轮都带进提示词，因此要能热更新（remember 工具写回后立刻生效）。
+    memory = MemoryStore(resolved)
+
     # Skill 索引只建一次，提示词与 read_skill 工具共用它 ——
     # 否则「提示词里列出的技能」与「能读到的技能」可能对不上。
-    registry = SkillRegistry.from_settings(resolved)
+    skills_registry = SkillRegistry.from_settings(resolved)
     if tools is None:
         tools = build_tools(
-            resolved, extra=extra_tools, extra_source="mcp", skills_registry=registry
+            resolved,
+            extra=extra_tools,
+            extra_source="mcp",
+            skills_registry=skills_registry,
+            memory_store=memory,
         )
 
-    system_prompt = load_system_prompt(resolved, skills=registry.skills)
+    system_prompt = _compose_prompt(resolved, skills_registry, memory)
+
+    # 大结果卸载：落在工作区内，模型能用 workspace_read 读回来。
+    offloader = ResultOffloader(resolved)
+    # 摘要压缩：用同一个模型来压，避免再引入一个「压缩专用模型」的配置面。
+    context = ContextManager(resolved, summarizer=HistorySummarizer(model), offloader=offloader)
 
     # 副作用工具在配置未显式说明时自动需要确认，见 tools.registry.requires_approval
     interrupt_on = effective_interrupt_on(resolved, tools)
@@ -108,6 +148,7 @@ def build_agent(
         max_tool_calls_per_step=resolved.app.agent.max_tool_calls_per_step,
         interrupt_on=interrupt_on,
         approval_hook=approval_hook,
+        offloader=offloader,
     )
 
     metadata = {
@@ -115,20 +156,32 @@ def build_agent(
         "model": model_spec or resolved.app.model.primary,
         "tools": [tool.name for tool in tools],
         "requires_approval": sorted(name for name, needed in interrupt_on.items() if needed),
-        "skills": registry.names,
+        "skills": skills_registry.names,
+        "memory_files": [str(path) for path in memory.paths],
         "system_prompt_chars": len(system_prompt),
     }
     logger.info("agent.built", **metadata)
 
-    return AgentBundle(
+    bundle = AgentBundle(
         settings=resolved,
         model=model,
         tools=list(tools),
         system_prompt=system_prompt,
         agent=agent,
-        skills=registry,
+        skills=skills_registry,
+        memory=memory,
+        context=context,
         metadata=metadata,
     )
+    # remember 工具写回记忆后，让 Agent 立刻用上新提示词 ——
+    # 否则用户会看到「它说记住了，但下一轮还是不知道」。
+    memory.on_change(bundle.refresh_memory)
+    return bundle
+
+
+def _compose_prompt(settings: Settings, skills: SkillRegistry, memory: MemoryStore) -> str:
+    """统一组装提示词，供首次构造与各次热更新复用。"""
+    return load_system_prompt(settings, skills=skills.skills, memory=memory.render())
 
 
 __all__ = ["AgentBundle", "build_agent"]

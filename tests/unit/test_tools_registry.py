@@ -113,7 +113,7 @@ def test_duplicate_tool_name_keeps_first(settings: Settings) -> None:
 
 
 def test_all_groups_declared() -> None:
-    assert ALL_GROUPS == ("web", "http", "files", "notes", "skills", "clock")
+    assert ALL_GROUPS == ("web", "http", "files", "notes", "skills", "memory", "clock")
 
 
 def test_enabled_groups_restricts_tool_set(settings: Settings) -> None:

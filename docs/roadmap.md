@@ -225,26 +225,38 @@ uv run doudou ask "现在几点了？" --no-confirm   # 不应调用 read_skill
 
 ---
 
-### M7 — 上下文工程
+### M7 — 上下文工程 ✅
 
-**目标**：把 100 万 token 的上下文真正用起来，并支持跨会话的长期记忆。
+- [x] `utils/tokens.py`：token 计数（tiktoken `cl100k_base`），**离线时回退字符启发式**并只告警一次
+- [x] `agent/context.py`：`ContextManager` / `HistorySummarizer` / `ResultOffloader` / `trim_to_budget`
+- [x] 按 **token 预算**裁剪（`context.max_input_tokens`），且不切断工具调用组
+- [x] 摘要压缩：超阈值时把早期历史压成摘要，**原文不删**；摘要可增量复用
+- [x] 大结果卸载：超过 `offload_threshold_bytes` 落盘，上下文里只留预览 + 路径
+- [x] `agent/memory.py`：加载 `memory_files` 到提示词、支持助手回写（`remember` 工具有副作用）
+- [x] `remember` 写回后**立刻**刷新系统提示词（回调机制，与 Skill 热重载同源）
+- [x] `GET /api/v1/threads/{id}/context`：占用 / 预算 / 压缩明细 / 原文条数
+- [x] `runner.run_finished` 日志带 `ctx_tokens`、`ctx_compressed`、`ctx_summarized`、`ctx_dropped`
+- [x] 60 个新增测试，含 50 轮长会话的验收用例
+- [x] 验收：真实模型下 12 轮把 29 条 / 2483 token 压到 875 token，
+      压缩后**仍能概括此前聊过什么**；记忆在新会话里被准确复述
 
-**交付物**
+**验收命令**
 
-- [ ] `utils` 增加 token 计数（`tiktoken` 已在依赖树中）
-- [ ] `AgentRunner` 的历史裁剪从「按条数」改为「按 token 预算」，且不切断工具调用组
-- [ ] 摘要压缩：超阈值时把早期历史压成摘要（`context.summarize_after_messages` 生效）
-- [ ] 大结果卸载：超 `offload_threshold_bytes` 的工具结果落盘，上下文里只留摘要 + 路径
-- [ ] `agent/memory.py`：加载 `AGENTS.md` 到系统提示词；支持助手回写记忆
-- [ ] `GET /api/v1/threads/{id}/context`：查看当前上下文占用（排查用）
+```powershell
+uv run doudou serve
+curl -X POST http://127.0.0.1:8000/api/v1/chat -d '{"message":"你好"}' -H "Content-Type: application/json"
+curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
+```
 
-**验收**：连续 50 轮对话不炸上下文；一次返回 5 万字的结果不会把后续请求顶坏；
-`AGENTS.md` 里写的偏好在新会话中生效。
-
-**依赖**：M2（持久化）
-
-**风险**：压缩是有损的。摘要策略一旦出错会表现为「助手忘了刚才说的事」，
-必须有可观测的占用指标，且压缩历史要可回溯。
+> **这一版修复了一个从 M4 潜伏至今的循环导入。**
+> `gateway.router` → `channels.base`（触发包 `__init__`）→ `channels.registry`
+> → `channels.feishu.channel` → `gateway.router` 成环，
+> 表现是「导入顺序不同就报 ImportError」。两处修：`channels/__init__` 只导出协议
+> （不再拖进 lark），`feishu.channel` 改用 `TYPE_CHECKING` 引用 `MessageRouter`。
+> 顺带的好处：`import doudou.channels.base` 不再需要加载 lark。
+>
+> **同时修掉一个 flaky 测试**：`test_ask_stream_and_non_stream_agree` 比较两次
+> 「现在几点」的完整输出，跨秒就会不同。改为断言答复结构而非字面相等。
 
 ---
 

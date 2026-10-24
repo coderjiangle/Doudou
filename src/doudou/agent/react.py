@@ -30,6 +30,7 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 
+from doudou.agent.context import ResultOffloader
 from doudou.agent.events import RunEvent, ToolOutcome
 from doudou.observability.logging import get_logger
 from doudou.security.secrets import redact
@@ -90,6 +91,7 @@ class ReactAgent:
         interrupt_on: dict[str, bool] | None = None,
         approval_hook: ApprovalHook | None = None,
         tool_timeout: float | None = None,
+        offloader: ResultOffloader | None = None,
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps 必须 >= 1")
@@ -101,6 +103,9 @@ class ReactAgent:
         self.interrupt_on = dict(interrupt_on or {})
         self.approval_hook = approval_hook
         self.tool_timeout = tool_timeout
+        #: 大结果卸载。放在这里而不是通道层：工具结果是唯一会「一条顶掉整个上下文」
+        #: 的来源，在它产生的地方处理最直接。
+        self.offloader = offloader
         self._tools_by_name = {tool.name: tool for tool in self.tools}
         #: 没有工具时不绑定，避免部分 provider 在空工具列表上报错。
         self._runnable = model.bind_tools(self.tools) if self.tools else model
@@ -408,6 +413,10 @@ class ReactAgent:
 
         elapsed = perf_counter() - started
         content = stringify_tool_result(result)
+        # 超大结果落盘：一条 5 万字的返回值会把后续所有请求挤掉，
+        # 而模型通常只需要结论 —— 留预览 + 路径，需要细节时再去读。
+        if self.offloader is not None:
+            content = self.offloader.maybe_offload(content, name=name, call_id=call_id)
         logger.info(
             "agent.tool_finished",
             tool=name,

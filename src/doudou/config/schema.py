@@ -92,7 +92,7 @@ class NotesToolConfig(_Section):
 
 
 class FilesToolConfig(_Section):
-    """只读文件工具的限制。
+    """文件工具的限制。
 
     读取根目录固定为 ``filesystem.root_dir``（即工作区），不单独配置 ——
     避免出现「两个 root」的困惑；要与权限规则对齐时只需要改一处。
@@ -100,6 +100,29 @@ class FilesToolConfig(_Section):
 
     max_read_chars: int = 50000
     max_list: int = 200
+    #: 单次写入（或替换后）的字符上限。
+    max_write_chars: int = 200000
+
+
+class ShellToolConfig(_Section):
+    """``shell_exec`` 的配置。
+
+    **默认禁用**：这是本仓库唯一没有任何约束机制的出口 ——
+    路径权限规则对它无效（它不经过我们的路径解析），只有人工确认拦一道。
+    因此默认不开，开了就要自己承担风险。
+    """
+
+    enabled: bool = False
+    #: 工作目录，默认取 ``filesystem.root_dir``。
+    cwd: str | None = None
+    timeout: float = 60.0
+    #: 输出上限（stdout + stderr 合计）。
+    max_output_chars: int = 20000
+    #: 环境变量白名单。为空表示只透传 PATH 等最小集合，
+    #: 避免把 API Key 之类泄漏给子进程。
+    inherit_env: list[str] = Field(
+        default_factory=lambda: ["PATH", "HOME", "LANG", "LC_ALL", "TZ", "TEMP", "TMP"]
+    )
 
 
 class ToolsConfig(_Section):
@@ -111,6 +134,7 @@ class ToolsConfig(_Section):
     web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
     notes: NotesToolConfig = Field(default_factory=NotesToolConfig)
     files: FilesToolConfig = Field(default_factory=FilesToolConfig)
+    shell: ShellToolConfig = Field(default_factory=ShellToolConfig)
 
 
 # --------------------------------------------------------------------------- agent
@@ -140,6 +164,9 @@ class AgentConfig(_Section):
     #: 是否自动拦截声明了副作用（``side_effects=True``）的工具。
     #: 关掉它意味着「写文件、发消息」这类操作不经确认直接执行。
     require_approval_for_side_effects: bool = True
+    #: 等待人工确认的时长（秒）。等不到就按**拒绝**处理 ——
+    #: 悬着的确认等于没有确认，默认必须偏向安全的一侧。
+    approval_timeout_seconds: float = 300.0
     #: 系统提示词里最多列出几个技能。索引必须**有界**，
     #: 否则技能一多，光是索引就把上下文顶坏了。
     skill_index_limit: int = 40
@@ -336,6 +363,7 @@ __all__ = [
     "PermissionRule",
     "RuntimeConfig",
     "ServerConfig",
+    "ShellToolConfig",
     "StorageConfig",
     "ToolsConfig",
     "WebSearchToolConfig",

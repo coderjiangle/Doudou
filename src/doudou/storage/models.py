@@ -109,7 +109,32 @@ class SessionBindingModel(Base):
     )
 
 
+class ApprovalModel(Base):
+    """人工确认的请求与决策。
+
+    为什么要落库：确认是**有后果的事实**（「谁在什么时候同意了对哪个文件做什么」）。
+    进程重启后必须还能查得到 —— 与「待决的运行会不会续跑」是两件事，
+    后者做不到，前者必须做到。
+    """
+
+    __tablename__ = "approvals"
+
+    approval_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    #: 模型给的 tool_call_id；用它在同一个调用上复用决策，避免重复问。
+    call_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    thread_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    tool_name: Mapped[str] = mapped_column(String(120))
+    args: Mapped[Any] = mapped_column(JSON, nullable=True)
+    step: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 __all__ = [
+    "ApprovalModel",
     "Base",
     "MessageModel",
     "SessionBindingModel",

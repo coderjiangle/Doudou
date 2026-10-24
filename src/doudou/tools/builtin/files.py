@@ -1,14 +1,18 @@
 """Local file helpers that are not part of the virtual filesystem.
 
-只读版本：本里程碑只让助手「看得见」工作区里的文件，写入与删除留给 M8
-（要和权限规则一起放行）。
+读写一体的工作区文件工具。两道防线叠在一起：
 
-读取根目录固定为 ``filesystem.root_dir``（默认 ``./data/workspace``）。
-所有路径都会先解析成绝对路径再校验是否仍在根目录内 ——
-只靠字符串里有没有 ``..`` 是挡不住的（软链接、``%2e%2e``、绝对路径都能绕过）。
+1. **硬边界**（本模块）—— 所有路径 ``resolve()`` 之后必须落在工作区内。
+   只检查字符串里有没有 ``..`` 是挡不住软链接的；
+2. **细粒度规则**（``agent.permissions``）—— 在硬边界之上再限制具体路径，
+   例如「工作区里都能写，但 ``.env`` 和 ``secrets/`` 一律拒绝」。
+
+写类工具还声明了 ``side_effects=True``，因此默认每次调用都要人工确认。
+三层各管一件事：**确认**决定「要不要做」，**权限**决定「能不能碰这个路径」，
+**硬边界**保证「跑不出工作区」。
 
 工具名刻意用 ``workspace_*`` 前缀：M9 接入 deepagents 的
-``FilesystemMiddleware`` 时会提供 ``read_file`` / ``ls``，重名会被
+``FilesystemMiddleware`` 时会提供 ``read_file`` / ``write_file`` 等，重名会被
 ``tools.registry`` 判为冲突并丢掉后者，这里避免那种静默失效。
 """
 
@@ -19,6 +23,7 @@ from pathlib import Path
 
 from langchain_core.tools import BaseTool, tool
 
+from doudou.agent.permissions import PermissionPolicy
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
 from doudou.tools.decorators import annotate
@@ -38,9 +43,15 @@ class FilesError(ValueError):
 
 
 def build_tools(settings: Settings) -> Sequence[BaseTool]:
-    """构造只读文件工具。"""
+    """构造文件工具。
+
+    读工具始终可用；**写/改/删**同样注册，但声明了 ``side_effects=True``，
+    因此在默认策略下每次调用都要人工确认，并且还要过 ``agent.permissions``
+    的路径规则。两层叠加：确认解决「要不要做」，权限解决「能不能碰这个路径」。
+    """
     config = settings.app.tools.files
     root = settings.root_dir
+    policy = PermissionPolicy(settings.app)
 
     @tool
     def workspace_read(path: str) -> str:
@@ -56,6 +67,7 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
         可以先用 workspace_list 看看有什么。
         """
         target = _resolve(root, path)
+        policy.require_target("read", target, root=root)
         if not target.is_file():
             raise FilesError(
                 f"工作区里没有文件 {path!r}。现有文件：{_preview_files(root, config.max_list)}"
@@ -76,7 +88,7 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
             raise FilesError(f"读取 {path!r} 失败：{exc}") from exc
 
         content = truncate(text.strip(), config.max_read_chars)
-        logger.info("tools.workspace_read", path=str(target.relative_to(root)), bytes=size)
+        logger.info("tools.workspace_read", path=_relative(root, target), bytes=size)
         return content
 
     @tool
@@ -90,6 +102,7 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
             文件与子目录清单；目录为空或不存在时说明情况。
         """
         target = _resolve(root, directory) if directory.strip() else root
+        policy.require_target("read", target, root=root)
         if not target.is_dir():
             raise FilesError(f"工作区里没有目录 {directory!r}。")
 
@@ -110,9 +123,126 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
             lines.append(f"（仅显示前 {config.max_list} 个）")
         return "\n".join(lines)
 
-    annotate(workspace_read, group=GROUP)
-    annotate(workspace_list, group=GROUP)
-    return [workspace_read, workspace_list]
+    @tool
+    def workspace_write(path: str, content: str) -> str:
+        """把内容写入工作区里的文件（新建或整体覆盖）。
+
+        Args:
+            path: 相对工作区的路径，例如 ``report.md``。
+            content: 完整文件内容。**会覆盖原有内容**。
+
+        Returns:
+            写入结果与字节数。
+
+        需要「改」已有文件的一小部分时，用 workspace_edit 而不是整体覆盖 ——
+        覆盖会丢掉你没看到的那部分。写之前若不确定现有内容，先 workspace_read。
+        """
+        target = _resolve(root, path)
+        policy.require_target("write", target, root=root)
+        if target.exists() and target.is_dir():
+            raise FilesError(f"{path!r} 是一个目录，不能用 workspace_write 覆盖。")
+        if len(content) > config.max_write_chars:
+            raise FilesError(
+                f"内容有 {len(content)} 字，超过单次写入上限"
+                f"（{config.max_write_chars} 字）。请拆分后分次写入。"
+            )
+        existed = target.exists()
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            raise FilesError(f"写入 {path!r} 失败：{exc}") from exc
+        size = target.stat().st_size
+        logger.info("tools.workspace_write", path=_relative(root, target), bytes=size)
+        action = "已覆盖" if existed else "已创建"
+        return f"{action} {path}（{size} 字节）。"
+
+    @tool
+    def workspace_edit(path: str, old: str, new: str) -> str:
+        """在文件里做一次精确字符串替换。
+
+        Args:
+            path: 相对工作区的路径。
+            old: 要被替换的原文，必须**在文件里唯一出现**。
+            new: 替换成的内容。
+
+        Returns:
+            替换结果。
+
+        用于改动已有文件的一小部分。``old`` 出现多次时会拒绝执行 ——
+        那说明它不够具体，硬替换会改到不该改的地方。
+        """
+        target = _resolve(root, path)
+        policy.require_target("write", target, root=root)
+        if not target.is_file():
+            raise FilesError(f"工作区里没有文件 {path!r}。")
+        try:
+            text = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise FilesError(f"读取 {path!r} 失败：{exc}") from exc
+
+        occurrences = text.count(old)
+        if occurrences == 0:
+            raise FilesError(f"在 {path!r} 里找不到要替换的原文，请先 workspace_read 确认。")
+        if occurrences > 1:
+            raise FilesError(
+                f"要替换的原文在 {path!r} 里出现了 {occurrences} 次，无法确定改哪一处。"
+                "请给出更长、更唯一的上下文。"
+            )
+        updated = text.replace(old, new, 1)
+        if len(updated) > config.max_write_chars:
+            raise FilesError(f"替换后超过单次写入上限（{config.max_write_chars} 字）。")
+        try:
+            target.write_text(updated, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            raise FilesError(f"写入 {path!r} 失败：{exc}") from exc
+        logger.info("tools.workspace_edit", path=_relative(root, target))
+        return f"已修改 {path}（替换 1 处）。"
+
+    @tool
+    def workspace_delete(path: str) -> str:
+        """删除工作区里的一个文件或空目录。
+
+        Args:
+            path: 相对工作区的路径。
+
+        Returns:
+            删除结果。
+
+        这是不可逆操作。只在用户明确要求删除时使用；不确定就先问。
+        非空目录不会被删除（避免一次删掉一堆东西）。
+        """
+        target = _resolve(root, path)
+        policy.require_target("write", target, root=root)
+        if target == root:
+            raise FilesError("不能删除工作区根目录。")
+        if not target.exists():
+            raise FilesError(f"工作区里没有 {path!r}。")
+        try:
+            if target.is_dir():
+                if any(target.iterdir()):
+                    raise FilesError(f"目录 {path!r} 非空，请先逐个删除其中文件。")
+                target.rmdir()
+            else:
+                target.unlink()
+        except OSError as exc:
+            raise FilesError(f"删除 {path!r} 失败：{exc}") from exc
+        logger.info("tools.workspace_delete", path=_relative(root, target))
+        return f"已删除 {path}。"
+
+    annotate(workspace_read, group=GROUP, side_effects=False)
+    annotate(workspace_list, group=GROUP, side_effects=False)
+    # 写类：有副作用 → 默认需要人工确认；且都会过 policy.require("write", ...)
+    annotate(workspace_write, group=GROUP, side_effects=True)
+    annotate(workspace_edit, group=GROUP, side_effects=True)
+    annotate(workspace_delete, group=GROUP, side_effects=True)
+    return [
+        workspace_read,
+        workspace_list,
+        workspace_write,
+        workspace_edit,
+        workspace_delete,
+    ]
 
 
 def _resolve(root: Path, path: str) -> Path:
@@ -138,6 +268,14 @@ def _preview_files(root: Path, limit: int) -> str:
         item.relative_to(root).as_posix() for item in sorted(root.rglob("*")) if item.is_file()
     ]
     return "、".join(names[:limit]) if names else "（工作区为空）"
+
+
+def _relative(root: Path, target: Path) -> str:
+    """日志里用相对路径，避免把机器的绝对路径写进日志。"""
+    try:
+        return target.relative_to(root).as_posix()
+    except ValueError:
+        return str(target)
 
 
 __all__ = ["GROUP", "FilesError", "build_tools"]

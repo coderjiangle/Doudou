@@ -25,10 +25,11 @@ import time
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
+from doudou.agent.approvals import ApprovalBroker, ApprovalRequest
 from doudou.agent.events import RunEvent
-from doudou.channels.base import InboundMessage, OutboundMessage
+from doudou.channels.base import InboundMessage, OutboundMessage, current_inbound
 from doudou.channels.feishu import cards
-from doudou.channels.feishu.client import FeishuClient, FeishuError
+from doudou.channels.feishu.client import FeishuClient, FeishuError, parse_action_value
 from doudou.channels.feishu.events import CHANNEL_NAME, EventDedup, parse_message_event
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
@@ -49,9 +50,16 @@ WS_STOP_TIMEOUT = 5.0
 class FeishuWebSocketRunner:
     """在独立 daemon 线程里跑 lark 的长连接客户端。"""
 
-    def __init__(self, config: Any, *, on_event: Callable[[Any], None]) -> None:
+    def __init__(
+        self,
+        config: Any,
+        *,
+        on_event: Callable[[Any], None],
+        on_card_action: Callable[[Any], None] | None = None,
+    ) -> None:
         self.config = config
         self.on_event = on_event
+        self.on_card_action = on_card_action
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._error: BaseException | None = None
@@ -94,11 +102,14 @@ class FeishuWebSocketRunner:
             ws_module.loop = loop
             self._loop = loop
 
-            handler = (
-                lark.EventDispatcherHandler.builder("", "")
-                .register_p2_im_message_receive_v1(self.on_event)
-                .build()
+            builder = lark.EventDispatcherHandler.builder("", "").register_p2_im_message_receive_v1(
+                self.on_event
             )
+            if self.on_card_action is not None:
+                # 卡片按钮回调（人工确认）。与消息回调同处一个 dispatcher ——
+                # 长连接只有一条，两个事件源共用它。
+                builder = builder.register_p2_card_action_trigger(self.on_card_action)
+            handler = builder.build()
             client = lark.ws.Client(
                 app_id=self.config.app_id or "",
                 app_secret=self.config.app_secret or "",
@@ -150,6 +161,7 @@ class FeishuChannel:
         *,
         client: FeishuClient | None = None,
         runner: FeishuWebSocketRunner | None = None,
+        broker: ApprovalBroker | None = None,
     ) -> None:
         self.settings = settings
         self.config = settings.app.channels.feishu
@@ -159,6 +171,20 @@ class FeishuChannel:
         self._dedup = EventDedup(ttl_seconds=float(self.config.dedup_ttl_seconds))
         self._ws = runner
         self._tasks: set[asyncio.Task[Any]] = set()
+        #: 确认卡片 ID：点了按钮之后要把那张卡换成「已同意 / 已拒绝」，
+        #: 否则按钮还挂在那里，容易被重复点击（虽然决策是幂等的）。
+        self._approval_cards: dict[str, str] = {}
+        self._broker = broker
+        if broker is not None:
+            if broker.on_request is not None:
+                logger.warning(
+                    "feishu.approval_handler_replaced",
+                    hint="已有其它组件登记了确认通知回调，将改由飞书卡片接管",
+                )
+            # 接管的含义：有工具需要确认时，飞书**主动推一张带按钮的卡片**，
+            # 用户的点击再回到 broker。没有这一步，飞书里所有副作用工具都只能被拒绝
+            # （无人可问 = 拒绝）。
+            broker.on_request = self._on_approval_request
 
     # ---------------------------------------------------------------- 生命周期
 
@@ -185,7 +211,9 @@ class FeishuChannel:
                 logger.info("feishu.bot_identity", open_id=open_id)
 
         if self._ws is None:
-            self._ws = FeishuWebSocketRunner(self.config, on_event=self._on_event)
+            self._ws = FeishuWebSocketRunner(
+                self.config, on_event=self._on_event, on_card_action=self._on_card_action
+            )
         self._ws.start()
         logger.info(
             "feishu.channel_started",
@@ -281,6 +309,105 @@ class FeishuChannel:
             self.client.send_text,
             message.conversation_id,
             truncate(message.text, self.config.max_reply_chars),
+        )
+
+    # ---------------------------------------------------------------- 人工确认
+
+    async def _on_approval_request(self, request: ApprovalRequest) -> None:
+        """Broker 的「有人要确认」通知：往对应会话推一张带按钮的卡片。
+
+        会话从 :func:`~doudou.channels.base.current_inbound` 取 —— 它由 router
+        在跑这一轮之前绑定，因此这里的正是**发起这次调用的那条会话**。
+
+        不是飞书发起的调用（HTTP API / CLI）就什么都不做：那些路径各有自己的
+        确认方式（``/approvals`` 或终端提问），这里抢着发卡片会发错地方。
+        """
+        inbound = current_inbound()
+        if inbound is None or inbound.channel != CHANNEL_NAME:
+            logger.debug(
+                "feishu.approval_not_for_us",
+                approval_id=request.approval_id,
+                channel=inbound.channel if inbound else None,
+            )
+            return
+
+        card = cards.approval_card(
+            bot_name=self.config.bot_name,
+            approval_id=request.approval_id,
+            tool_name=request.tool_name,
+            args=request.args,
+            question=inbound.text,
+            expires_in=self._broker.timeout if self._broker else None,
+        )
+        message_id = await asyncio.to_thread(self.client.send_card, inbound.conversation_id, card)
+        if message_id:
+            self._approval_cards[request.approval_id] = message_id
+        logger.info(
+            "feishu.approval_card_sent",
+            approval_id=request.approval_id,
+            tool=request.tool_name,
+            conversation_id=inbound.conversation_id,
+            ok=bool(message_id),
+        )
+
+    def _on_card_action(self, data: Any) -> None:
+        """lark 的卡片按钮回调。**运行在 WS 线程**，因此只解析 + 转发。"""
+        try:
+            value = parse_action_value(self._raw_action_value(data))
+            if value.action not in {"approve", "reject"} or not value.approval_id:
+                return  # 不是我们的按钮（或点了别的卡）
+            loop = self._main_loop
+            if loop is None or loop.is_closed():
+                logger.error("feishu.main_loop_unavailable", approval_id=value.approval_id)
+                return
+            asyncio.run_coroutine_threadsafe(
+                self._handle_card_action(value.approval_id, value.action == "approve"), loop
+            )
+        except Exception as exc:
+            logger.error("feishu.card_action_failed", error=str(exc), exc_info=True)
+
+    @staticmethod
+    def _raw_action_value(data: Any) -> Any:
+        """从 lark 的卡片回调对象里掏出按钮的 ``value``。
+
+        这里刻意用 ``getattr`` 链而不是直接访问属性：lark 的事件对象在不同
+        版本里层级会变（``data.event.action.value`` vs ``data.action.value``），
+        而「读不到」应该表现为「忽略这次点击」，不是把回调打崩。
+
+        掏出来的原始值交给 :func:`parse_action_value` —— 按钮的 ``value``
+        既可能是 dict 也可能是 JSON 字符串，解析只该有一处实现。
+        """
+        event = getattr(data, "event", None) or data
+        action = getattr(event, "action", None)
+        return getattr(action, "value", None)
+
+    async def _handle_card_action(self, approval_id: str, approved: bool) -> None:
+        """在主事件循环里落决策，并把卡片换成结果态。"""
+        if self._broker is None:
+            logger.warning("feishu.approval_without_broker", approval_id=approval_id)
+            return
+        request = self._broker.get(approval_id)
+        if request is None:
+            # 幂等：可能是超时之后才点的，或重复点击。
+            logger.info("feishu.approval_unknown", approval_id=approval_id)
+            return
+        outcome = await self._broker.decide(approval_id, approved=approved)
+
+        message_id = self._approval_cards.pop(approval_id, None)
+        if message_id:
+            card = cards.approval_decided_card(
+                bot_name=self.config.bot_name,
+                tool_name=request.tool_name,
+                approved=outcome.approved,
+                reason=outcome.reason,
+            )
+            await asyncio.to_thread(self.client.patch_card, message_id, card)
+        get_metrics().incr("feishu.approval_decided")
+        logger.info(
+            "feishu.approval_decided",
+            approval_id=approval_id,
+            tool=request.tool_name,
+            approved=outcome.approved,
         )
 
     async def deliver(self, message: InboundMessage, events: AsyncIterator[RunEvent]) -> None:

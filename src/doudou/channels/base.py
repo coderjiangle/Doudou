@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -96,3 +97,29 @@ class EventSink(Protocol):
 
 
 __all__ = ["Channel", "EventSink", "InboundMessage", "OutboundMessage"]
+
+
+#: 当前正在被处理的那条入站消息。
+#:
+#: 为什么需要它：确认回调只拿到「工具名 + 参数」，但飞书卡片需要知道**发到哪个会话**。
+#: 让 tool / agent 层一路透传会话 ID 会把通道概念污染进 Agent；
+#: 而「正在服务谁」本来就是通道层的环境状态，用 ContextVar 最省事 ——
+#: 它会自动随 await 链传递，不需要任何显式参数。
+_current_inbound: ContextVar[InboundMessage | None] = ContextVar(
+    "doudou_current_inbound", default=None
+)
+
+
+def bind_inbound(message: InboundMessage) -> Token[InboundMessage | None]:
+    """标记「开始处理这条消息」，返回供 :func:`unbind_inbound` 还原的 token。"""
+    return _current_inbound.set(message)
+
+
+def unbind_inbound(token: Token[InboundMessage | None]) -> None:
+    """还原上一次的绑定。必须放在 ``finally`` 里，否则并发处理会串味。"""
+    _current_inbound.reset(token)
+
+
+def current_inbound() -> InboundMessage | None:
+    """取当前正在处理的消息；不在任何处理链路里时返回 ``None``。"""
+    return _current_inbound.get()

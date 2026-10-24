@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from doudou.agent.approvals import ApprovalBroker
 from doudou.agent.factory import AgentBundle, build_agent
 from doudou.channels.base import Channel
 from doudou.channels.registry import build_enabled_channels, start_channels, stop_channels
@@ -21,6 +22,7 @@ from doudou.gateway.runner import AgentRunner
 from doudou.mcp.lifecycle import McpRuntime
 from doudou.observability.logging import configure_logging, get_logger
 from doudou.observability.metrics import get_metrics
+from doudou.storage.approvals import SqlApprovalStore
 from doudou.storage.database import Database, create_database
 from doudou.storage.history import SqlHistoryStore
 from doudou.version import __version__
@@ -49,6 +51,9 @@ class AppState:
     router: MessageRouter | None = None
     channels: list[Channel] = field(default_factory=list)
     mcp: McpRuntime | None = None
+    #: 人工确认的中介。所有通道共用它 —— 确认动作可能来自 CLI、HTTP 或飞书卡片。
+    broker: ApprovalBroker | None = None
+    approval_store: SqlApprovalStore | None = None
     started_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -97,18 +102,27 @@ def build_store(settings: Settings) -> tuple[HistoryStore, Database | None]:
 
 
 async def create_state(settings: Settings | None = None) -> AppState:
-    """构造运行期状态（初始化数据库 schema、拉取 MCP 工具、按配置拉起常驻通道）。"""
+    """构造运行期状态（初始化 schema、装确认中介、拉 MCP 工具、拉起通道）。"""
     resolved = settings or get_settings()
     store, database = build_store(resolved)
     if database is not None:
         await database.create_schema()
+
+    # 确认中介要在建 Agent **之前**装好：Agent 构造时就固定了确认回调。
+    # 决策落库 → 同一个 tool_call_id 不会问第二次；待决请求可查（见 /approvals）。
+    approval_store = SqlApprovalStore(database) if database is not None else None
+    broker = ApprovalBroker(
+        timeout=resolved.app.agent.approval_timeout_seconds,
+        recorder=approval_store.record if approval_store else None,
+        lookup=approval_store.lookup if approval_store else None,
+    )
 
     # MCP 工具必须在建 Agent **之前**拉好：工具列表是 Agent 的一部分，
     # 建完之后再补工具就只能重建 Agent 了。
     mcp = McpRuntime(resolved)
     mcp_tools = await mcp.start()
 
-    bundle = build_agent(resolved, extra_tools=mcp_tools)
+    bundle = build_agent(resolved, extra_tools=mcp_tools, approval_hook=broker.hook())
     runner = AgentRunner(bundle, store=store)
 
     # 常驻通道（飞书长连接）需要一条「不阻塞事件循环」的执行路径，
@@ -116,7 +130,7 @@ async def create_state(settings: Settings | None = None) -> AppState:
     bus = MessageBus()
     await bus.start()
     router = MessageRouter(runner, bus=bus)
-    channels = await start_channels(build_enabled_channels(resolved, router))
+    channels = await start_channels(build_enabled_channels(resolved, router, broker=broker))
 
     logger.info(
         "api.state_ready",
@@ -125,6 +139,7 @@ async def create_state(settings: Settings | None = None) -> AppState:
         mcp_tools=len(mcp_tools),
         history_backend=resolved.app.storage.history,
         channels=[channel.name for channel in channels],
+        approvals_backend="database" if approval_store else "memory",
     )
     return AppState(
         settings=resolved,
@@ -136,6 +151,8 @@ async def create_state(settings: Settings | None = None) -> AppState:
         router=router,
         channels=channels,
         mcp=mcp,
+        broker=broker,
+        approval_store=approval_store,
     )
 
 

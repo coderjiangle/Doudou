@@ -6,13 +6,24 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from doudou.agent.memory import MemoryStore
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
 from doudou.skills.registry import SkillRegistry
-from doudou.tools.builtin import clock, files, http, memory, notes, skills, web_search
+from doudou.tools.builtin import (
+    clock,
+    delegation,
+    files,
+    http,
+    memory,
+    notes,
+    shell,
+    skills,
+    web_search,
+)
 from doudou.tools.decorators import annotations_of, is_annotated
 
 logger = get_logger(__name__)
@@ -27,9 +38,12 @@ BUILTIN_PROVIDERS: tuple[tuple[str, ToolProvider], ...] = (
     ("http", http.build_tools),
     ("files", files.build_tools),
     ("notes", notes.build_tools),
+    ("shell", shell.build_tools),
     ("skills", skills.build_tools),
     ("memory", memory.build_tools),
     ("clock", clock.build_tools),
+    #: 委派放最后：它需要「其它工具」的清单，见 build_tools。
+    ("delegation", delegation.build_tools),
 )
 
 #: 全部内置分组，供 ``config check`` 与文档引用。
@@ -39,9 +53,12 @@ ALL_GROUPS: tuple[str, ...] = tuple(group for group, _ in BUILTIN_PROVIDERS)
 EXTRA_GROUP = "mcp"
 EXTRA_SOURCE = "mcp"
 
-#: 需要复用外部对象的分组（它们的提供方签名与其它不同，见 build_tools）。
+#: 这几个分组的提供方需要「Agent 上下文」里的对象（索引/记忆/工具清单），
+#: 因此不能走统一的 ``(settings) -> tools`` 形状，在 build_tools 里单独处理。
 SKILLS_GROUP = "skills"
 MEMORY_GROUP = "memory"
+DELEGATION_GROUP = "delegation"
+CONTEXT_GROUPS = frozenset({SKILLS_GROUP, MEMORY_GROUP, DELEGATION_GROUP})
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +94,8 @@ def build_tools(
     extra_source: str = EXTRA_SOURCE,
     skills_registry: SkillRegistry | None = None,
     memory_store: MemoryStore | None = None,
+    model: BaseChatModel | None = None,
+    approval_hook: Any | None = None,
 ) -> list[BaseTool]:
     """汇总所有工具，做分组开关、禁用名单与重名检测。
 
@@ -87,30 +106,48 @@ def build_tools(
         skills_registry: 复用已有的 Skill 索引。**必须与系统提示词用同一份**，
             否则提示词里列出的技能和 ``read_skill`` 能读到的会对不上。
         memory_store: 复用已有的记忆存储，同样要与提示词共用一份。
+        model: 主模型；``task`` 工具需要它来驱动子 Agent。
+        approval_hook: 主 Agent 的确认回调，**必须传给 ``task``** ——
+            否则子 Agent 调用有副作用的工具时无人可问。
 
     Returns:
-        工具列表，顺序为「内置 → extra」。被配置禁用的、以及依赖不满足的都不出现。
+        工具列表，顺序为「内置 → extra → 委派」。被配置禁用的、
+        以及依赖不满足的都不出现。
     """
     collected: list[BaseTool] = []
     seen: dict[str, str] = {}
 
     for group, provider in BUILTIN_PROVIDERS:
+        if group in CONTEXT_GROUPS:
+            continue  # 需要 Agent 上下文，见下面的单独处理
         if not group_enabled(settings, group):
             logger.debug("tools.group_disabled", group=group)
             continue
-        # skills / memory 的提供方需要复用外部对象（索引、记忆存储，都与提示词共用），
-        # 因此单独分支；其余提供方都是统一的 ``(settings) -> tools`` 形状。
-        if group == SKILLS_GROUP:
-            items: Sequence[BaseTool] = skills.build_tools(settings, registry=skills_registry)
-        elif group == MEMORY_GROUP:
-            items = memory.build_tools(settings, store=memory_store)
-        else:
-            items = provider(settings)
-        for item in items:
+        for item in provider(settings):
             _add(collected, seen, item, source=f"builtin:{group}", settings=settings)
 
     for item in extra:
         _add(collected, seen, item, source=extra_source, settings=settings)
+
+    if group_enabled(settings, SKILLS_GROUP):
+        for item in skills.build_tools(settings, registry=skills_registry):
+            _add(collected, seen, item, source=f"builtin:{SKILLS_GROUP}", settings=settings)
+
+    if group_enabled(settings, MEMORY_GROUP):
+        for item in memory.build_tools(settings, store=memory_store):
+            _add(collected, seen, item, source=f"builtin:{MEMORY_GROUP}", settings=settings)
+
+    # 委派必须放最后：它要把「上面这些工具」按白名单交给子 Agent。
+    if group_enabled(settings, DELEGATION_GROUP) and model is not None:
+        for item in delegation.build_tools(
+            settings,
+            available_tools=collected,
+            model=model,
+            approval_hook=approval_hook,
+            # 让子 Agent 按**自己的**工具清单重新算确认策略
+            approval_policy=lambda tools: effective_interrupt_on(settings, tools),
+        ):
+            _add(collected, seen, item, source=f"builtin:{DELEGATION_GROUP}", settings=settings)
 
     return collected
 
@@ -178,6 +215,10 @@ def tool_infos(
     seen: set[str] = set()
 
     for group, provider in BUILTIN_PROVIDERS:
+        if group in CONTEXT_GROUPS:
+            # 这几个分组需要模型/索引/记忆/工具清单，配置派生视图构造不出来；
+            # 它们的实际状态请用 `doudou tools list`（走 `tools=` 那条路径）。
+            continue
         if not group_enabled(settings, group):
             continue
         for item in provider(settings):
@@ -324,6 +365,12 @@ def find_tool(tools: Sequence[BaseTool], name: str) -> BaseTool | None:
 __all__ = [
     "ALL_GROUPS",
     "BUILTIN_PROVIDERS",
+    "CONTEXT_GROUPS",
+    "DELEGATION_GROUP",
+    "EXTRA_GROUP",
+    "EXTRA_SOURCE",
+    "MEMORY_GROUP",
+    "SKILLS_GROUP",
     "GroupStatus",
     "ToolInfo",
     "ToolProvider",

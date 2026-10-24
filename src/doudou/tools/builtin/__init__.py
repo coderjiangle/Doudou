@@ -10,6 +10,24 @@
 
 from __future__ import annotations
 
-from doudou.tools.builtin import clock, files, http, memory, notes, skills, web_search
+from doudou.tools.builtin import (
+    clock,
+    files,
+    http,
+    memory,
+    notes,
+    shell,
+    skills,
+    web_search,
+)
 
-__all__ = ["clock", "files", "http", "memory", "notes", "skills", "web_search"]
+__all__ = [
+    "clock",
+    "files",
+    "http",
+    "memory",
+    "notes",
+    "shell",
+    "skills",
+    "web_search",
+]

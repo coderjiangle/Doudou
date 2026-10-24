@@ -33,27 +33,43 @@
 
 ## 4. 文件系统与权限
 
-M3 的只读文件工具（`workspace_read` / `workspace_list`）已经把根目录钉在工作区，
-路径会 `resolve()` 后校验，因此软链接也逃不出去。**路径级权限规则**（M8）在此基础上
-提供更细的读写矩阵。
+### 4.1 硬边界：跑不出工作区
 
-deepagents 的文件系统权限按声明顺序**首匹配生效**，因此：
+写类工具（`workspace_write` / `workspace_edit` / `workspace_delete`）与只读工具共用
+同一道边界：路径 `resolve()` 之后必须落在 `filesystem.root_dir` 里。只检查字符串里有没有
+`..` 是挡不住软链接与绝对路径的。
+
+### 4.2 细粒度规则：`agent.permissions`
+
+在硬边界**之上**再限制具体路径。规则按声明顺序**首匹配生效**：
 
 ```yaml
-permissions:
-  # 显式拒绝写在最前
-  - { operations: [read, write], paths: ["/**/.env", "/**/*.key", "/**/*.pem", "/**/secrets/**"], mode: deny }
-  # 工作区放行
-  - { operations: [read, write], paths: ["/workspace/**"], mode: allow }
-  # 其余只读
-  - { operations: [write], paths: ["/**"], mode: deny }
+agent:
+  permissions:
+    # 显式拒绝写在最前
+    - operations: [read, write]
+      paths: ["/**/.env", "/**/*.key", "/**/*.pem", "/**/secrets/**"]
+      mode: deny
+    # 想「默认拒绝」就把这条放在最后（注意：放最后才有意义）
+    # - operations: [write]
+    #   paths: ["/**"]
+    #   mode: deny
 ```
 
 要点：
 
-- 默认无匹配即**放行**，所以「只读兜底」必须显式写 deny。
-- 子 Agent 需要更窄的权限时单独配置，不要指望继承。
-- 沙箱后端的 `execute` **不受**权限规则约束，启用即等于放开 shell。
+- 路径形态是**相对工作区、以 `/` 开头**的 POSIX 路径；`/**` 覆盖子目录，
+  `/*.log` 只覆盖根目录。
+- **无匹配即放行** —— 硬边界已经保证了最基本的收敛，权限规则是额外收紧。
+  想只读就显式写一条 `paths: ["/**"], mode: deny`。
+- 两个 glob 边界是专门处理的，朴素翻译会漏：`/**/.env` 必须能匹配根目录的 `/.env`；
+  `/secrets/**` 必须能匹配 `secrets` 目录本身。
+- `PermissionPolicy.require_target()` 把「在工作区内」作为规则 #0 再判一次（纵深防御）：
+  规则匹配本身区分不了区内外，两者都形如 `/a/b`。
+- 拒绝时抛 `PermissionDenied`，消息里带**命中规则的原文**：模型看到原因才可能换个做法，
+  人看到才知道该改哪条配置。
+- 子 Agent 目前继承同一份规则（它用的是同一个 `root_dir`）。要点是**别指望「继承主 Agent
+  的确认策略」**：子 Agent 的工具集不同，确认策略必须按它自己的工具清单重算。
 
 ## 5. 工具层：默认拒绝
 
@@ -77,25 +93,39 @@ permissions:
 | --- | --- | --- |
 | 只读 | 检索、抓取、读文件、查时间 | 直接执行 |
 | 可逆写 | 写笔记、写工作区文件 | 需要确认 |
-| 不可逆 / 对外 | 删文件、执行命令、发消息、提交代码 | 需要确认（M8 补权限规则兜底） |
+| 不可逆 / 对外 | 删文件、执行命令、发消息、提交代码 | 需要确认 + 权限规则兜底 |
 
 工具用 `side_effects=True` 声明自己需要确认（见 `docs/tools.md` §2.1），
 不必在 `agent.interrupt_on` 里逐个罗列。
 
-各入口的确认语义：
+### 6.1 确认动作可能来自哪里
+
+「问出去」和「谁来答」被分开：Agent 只依赖 `agent/approvals.py` 的 `ApprovalBroker`，
+各通道负责把决策送回来。理由是**它们本质上都是「等一个外部事件」**：
 
 | 入口 | 行为 |
 | --- | --- |
-| `doudou chat` / `ask` | 终端询问「是否执行工具 xxx？」 |
+| `doudou chat` / `ask` | 终端询问「是否执行工具 xxx？」（就地回答） |
 | `--no-confirm` | **一律同意**，并打 `cli.tool_auto_approved` 日志留痕 |
 | `--quiet` | 无回调 → **拒绝** |
-| HTTP API | 无回调 → **拒绝**（M8 补持久化确认与飞书卡片按钮） |
+| 飞书 | 推一张带「同意 / 拒绝」按钮的卡片；点击 → broker → 卡片换成结果态 |
+| HTTP API | `GET /api/v1/approvals` 看有没有待确认的，`POST /api/v1/approvals/{id}` 落决策 |
 
-> **M3 现状**：副作用工具在 API 与 `--quiet` 下无法执行。这是刻意的安全默认 ——
-> 没有征求同意的通道，就不该替用户写下东西。要放开请显式配置
-> `agent.interrupt_on: {note_save: false}`，或整体关掉
-> `agent.require_approval_for_side_effects`。
-> M8 会把它换成「持久化确认 + 卡片按钮」，并由 `agent.permissions` 提供路径级兜底。
+### 6.2 三条必须说清的边界
+
+1. **超时按拒绝。** 默认 `agent.approval_timeout_seconds`（300s）内没人处理，
+   就按「拒绝」收场。悬着的确认等于没有确认，默认必须偏向安全的一侧 ——
+   而那次运行**不会**被挂在那里等。
+2. **「跨重启不丢」指的是决策与审计，不是运行。** 落库的是
+   `approvals` 表里的记录：同一个 `tool_call_id` 不会问第二次、重启后
+   `/api/v1/approvals` 仍能查到「当时问了什么、谁同意了什么」。
+   而**等待决策的协程随进程消失**，被中断的那次运行不会自己接着跑；
+   重启后重试同一操作会重新问一次。
+3. **`pending` 与 `expired` 都不算决策。** 只有 `approved` / `rejected` 会被复用。
+   把「还没问完」当成答案，会让重试静默跳过确认 —— 那正是确认机制要防的事。
+
+> **M3 曾经的状态**：副作用工具在 API 与 `--quiet` 下只能被拒绝。
+> M8 把这条换成上面三条：确认可以来自飞书按钮或 HTTP，超时仍然落在「拒绝」这一侧。
 
 ## 7. 密钥管理
 
@@ -121,6 +151,11 @@ permissions:
 ## 9. 运行时加固
 
 - 容器以非 root 用户运行（见 `Dockerfile`）。
-- `shell_exec` 默认禁用；启用时限定工作目录并设置超时。
+- `shell_exec` **默认禁用**（`tools.shell.enabled: false`）。它是唯一没有约束机制的出口：
+  路径权限规则对它无效（`rm -rf /` 不经过我们的路径解析），工作目录只是「起点的默认位置」。
+  打开时能给的保护仅限：执行超时、输出上限、环境变量白名单（不把 `*_API_KEY` 透传给
+  子进程）、以及人工确认。**需要真正隔离请用容器 / 沙箱，不要指望这个工具。**
+- 子 Agent 拿不到 `task`（`FORBIDDEN_TOOLS`），递归深度因此有界；
+  它的确认策略按**自己的**工具清单重算，不会继承主 Agent 而静默放宽。
 - `agent.recursion_limit` 防死循环；`mcp.call_timeout` 与模型 `timeout` 防挂死。
 - 依赖安全：CI 中可加 `pip-audit`；容器镜像定期重建。

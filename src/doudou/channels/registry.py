@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from doudou.agent.approvals import ApprovalBroker
 from doudou.channels.base import Channel
-from doudou.channels.feishu import FeishuChannel
 from doudou.config.loader import Settings
 from doudou.gateway.router import MessageRouter
 from doudou.observability.logging import get_logger
@@ -13,23 +13,36 @@ from doudou.observability.logging import get_logger
 logger = get_logger(__name__)
 
 
-def build_enabled_channels(settings: Settings, router: MessageRouter) -> list[Channel]:
+def build_enabled_channels(
+    settings: Settings,
+    router: MessageRouter,
+    *,
+    broker: ApprovalBroker | None = None,
+) -> list[Channel]:
     """按配置构造需要**常驻运行**的通道。
 
     CLI 通道是「用户敲命令时才存在」的，不由服务托管，因此不在这里；
     它同样实现了 ``EventSink``，需要时直接构造即可。
+
+    Args:
+        settings: 配置。
+        router: 消息路由。
+        broker: 人工确认中介。常驻通道接到它之后，才能把用户点在卡片上的
+            「同意 / 拒绝」送回 Agent —— 没有它就只剩「无人可问 → 拒绝」。
     """
     channels: list[Channel] = []
 
     feishu = settings.app.channels.feishu
     if feishu.enabled:
+        from doudou.channels.feishu import FeishuChannel
+
         if feishu.mode != "websocket":
             logger.warning(
                 "channels.feishu_mode_unsupported",
                 mode=feishu.mode,
                 hint="目前只实现了 websocket 长连接模式，callback 模式仍会按长连接启动",
             )
-        channels.append(FeishuChannel(settings, router))
+        channels.append(FeishuChannel(settings, router, broker=broker))
     else:
         logger.debug("channels.feishu_disabled")
 

@@ -37,13 +37,18 @@ class PostNode(BaseModel):
 class CardActionValue(BaseModel):
     """卡片按钮的 ``value`` 字段。
 
-    我们自己在按钮里塞的结构：``{"action": "approve", "call_id": "..."}``。
-    M8 用它回传人工确认决策。
+    我们自己在按钮里塞的结构：``{"action": "approve", "approval_id": "ap-0001-…"}``。
+    M8 的人工确认靠它把「点了哪个按钮、针对哪一次确认」传回来。
+
+    ``approval_id`` 而不是工具名：点头只授权**这一次**具体的调用 ——
+    把「同意 write_file」当成一次性授权会让后续每次写文件都静默通过。
     """
 
     model_config = ConfigDict(extra="ignore")
 
     action: str = ""
+    #: 确认中介分配的 ID，决定要落哪一个待决请求。
+    approval_id: str = ""
     call_id: str = ""
     thread_id: str = ""
 

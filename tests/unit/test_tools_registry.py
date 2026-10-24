@@ -21,15 +21,27 @@ from doudou.tools.registry import (
 )
 
 #: 无任何密钥/允许列表时应当出现的工具。
+#: shell 默认禁用、子 Agent 未配置、无记忆文件 → 它们都不出现。
 DEFAULT_TOOLS = [
     "workspace_read",
     "workspace_list",
+    "workspace_write",
+    "workspace_edit",
+    "workspace_delete",
     "note_save",
     "note_list",
     "note_read",
     "now",
     "days_between",
 ]
+
+#: 需要人工确认的默认工具：所有写操作。
+DEFAULT_APPROVAL_TOOLS = {
+    "workspace_write",
+    "workspace_edit",
+    "workspace_delete",
+    "note_save",
+}
 
 
 # --------------------------------------------------------------------------- 装配
@@ -113,7 +125,17 @@ def test_duplicate_tool_name_keeps_first(settings: Settings) -> None:
 
 
 def test_all_groups_declared() -> None:
-    assert ALL_GROUPS == ("web", "http", "files", "notes", "skills", "memory", "clock")
+    assert ALL_GROUPS == (
+        "web",
+        "http",
+        "files",
+        "notes",
+        "shell",
+        "skills",
+        "memory",
+        "clock",
+        "delegation",
+    )
 
 
 def test_enabled_groups_restricts_tool_set(settings: Settings) -> None:
@@ -191,10 +213,11 @@ def test_builtin_tools_are_all_annotated(settings: Settings) -> None:
     assert all(is_annotated(item) for item in build_tools(settings))
 
 
-def test_only_note_save_has_side_effects(settings: Settings) -> None:
+def test_only_write_tools_have_side_effects(settings: Settings) -> None:
+    """只读工具不该要求确认；写类工具必须要求确认。"""
     side = {item.name for item in build_tools(settings) if annotations_of(item).side_effects}
 
-    assert side == {"note_save"}
+    assert side == DEFAULT_APPROVAL_TOOLS
 
 
 def test_annotate_keeps_other_metadata() -> None:
@@ -310,6 +333,16 @@ def test_tool_infos_shape(settings: Settings) -> None:
     assert note_info.side_effects is True
     assert note_info.requires_approval is True
     assert note_info.group == "notes"
+
+
+def test_write_tools_are_marked_for_approval(settings: Settings) -> None:
+    """写文件默认要确认 —— 这是 M8「危险操作不静默执行」的基础。"""
+    infos = {info.name: info for info in tool_infos(settings)}
+
+    for name in ("workspace_write", "workspace_edit", "workspace_delete"):
+        assert infos[name].side_effects is True, name
+        assert infos[name].requires_approval is True, name
+    assert infos["workspace_read"].requires_approval is False
 
 
 def test_tool_infos_is_pure_and_repeatable(settings: Settings) -> None:

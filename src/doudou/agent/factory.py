@@ -129,6 +129,8 @@ def build_agent(
             extra_source="mcp",
             skills_registry=skills_registry,
             memory_store=memory,
+            model=model,
+            approval_hook=approval_hook,
         )
 
     system_prompt = _compose_prompt(resolved, skills_registry, memory)

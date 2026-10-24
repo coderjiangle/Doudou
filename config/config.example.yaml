@@ -48,26 +48,29 @@ agent:
   # 光是索引就能把提示词顶坏（超出时会说明「另有 X 个未列出」）。
   skill_index_limit: 40
   subagents_file: agents.yaml
-  # 需要人工确认（LangGraph interrupt）的工具
+  # 手工覆盖「哪些工具需要人工确认」。通常不需要写 ——
+  # 工具自己用 `side_effects=True` 声明（写文件、写笔记、执行命令都会自动被拦）。
+  # 这里只在两处有用：**关掉**某个工具的确认，或**额外加上**一个。
   interrupt_on:
-    write_file: true
-    edit_file: true
-    delete: true
-    shell_exec: true
+    # workspace_delete: false   # 例如：删除也信任它（不推荐）
+    # shell_exec: true          # 默认已由 side_effects 覆盖，写在这里只是显式化
   # 单次运行的步数上限，防止死循环
   recursion_limit: 60
-  # 文件系统权限规则，按顺序首匹配生效
+  # 等待人工确认的时长（秒）。等不到就按**拒绝**处理 ——
+  # 悬着的确认等于没有确认，默认必须偏向安全的一侧。
+  approval_timeout_seconds: 300
+  # 路径权限规则，按顺序**首匹配生效**，没有匹配到任何规则时**放行**。
+  # 匹配的是相对工作区、以 / 开头的 POSIX 路径；工具层已经保证「跑不出工作区」，
+  # 这里是更细的限制。想「默认拒绝」就加一条 `paths: ["/**"], mode: deny` 放在最后。
   permissions:
-    - operations: [read, write]
-      paths: ["/workspace/**"]
-      mode: allow
     - operations: [read, write]
       paths: ["/**/.env", "/**/*.pem", "/**/*.key", "/**/secrets/**"]
       mode: deny
 
 # ---------------------------------------------------------------- 工具
 tools:
-  # 空列表 = 全部启用；填分组名则只启用这些。分组：web / http / files / notes / clock
+  # 空列表 = 全部启用；填分组名则只启用这些。
+  # 分组：web / http / files / notes / shell / skills / memory / clock / delegation
   enabled_groups: []
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
@@ -92,10 +95,23 @@ tools:
     max_redirects: 2
     user_agent: Doudou/0.1 (+personal-assistant)
 
-  # 只读文件访问。根目录固定为 filesystem.root_dir，不单独配置。
+  # 工作区文件读写。根目录固定为 filesystem.root_dir，不单独配置。
+  # 写类工具（workspace_write / workspace_edit / workspace_delete）声明了副作用，
+  # 默认每次调用都要人工确认，并且还会过上面 agent.permissions 的路径规则。
   files:
     max_read_chars: 50000
     max_list: 200
+    max_write_chars: 200000
+
+  # 命令执行：**默认禁用**。这是唯一没有路径约束机制的出口 ——
+  # 权限规则拦不住 `rm -rf /`，只有人工确认这一道。需要真正隔离请用容器/沙箱。
+  shell:
+    enabled: false
+    cwd: null                  # 缺省取 filesystem.root_dir
+    timeout: 60
+    max_output_chars: 20000
+    # 只透传白名单里的环境变量，避免把 *_API_KEY 交给子进程
+    inherit_env: ["PATH", "HOME", "LANG", "LC_ALL", "TZ", "TEMP", "TMP"]
 
   # 本地笔记（Markdown）。note_save 有副作用，默认需要人工确认。
   notes:

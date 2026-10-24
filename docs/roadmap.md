@@ -260,28 +260,63 @@ curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
 
 ---
 
-### M8 — 子 Agent + 权限 + 完整人在回路
+### M8 — 子 Agent + 权限 + 完整人在回路 ✅
 
 **目标**：让助手能做「危险」的事，同时不失控。
 
 **交付物**
 
-- [ ] `tools/builtin/shell.py`：`shell_exec`，**默认禁用**，限定工作目录 + 超时
-- [ ] 写文件类工具（`write_file` / `edit_file` / `delete`），落在受控工作区
-- [ ] `agent/permissions.py`：路径权限规则（首匹配生效，兜底显式 deny）
-- [ ] `agent/subagents.py`：从 `agents.yaml` 生成子 Agent（独立 tools / skills / 权限）
-- [ ] `task` 工具：主 Agent 委派子任务，子 Agent 只回传结论（隔离上下文）
-- [ ] 确认状态落库：跨重启不丢，支持超时自动拒绝
-- [ ] 飞书确认卡片回传决策
-- [ ] 越权测试：试图读 `.env` / 写工作区外路径必须被拒
+- [x] `tools/builtin/shell.py`：`shell_exec`，**默认禁用**，限定工作目录 + 超时 + 环境变量白名单
+- [x] 写文件类工具（`workspace_write` / `workspace_edit` / `workspace_delete`），落在受控工作区
+- [x] `agent/permissions.py`：路径权限规则（**首匹配生效**、自研 glob、`require_target` 兜底 containment）
+- [x] `agent/subagents.py`：从 `agents.yaml` 生成子 Agent（独立 prompt / 工具白名单 / 步数上限）
+- [x] `task` 工具：主 Agent 委派子任务，子 Agent 只回传结论（上下文隔离）
+- [x] `agent/approvals.py`：`ApprovalBroker` —— 待决登记 + 超时按拒绝 + 决策复用
+- [x] 确认状态落库：`approvals` 表 + `SqlApprovalStore`；`GET/POST /api/v1/approvals`
+- [x] 飞书确认卡片回传决策（`register_p2_card_action_trigger` → broker → 卡片换结果态）
+- [x] 越权测试：读 `.env` / 写工作区外路径 / 子 Agent 绕开确认都被钉住
+- [x] 98 个新增测试（权限 glob 边界、写类工具、shell、子 Agent、确认中介、卡片）
+- [x] 验收：真实模型下「写 workdir 文件 → 弹确认 → 同意后落盘」跑通；
+      `.env` 的读写被规则拒绝；`shell_exec` 默认不在工具列表里
 
-**验收**：让助手「把结果写到工作区文件」→ 弹确认 → 同意后写入成功；
-试图写工作区外路径 → 被权限规则拒绝；子 Agent 完成调研只回传一段结论。
+**命令**
 
-**依赖**：M6（Skill）、M7（上下文，子 Agent 依赖隔离与摘要）、M1（`interrupt_on` 已就绪）
+```powershell
+uv run doudou tools list                     # 看 shell_exec 在不在（默认不在）
+uv run doudou ask "把结果写到 report.md"      # 会先弹确认
+curl http://127.0.0.1:8000/api/v1/approvals  # 无人在场时从这里落决策
+```
 
-**风险**：这是安全边界的关键节点。提示词注入的真实危害从这一刻开始出现——
-**工具层必须做硬校验，不能只依赖提示词约束**。
+> **设计取舍：权限规则「无匹配即放行」。**
+> 工具层已经有一道硬边界（`resolve()` 之后必须落在工作区内），权限规则是**在它之上**
+> 再加细粒度限制。因此没有规则时放行；想「默认拒绝」就加一条
+> `paths: ["/**"], mode: deny` 放在最后。为了让这条兜底不被绕过，
+> `PermissionPolicy.require_target()` 把 containment 也当作规则 #0 判一次 ——
+> 规则匹配本身区分不了区内外（两者都形如 `/a/b`）。
+>
+> **`/**/.env` 与 `/secrets/**` 两个 glob 边界是专门处理的。**
+> 朴素翻译会得到 `/.*/\.env`（要求两层斜杠）→ **恰好漏掉最想拦的根目录 `.env`**；
+> `/secrets/**` 也只匹配子项、漏掉目录本身。因此 `**` 在「前面紧跟 `/`」时按
+> 「零或多个层级」处理。安全相关的匹配逻辑是靠测边界保证的，不是靠「看起来对」。
+>
+> **子 Agent 不能拿到 `task`**（`FORBIDDEN_TOOLS`），否则递归深度不可控。
+> 另外它的确认策略必须**按子 Agent 自己的工具清单重算**：直接抄主 Agent 的
+> `interrupt_on` 会让子 Agent 的写操作静默免确认 —— 这是写测试时才发现的真实绕过。
+>
+> **「跨重启不丢」的边界要说清**：落库的是**决策与审计记录**（同一个 `tool_call_id`
+> 不再问第二次、`/approvals` 重启后仍能查），**不是**「被中断的运行会自己续跑」——
+> 等待决策的协程随进程消失。`pending` 与 `expired` 都不算决策：把「还没问完」当成
+> 答案会让重试静默跳过确认。超时一律按拒绝处理 —— 悬着的确认等于没有确认。
+>
+> **写工具命名避开 `read_file` / `write_file`**：M9 接 deepagents 的
+> `FilesystemMiddleware` 会提供同名工具，而 `tools.registry` 对重名是「留前者、
+> 丢后者」，静默失效比报错更难查。
+>
+> **又修掉同类循环导入**：`tools.registry` → `tools.builtin.delegation` → `agent.react`
+> → `tools.decorators` →（包 `__init__`）→ `tools.registry`。三处修：
+> `agent/__init__` 与 `tools/__init__` 只导出无跨包依赖的东西（仓库里**没有**任何地方
+> 从这两个包根导入），`delegation` 用 `TYPE_CHECKING` + 调用时再 import `ReactAgent`，
+> 确认策略则通过回调注入而不是反向 import。
 
 ---
 
@@ -364,7 +399,8 @@ M2 服务化 ──▶ M4 飞书通道 ──▶ 「在飞书里可用」
 
 | 风险 | 触发点 | 缓解 |
 | --- | --- | --- |
-| 提示词注入导致越权动作 | M8 引入写文件/执行命令后 | 工具层硬校验 + 权限规则兜底 deny + 人工确认 |
+| 提示词注入导致越权动作 | M8 引入写文件 / 执行命令后 | 工具层硬校验（resolve + containment）+ 权限规则 + 人工确认；`shell_exec` 默认关闭 |
+| 确认请求无人应答 | M8 的写类工具 | 超时按拒绝（`approval_timeout_seconds`），不会把会话挂死；`pending` 不被当成决策 |
 | 成本失控 | 100 万上下文 + 38 万输出上限 | M7 的 token 预算；`max_tokens` 只封顶不提满 |
 | 飞书回调超时导致重复回答 | M4 | 3 秒内返回 200 + `event_id` 幂等去重 |
 | 卡片更新频控被限流 | M4 | 节流合并更新，间隔可配 |

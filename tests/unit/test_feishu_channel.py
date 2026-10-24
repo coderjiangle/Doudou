@@ -13,8 +13,14 @@ from typing import Any
 
 import pytest
 
+from doudou.agent.approvals import ApprovalBroker, ApprovalRequest
 from doudou.agent.events import RunEvent
-from doudou.channels.base import InboundMessage, OutboundMessage
+from doudou.channels.base import (
+    InboundMessage,
+    OutboundMessage,
+    bind_inbound,
+    unbind_inbound,
+)
 from doudou.channels.feishu.channel import FeishuChannel, _CardState
 from doudou.channels.feishu.client import FeishuClient, FeishuError, parse_action_value
 from doudou.config.loader import Settings
@@ -474,3 +480,185 @@ def test_card_state_reports_patch_failures() -> None:
     rendered = json.dumps(state.render("D"), ensure_ascii=False)
 
     assert "2 次卡片更新失败" in rendered
+
+
+# --------------------------------------------------------------------------- 人工确认（M8）
+
+
+def _make_channel(
+    settings: Settings, feishu_client: FeishuClient, broker: Any | None = None
+) -> FeishuChannel:
+    return FeishuChannel(
+        settings,
+        RecordingSink(),  # type: ignore[arg-type]
+        client=feishu_client,
+        runner=FakeWsRunner(),
+        broker=broker,
+    )
+
+
+async def _await_pending(broker: Any, *, budget: float = 3.0) -> str:
+    deadline = asyncio.get_running_loop().time() + budget
+    while asyncio.get_running_loop().time() < deadline:
+        if broker.pending:
+            return str(broker.pending[0].approval_id)
+        await asyncio.sleep(0.01)
+    raise AssertionError("等待超时：没有出现待决请求")
+
+
+async def test_channel_takes_over_approval_notifications(
+    settings: Settings, feishu_client: FeishuClient
+) -> None:
+    """装了中介的通道要接管「有人要确认」的通知 —— 否则飞书里只能拒绝。"""
+    broker = ApprovalBroker(timeout=5.0)
+
+    channel = _make_channel(settings, feishu_client, broker)
+
+    assert broker.on_request is not None
+    assert channel._broker is broker
+
+
+async def test_approval_card_goes_to_bound_conversation(
+    settings: Settings, feishu_client: FeishuClient, fake_lark: FakeLarkClient
+) -> None:
+    """卡片必须发到**发起这次调用的那条会话**。"""
+    broker = ApprovalBroker(timeout=5.0)
+    channel = _make_channel(settings, feishu_client, broker)
+    token = bind_inbound(inbound("把结论写到 report.md"))
+    try:
+        await channel._on_approval_request(
+            ApprovalRequest(
+                approval_id="ap-0001-abcd",
+                thread_id="t1",
+                tool_name="workspace_write",
+                args={"path": "report.md", "content": "结论"},
+                call_id="call-1",
+            )
+        )
+    finally:
+        unbind_inbound(token)
+
+    assert len(fake_lark.message.created) == 1
+    sent = request_json(fake_lark.message.created[0])
+    assert "workspace_write" in json.dumps(sent, ensure_ascii=False)
+    assert "ap-0001-abcd" in json.dumps(sent, ensure_ascii=False)
+    # 记下卡片 ID 才能在建完决策后把它换成结果态
+    assert channel._approval_cards["ap-0001-abcd"] == "om_1"
+
+
+async def test_approval_card_skipped_for_other_channels(
+    settings: Settings, feishu_client: FeishuClient, fake_lark: FakeLarkClient
+) -> None:
+    """HTTP / CLI 发起的调用不该往飞书里推卡片 —— 那些路径各有自己的确认方式。"""
+    broker = ApprovalBroker(timeout=5.0)
+    channel = _make_channel(settings, feishu_client, broker)
+    other = InboundMessage(channel="cli", conversation_id="local", text="写个文件")
+    token = bind_inbound(other)
+    try:
+        await channel._on_approval_request(
+            ApprovalRequest(
+                approval_id="ap-1",
+                thread_id=None,
+                tool_name="workspace_write",
+                args={},
+                call_id="c",
+            )
+        )
+    finally:
+        unbind_inbound(token)
+
+    assert fake_lark.message.created == []
+
+
+async def test_approval_card_skipped_without_conversation(
+    settings: Settings, feishu_client: FeishuClient, fake_lark: FakeLarkClient
+) -> None:
+    """不在任何会话上下文里（例如后台任务）也要安静跳过，不能崩。"""
+    broker = ApprovalBroker(timeout=5.0)
+    channel = _make_channel(settings, feishu_client, broker)
+
+    await channel._on_approval_request(
+        ApprovalRequest(
+            approval_id="ap-1", thread_id=None, tool_name="workspace_write", args={}, call_id="c"
+        )
+    )
+
+    assert fake_lark.message.created == []
+
+
+async def test_card_action_approves_and_replaces_card(
+    settings: Settings, feishu_client: FeishuClient, fake_lark: FakeLarkClient
+) -> None:
+    """点「同意」→ 等待方被唤醒 → 卡片换成结果态（按钮消失，防重复点击）。"""
+    broker = ApprovalBroker(timeout=5.0)
+    channel = _make_channel(settings, feishu_client, broker)
+    channel._main_loop = asyncio.get_running_loop()
+
+    waiter = asyncio.create_task(
+        broker.request(tool_name="workspace_write", args={"path": "a.md"}, call_id="c1")
+    )
+    approval_id = await _await_pending(broker)
+    channel._approval_cards[approval_id] = "om_card"
+
+    channel._on_card_action(_click(approval_id, "approve"))
+
+    outcome = await asyncio.wait_for(waiter, timeout=3)
+    assert outcome.approved is True
+
+    assert len(fake_lark.message.patched) == 1
+    patched = json.dumps(request_json(fake_lark.message.patched[0]), ensure_ascii=False)
+    assert "已同意执行" in patched
+    assert "button" not in patched
+
+
+async def test_card_action_rejects(
+    settings: Settings, feishu_client: FeishuClient, fake_lark: FakeLarkClient
+) -> None:
+    broker = ApprovalBroker(timeout=5.0)
+    channel = _make_channel(settings, feishu_client, broker)
+    channel._main_loop = asyncio.get_running_loop()
+
+    waiter = asyncio.create_task(broker.request(tool_name="workspace_write", args={}, call_id="c1"))
+    approval_id = await _await_pending(broker)
+
+    channel._on_card_action(_click(approval_id, "reject"))
+
+    outcome = await asyncio.wait_for(waiter, timeout=3)
+    assert outcome.approved is False
+
+
+def _click(approval_id: str, action: str) -> Any:
+    """造一个 lark 风格的卡片回调对象。"""
+    return SimpleNamespace(
+        event=SimpleNamespace(
+            action=SimpleNamespace(value={"action": action, "approval_id": approval_id})
+        )
+    )
+
+
+def test_card_action_ignores_foreign_buttons(
+    settings: Settings, feishu_client: FeishuClient
+) -> None:
+    """别的卡片（或老按钮）点了不该影响我们，也不该抛异常。"""
+    channel = _make_channel(settings, feishu_client, ApprovalBroker(timeout=5.0))
+
+    for payload in (
+        None,
+        SimpleNamespace(),
+        SimpleNamespace(event=SimpleNamespace(action=SimpleNamespace(value=None))),
+        SimpleNamespace(event=SimpleNamespace(action=SimpleNamespace(value={"action": "unknown"}))),
+        SimpleNamespace(event=SimpleNamespace(action=SimpleNamespace(value={"action": "approve"}))),
+    ):
+        channel._on_card_action(payload)
+
+
+async def test_card_action_on_unknown_approval_does_not_crash(
+    settings: Settings, feishu_client: FeishuClient, fake_lark: FakeLarkClient
+) -> None:
+    """超时之后才点的按钮 / 重复点击：安静收场，不崩、不误改卡片。"""
+    broker = ApprovalBroker(timeout=5.0)
+    channel = _make_channel(settings, feishu_client, broker)
+
+    await channel._handle_card_action("ap-gone", True)
+
+    assert fake_lark.message.patched == []

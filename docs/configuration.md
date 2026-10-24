@@ -162,7 +162,11 @@ agent:
 - `agent.system_prompt_file` 相对于 `config/` 目录解析。
 - `agent.skills` 里可以写多个根目录，deepagents 会把它们全部扫成 skill 索引。
 - `filesystem.backend: composite` 时，`routes` 顺序即匹配顺序，最后一条务必是兜底。
-- `agent.permissions` 首匹配生效，**兜底规则默认放行**，所以拒绝规则要写在前面。
+- `agent.permissions` 首匹配生效，**没有匹配到任何规则时放行**，所以「默认拒绝」那条兜底
+  必须写在最后（而显式拒绝要写在最前）。匹配的是相对工作区、以 `/` 开头的 POSIX 路径；
+  `/**/.env` 能匹配根目录的 `/.env`，`/secrets/**` 也能匹配 `secrets` 目录本身。
+- `tools.shell.enabled` 默认 `false`。打开之前请先读 `docs/security.md` §9 ——
+  权限规则对它无效，能给的保护只有超时、输出上限、环境变量白名单与人工确认。
 - `channels.feishu.reply_mode: card` 才能用流式更新；`text` 模式只有一次性回复。
 
 ## 4. MCP 清单

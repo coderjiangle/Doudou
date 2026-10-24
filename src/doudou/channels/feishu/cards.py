@@ -125,10 +125,106 @@ def tool_running_note(name: str, args: dict[str, Any] | None = None) -> str:
     return f"… 正在调用 {name}{rendered}"
 
 
+# --------------------------------------------------------------------------- 人工确认
+
+
+def _approval_args_text(args: dict[str, Any]) -> str:
+    """把工具参数渲染成卡片里的可读文本。
+
+    只展示、不解释：用户要判断「这个操作是不是我想要的」，
+    因此保留原始的键值对，而不是替模型美化。
+    """
+    if not args:
+        return "（无参数）"
+    lines = [
+        f"- `{key}` = {truncate(str(value).replace(chr(10), ' '), MAX_TOOL_CHARS)}"
+        for key, value in list(args.items())[:6]
+    ]
+    return "\n".join(lines)
+
+
+def approval_card(
+    *,
+    bot_name: str,
+    approval_id: str,
+    tool_name: str,
+    args: dict[str, Any],
+    question: str = "",
+    expires_in: float | None = None,
+) -> dict[str, Any]:
+    """需要人工确认的卡片，带「同意 / 拒绝」按钮。
+
+    为什么按钮里带的是 ``approval_id`` 而不是工具名：点头的人只能确认**这一次**
+    具体的调用。把「同意 write_file」当成一次性授权会让后续每一次写文件都静默通过。
+    """
+    elements: list[dict[str, Any]] = []
+    if question:
+        elements.append(_markdown(f"**{truncate(question, 120)}**"))
+    elements.append(_markdown(f"它想调用 `{tool_name}`："))
+    elements.append(_markdown(_approval_args_text(args)))
+    if expires_in is not None:
+        elements.append(_note(f"{expires_in:.0f} 秒内无人处理则按拒绝处理。"))
+    elements.append(_hr())
+    elements.append(
+        {
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "同意执行"},
+                    "type": "primary",
+                    "value": {"action": "approve", "approval_id": approval_id},
+                },
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "拒绝"},
+                    "type": "danger",
+                    "value": {"action": "reject", "approval_id": approval_id},
+                },
+            ],
+        }
+    )
+    return {
+        "config": {"wide_screen_mode": True, "update_multi": True},
+        "header": {
+            "template": "orange",
+            "title": {"tag": "plain_text", "content": f"{bot_name} 需要你确认"},
+        },
+        "elements": elements,
+    }
+
+
+def approval_decided_card(
+    *,
+    bot_name: str,
+    tool_name: str,
+    approved: bool,
+    reason: str = "",
+) -> dict[str, Any]:
+    """决策后的卡片：把按钮换掉，避免被重复点击。
+
+    飞书会用这张卡替换原卡，因此它必须自洽 —— 用户可能过几天才回看。
+    """
+    verdict = "已同意执行" if approved else "已拒绝执行"
+    elements: list[dict[str, Any]] = [_markdown(f"`{tool_name}` — **{verdict}**")]
+    if reason:
+        elements.append(_note(reason))
+    return {
+        "config": {"wide_screen_mode": True, "update_multi": True},
+        "header": {
+            "template": "green" if approved else "grey",
+            "title": {"tag": "plain_text", "content": f"{bot_name} 的确认结果"},
+        },
+        "elements": elements,
+    }
+
+
 __all__ = [
     "MAX_CARD_CHARS",
     "MAX_TOOL_CHARS",
     "answer_card",
+    "approval_card",
+    "approval_decided_card",
     "error_card",
     "thinking_card",
     "tool_note",

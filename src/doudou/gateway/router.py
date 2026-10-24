@@ -10,7 +10,13 @@
 
 from __future__ import annotations
 
-from doudou.channels.base import EventSink, InboundMessage, OutboundMessage
+from doudou.channels.base import (
+    EventSink,
+    InboundMessage,
+    OutboundMessage,
+    bind_inbound,
+    unbind_inbound,
+)
 from doudou.gateway.bus import MessageBus
 from doudou.gateway.runner import AgentRunner
 from doudou.gateway.schema import RunRequest
@@ -67,9 +73,12 @@ class MessageRouter:
             text_chars=len(message.text),
         )
         stream = self.runner.astream(request)
+        # 标记「现在服务的是这条消息」：确认回调要靠它知道把卡片发到哪个会话。
+        token = bind_inbound(message)
         try:
             await sink.deliver(message, stream)
         finally:
+            unbind_inbound(token)
             # 无论渲染是否成功，都要把生成器关掉，避免留下未消费的协程。
             aclose = getattr(stream, "aclose", None)
             if callable(aclose):

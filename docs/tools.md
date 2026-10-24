@@ -4,10 +4,10 @@
 
 | 来源 | 位置 | 状态 |
 | --- | --- | --- |
-| 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `notes` / `http` / `web_search` |
-| MCP 工具 | `config/mcp.servers.yaml` | ⏳ M5，届时通过 `build_tools(extra=...)` 注入 |
+| 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `notes` / `http` / `web_search` / `shell` / `skills` / `memory` / `delegation` |
+| MCP 工具 | `config/mcp.servers.yaml` | ✅ 通过 `build_tools(extra=...)` 注入（M5） |
 | deepagents 内置 | 框架提供 | ⏳ M9（`ls` / `read_file` / `write_file` / `write_todos` / `task` …） |
-| 沙箱执行 | 沙箱后端 | ⏳ `execute`（shell），需显式启用 |
+| 沙箱执行 | 沙箱后端 | ⏳ M9 评估；当前 `shell_exec` 自带，默认禁用 |
 
 全部在 `tools/registry.py` 汇总后交给 Agent。
 
@@ -63,13 +63,35 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 
 ### 命名与分组
 
-| 前缀 | 用途 |
+| 前缀 / 名 | 用途 |
 | --- | --- |
 | `web_` | 联网检索（`web_search`） |
-| `workspace_` | 工作区文件（避开 M9 的 `read_file` / `ls`，避免重名被静默丢弃） |
+| `workspace_` | 工作区文件读写（避开 M9 的 `read_file` / `ls`，避免重名被静默丢弃） |
 | `note_` | 备忘与待办 |
 | `http_` | 原始出站请求 |
 | `now` / `days_between` | 时间类 |
+| `shell_exec` | 命令执行（默认不注册） |
+| `read_skill` / `list_skill_files` / `skill_read_file` | 技能按需加载 |
+| `remember` | 往记忆文件里追加（有副作用） |
+| `task` | 委派给子 Agent |
+
+`doudou tools list` 会按分组聚合并说明「为什么某个分组不在列表里」
+（`registry.describe_groups()`），因此排查「工具有没有生效」不必猜。
+
+### 子 Agent（`task` 工具）
+
+子 Agent 的价值是**上下文隔离**：主 Agent 把检索/比对/试错丢出去，只取回一段结论。
+定义写在 `config/agents.yaml` 的 `subagents` 段（见该文件的注释）。
+
+三条刻意的约束：
+
+- **子 Agent 拿不到 `task`**（`FORBIDDEN_TOOLS`），否则递归深度不可控；
+- **白名单优先**：`tools` 非空时只有列出的工具可见。职责越窄，跑偏空间越小；
+- **确认策略按子 Agent 自己的工具清单重算**（由 `registry` 以回调注入）。
+  直接抄主 Agent 的 `interrupt_on` 会让子 Agent 的写操作静默免确认 —— 那是个真实的绕过。
+
+白名单里写了不存在的工具会打 `subagents.unknown_tools` 告警（不报错）——
+静默忽略会让「我明明配了工具」变成谜。工具名请用 `doudou tools list` 核对。
 
 ## 4. 副作用与人工确认
 
@@ -78,8 +100,8 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 | 档位 | 例子 | 默认行为 |
 | --- | --- | --- |
 | 只读 | 检索、抓取、读文件、查时间 | 直接执行 |
-| 可逆写 | 写笔记、写工作区文件 | `side_effects=True` → 需要确认 |
-| 不可逆 / 对外 | 删文件、执行命令、发消息、提交代码 | 需要确认（M8 补权限规则兜底） |
+| 可逆写 | 写笔记、写工作区文件、改文件内容 | `side_effects=True` → 需要确认 |
+| 不可逆 / 对外 | 删文件、执行命令、发消息、提交代码 | 需要确认 + `agent.permissions` 兜底 |
 
 确认回调由入口层提供，语义各不相同：
 
@@ -88,7 +110,25 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 | `doudou chat` / `doudou ask` | 终端询问「是否执行工具 xxx？」 |
 | 加 `--no-confirm` | **一律同意**（用户明确表示不想被打断），每次都打 `cli.tool_auto_approved` 日志 |
 | 加 `--quiet` | **不提供回调 → 拒绝执行**。无人在场就不能替用户同意写操作 |
-| HTTP API | 同上：目前没有确认通道，因此副作用工具会被拒绝（M8 补持久化确认与飞书卡片） |
+| 飞书 | 推带「同意 / 拒绝」按钮的卡片，点击回到同一个 broker |
+| HTTP API | `GET /api/v1/approvals` + `POST /api/v1/approvals/{id}`；超时按拒绝 |
+
+后两个入口走的是同一个 `agent/approvals.py` 里的 `ApprovalBroker`（见
+`docs/security.md` §6）：Agent 只等一个决策，谁送来都行。
+
+写类工具除了确认，还要过路径权限规则：
+
+```python
+@tool
+def workspace_write(path: str, content: str) -> str:
+    """把内容写入工作区里的文件（新建或整体覆盖）。"""
+    target = _resolve(root, path)  # 硬边界：跑不出工作区
+    policy.require_target("write", target, root=root)  # 细粒度规则 + containment 兜底
+    ...
+```
+
+**两道防线各管一件事**：确认决定「要不要做」，权限决定「能不能碰这个路径」，
+硬边界保证「跑不出工作区」。三层都过了才真的落盘。
 
 配置可以覆盖自动拦截：
 
@@ -98,6 +138,7 @@ agent:
     note_save: false          # 显式关掉某个工具的确认
     "*": true                 # 或全部都要确认
   require_approval_for_side_effects: false   # 或整体关掉「有副作用就拦」
+  approval_timeout_seconds: 300              # 等不到决策就按拒绝处理
 ```
 
 ## 5. 出网工具的安全要求

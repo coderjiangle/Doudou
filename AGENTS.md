@@ -28,10 +28,15 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
 - `config` 不得 import 其他业务模块
 - `RunEvent`（Agent 的输出）定义在 `agent/events.py`：它被上层消费，所以归 agent 层
 - `InboundMessage` / `OutboundMessage`（通道的输入输出）定义在 `channels/base.py`
-- **`channels/__init__.py` 必须保持轻量**：任何 `import doudou.channels.x` 都会先执行它，
-  而 `gateway.router` 只依赖 `channels.base`。在里面 import `registry` 会拖进
-  `channels.feishu.channel`，而后者反向依赖 `gateway.router` → 循环导入。
-  造通道请显式 `from doudou.channels.registry import ...`。
+- **包 `__init__.py` 必须保持轻量**（`agent` / `tools` / `channels` 都适用）：
+  任何 `import doudou.<pkg>.x` 都会先执行它。这几个包互相依赖
+  （`tools.registry` → `agent.memory`；`agent.react` → `tools.decorators`；
+  `gateway.router` 只依赖 `channels.base`），在 `__init__` 里做重导出会立刻成环，
+  表现是「导入顺序不同就报 ImportError」，极难排查。
+  现状：`agent/__init__` 只导出 `events`，`tools/__init__` 只导出 `decorators`，
+  `channels/__init__` 只导出协议。其余一律显式导入具体模块
+  （`from doudou.tools.registry import build_tools`）。
+  反过来，**能证明没人从包根导入**是加新成员时的检查项（`grep 'from doudou\.<pkg> import'`）。
 
 ## 编码约定
 
@@ -58,6 +63,17 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
 - **Skill** 放仓库根 `skills/`，每个 Skill 一个目录 + `SKILL.md`（YAML frontmatter：`name`、`description`）。
 - 有副作用的工具必须声明 `side_effects=True`；无确认回调时它们会被拒绝执行
   （见 `docs/tools.md` §4）。
+- **碰文件路径的工具**（写/改/删）除了确认，还要调
+  `PermissionPolicy.require_target(op, target, root=...)`：它同时做「必须在工作区内」
+  与细粒度规则匹配。两道防线的分工是「确认 = 要不要做 / 权限 = 能不能碰这个路径」。
+- **不要自己实现「问用户」**：确认统一走 `agent/approvals.py` 的 `ApprovalBroker`，
+  它负责登记、超时按拒绝、决策复用与落库；各通道只负责把决策送回来。
+- **破坏性能力默认关闭**：`shell_exec` 只有在 `tools.shell.enabled: true` 时才注册。
+  新加这类「没有约束机制」的出口时请照此办理。
+- **工具名不要与预期重名**：`tools.registry` 对重名是「留前者、丢后者」并只打告警，
+  静默失效比报错更难查（`workspace_*` 就是为了避开 M9 deepagents 的 `read_file`）。
+- **子 Agent 定义**放 `config/agents.yaml` 的 `subagents` 段；`tools` 白名单里请写
+  **实际装载**的工具名（用 `doudou tools list` 核对），写错只告警不报错。
 
 ## 测试
 

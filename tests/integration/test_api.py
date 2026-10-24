@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -479,10 +480,12 @@ async def test_enabled_channel_is_started_and_reported(
     from doudou import api
 
     made: list[FakeChannel] = []
+    seen_broker: list[object] = []
 
-    def fake_build(settings: object, router: object) -> list[object]:
+    def fake_build(settings: object, router: object, **kwargs: object) -> list[object]:
         channel = FakeChannel()
         made.append(channel)
+        seen_broker.append(kwargs.get("broker"))
         return [channel]
 
     monkeypatch.setattr(api.lifespan, "build_enabled_channels", fake_build)
@@ -500,6 +503,9 @@ async def test_enabled_channel_is_started_and_reported(
         assert body["checks"]["channels"] == "fake"
         # 总线必须已经起好，否则常驻通道的消息进来无处可去
         assert app.state.doudou.bus is not None
+        # 确认中介必须传下去：否则飞书里没人能回答「同意 / 拒绝」
+        assert seen_broker[0] is app.state.doudou.broker
+        assert app.state.doudou.broker is not None
 
     assert made[0].stopped is True
 
@@ -514,7 +520,7 @@ async def test_channel_start_failure_does_not_break_service(
     monkeypatch.setattr(
         api.lifespan,
         "build_enabled_channels",
-        lambda settings, router: [BrokenChannel(), FakeChannel()],
+        lambda settings, router, **kwargs: [BrokenChannel(), FakeChannel()],
     )
 
     settings = _write_config(tmp_path)
@@ -768,3 +774,97 @@ async def test_no_skill_tools_without_skills(settings_for_api: Settings) -> None
 
     assert listed["count"] == 0
     assert "read_skill" not in names
+
+
+# --------------------------------------------------------------------------- 人工确认
+
+
+async def _wait_for_pending(client: httpx.AsyncClient, *, budget: float = 3.0) -> str:
+    """轮询 ``GET /approvals`` 直到出现待确认请求，返回它的 id。"""
+    deadline = asyncio.get_running_loop().time() + budget
+    while asyncio.get_running_loop().time() < deadline:
+        body = (await client.get("/api/v1/approvals")).json()
+        if body["pending"]:
+            return str(body["pending"][0]["approval_id"])
+        await asyncio.sleep(0.01)
+    raise AssertionError("等待超时：始终没有出现待确认请求")
+
+
+async def test_approvals_drive_the_waiter_and_survive_restart(tmp_path: Path) -> None:
+    """M8 验收：确认请求可被 HTTP 落决策，且**重启后仍查得到**。
+
+    这里直接向 broker 注入一条待决请求（模型脚本里没法让它随便调工具），
+    走的仍是端点 → broker → 落库的真实链路。
+    """
+    settings = _write_config(tmp_path)
+    app = create_app(settings)
+
+    async with app.router.lifespan_context(app):
+        broker = app.state.doudou.broker
+        assert broker is not None
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            empty = (await client.get("/api/v1/approvals")).json()
+            assert empty["pending"] == []
+            assert empty["timeout_seconds"] > 0
+
+            missing = await client.post("/api/v1/approvals/ap-nope", json={"approved": True})
+            assert missing.status_code == 404
+            assert missing.json()["error"]["code"] == "approval_not_found"
+
+            # 一个真实的等待方：写文件的工具调用正卡在这里等人点头
+            waiter = asyncio.create_task(
+                broker.request(
+                    tool_name="workspace_write",
+                    args={"path": "report.md", "content": "结论"},
+                    call_id="call-1",
+                    thread_id="thread-1",
+                )
+            )
+            approval_id = await _wait_for_pending(client)
+
+            listed = (await client.get("/api/v1/approvals")).json()
+            assert listed["pending"][0]["tool_name"] == "workspace_write"
+            assert listed["pending"][0]["args"]["path"] == "report.md"
+
+            decided = await client.post(
+                f"/api/v1/approvals/{approval_id}", json={"approved": True, "reason": "可以写"}
+            )
+            assert decided.status_code == 200
+            assert decided.json()["status"] == "approved"
+
+            outcome = await asyncio.wait_for(waiter, timeout=3)
+            assert outcome.approved is True
+
+            after = (await client.get("/api/v1/approvals")).json()
+            assert after["pending"] == []
+            assert after["recent"][0]["status"] == "approved"
+            assert after["recent"][0]["reason"] == "可以写"
+
+    # 「跨重启不丢」的可实现部分：审计记录还在（同一个库）
+    restarted = create_app(settings)
+    async with restarted.router.lifespan_context(restarted):
+        transport = httpx.ASGITransport(app=restarted)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            body = (await client.get("/api/v1/approvals")).json()
+
+    assert body["pending"] == []  # 那次运行随进程结束，不会自己续跑
+    assert body["recent"][0]["tool_name"] == "workspace_write"
+    assert body["recent"][0]["status"] == "approved"
+
+
+async def test_approvals_require_token_when_configured(tmp_path: Path) -> None:
+    """确认接口能改变「危险操作是否执行」，因此必须与其它写接口一样受鉴权保护。"""
+    settings = _write_config(tmp_path, token="s3cret")
+
+    async with api_client(settings, token="s3cret") as client:
+        authorized = await client.get("/api/v1/approvals")
+
+    anonymous = create_app(settings.model_copy(update={"api_token": "s3cret"}))
+    async with anonymous.router.lifespan_context(anonymous):
+        transport = httpx.ASGITransport(app=anonymous)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as bare:
+            denied = await bare.get("/api/v1/approvals")
+
+    assert authorized.status_code == 200
+    assert denied.status_code == 401

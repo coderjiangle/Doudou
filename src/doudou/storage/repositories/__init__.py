@@ -6,8 +6,14 @@
 
 from __future__ import annotations
 
+from doudou.storage.repositories.approvals import ApprovalRepository
 from doudou.storage.repositories.channels import SessionBindingRepository
 from doudou.storage.repositories.messages import MessageRepository
 from doudou.storage.repositories.threads import ThreadRepository
 
-__all__ = ["MessageRepository", "SessionBindingRepository", "ThreadRepository"]
+__all__ = [
+    "ApprovalRepository",
+    "MessageRepository",
+    "SessionBindingRepository",
+    "ThreadRepository",
+]

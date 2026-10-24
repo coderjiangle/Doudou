@@ -60,17 +60,22 @@ agent:
   max_steps: 10                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
   # M8 落地文件系统工具后生效；顺序即匹配顺序，拒绝规则要写在前面
+  # 文件系统路径权限。**首匹配生效**，所以拒绝规则必须写在放行规则前面。
+  # 匹配的是相对工作区的 POSIX 路径（以 / 开头）：
+  #   /**          工作区里任何路径（含子目录）
+  #   /**/.env     任何目录下的 .env（含根目录）
+  #   /secrets/**  secrets 目录及其下所有内容
+  # 注意：工具层已经保证「跑不出工作区」，这里是更细的限制。
+  # 没有匹配任何规则时**放行**；想「默认拒绝」就加一条 `paths: ["/**"], mode: deny` 放最后。
   permissions:
     - operations: [read, write]
       paths: ["/**/.env", "/**/*.pem", "/**/*.key", "/**/secrets/**"]
       mode: deny
-    - operations: [read, write]
-      paths: ["/workspace/**"]
-      mode: allow
 
 # ---------------------------------------------------------------- 工具
 tools:
-  # 空列表 = 全部启用；填分组名则只启用这些。分组：web / http / files / notes / clock
+  # 空列表 = 全部启用；填分组名则只启用这些。
+  # 分组：web / http / files / notes / shell / skills / memory / clock / delegation
   enabled_groups: []
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
@@ -94,16 +99,26 @@ tools:
     max_response_chars: 20000
     max_redirects: 2
 
-  # 只读工作区（根目录 = filesystem.root_dir）
+  # 工作区文件（读写一体）。写类工具默认需要人工确认，且要过 agent.permissions
   files:
     max_read_chars: 50000
     max_list: 200
+    # 单次写入（或替换后）的字符上限
+    max_write_chars: 200000
 
   # 本地笔记；写笔记有副作用，默认需要人工确认
   notes:
     directory: ./data/notes
     max_list: 50
     max_read_chars: 20000
+
+  # 命令执行：**默认禁用**。这是唯一没有路径约束机制的出口
+  # （权限规则拦不住 `rm -rf /`），只有人工确认这一道。
+  # 需要真正隔离请用容器/沙箱，而不是靠这个工具。
+  shell:
+    enabled: false
+    timeout: 60
+    max_output_chars: 20000
 
 # ---------------------------------------------------------------- 虚拟文件系统
 filesystem:

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from doudou.api.schemas.approvals import (
+    ApprovalDecisionRequest,
+    ApprovalListResponse,
+    ApprovalOut,
+)
 from doudou.api.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -33,6 +38,9 @@ from doudou.api.schemas.common import (
 )
 
 __all__ = [
+    "ApprovalDecisionRequest",
+    "ApprovalListResponse",
+    "ApprovalOut",
     "ChatRequest",
     "ChatResponse",
     "ChecksOut",

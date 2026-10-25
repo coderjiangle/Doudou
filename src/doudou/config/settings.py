@@ -77,10 +77,6 @@ class EnvWebSearchTool(_EnvSection):
     search_depth: str | None = None
 
 
-class EnvNotesTool(_EnvSection):
-    directory: str | None = None
-
-
 class EnvFilesTool(_EnvSection):
     max_read_chars: int | None = None
 
@@ -90,7 +86,6 @@ class EnvTools(_EnvSection):
     disabled: list[str] | None = None
     http: EnvHttpTool | None = None
     web_search: EnvWebSearchTool | None = None
-    notes: EnvNotesTool | None = None
     files: EnvFilesTool | None = None
 
 

@@ -20,7 +20,7 @@
 | 人在回路 | `interrupt_on` + 终端确认 | `doudou.agent.react` |
 | HTTP API | FastAPI + SSE + 落库 + Bearer 鉴权 | `doudou.api` |
 | 会话持久化 | 消息/线程/渠道绑定落库，重启可续 | `doudou.storage` |
-| 实用工具集 | 检索 / 抓取 / 笔记 / 只读文件，默认拒绝 | `doudou.tools.builtin` |
+| 实用工具集 | 检索 / 抓取 / 工作区文件 / 命令执行，默认拒绝 | `doudou.tools.builtin` |
 | 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` |
 | 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` |
 | MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` |
@@ -175,7 +175,6 @@ tools:
 | `web_search` | `TAVILY_API_KEY` 非空 |
 | `http_request` | `tools.http.allowed_domains` 非空，且目标域名命中（解析到内网地址也会被拒） |
 | `workspace_read` / `workspace_list` | 始终可用，根目录 = `filesystem.root_dir` |
-| `note_save` / `note_list` / `note_read` | 始终可用；**写笔记需要人工确认** |
 | `now` / `days_between` | 始终可用 |
 
 ```powershell

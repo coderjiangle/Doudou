@@ -152,14 +152,17 @@ async def test_audit_records_approval_as_true() -> None:
     context = ctx()
 
     await observer.on_event(
-        context, RunEvent.tool_call(step=2, name="note_save", call_id="c9", args={"title": "t"})
+        context,
+        RunEvent.tool_call(step=2, name="workspace_write", call_id="c9", args={"path": "a.md"}),
     )
     await observer.on_event(
-        context, RunEvent.approval(step=2, name="note_save", call_id="c9", approved=True)
+        context, RunEvent.approval(step=2, name="workspace_write", call_id="c9", approved=True)
     )
     await observer.on_event(
         context,
-        RunEvent.tool_result(step=2, name="note_save", call_id="c9", result="已保存", ok=True),
+        RunEvent.tool_result(
+            step=2, name="workspace_write", call_id="c9", result="已写入", ok=True
+        ),
     )
 
     row = next(item for item in await store.list_recent() if item.kind == "tool")

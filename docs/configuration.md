@@ -132,14 +132,12 @@ OPENAI_API_KEY=<网关签发的 Key>
 
 ```yaml
 tools:
-  enabled_groups: []          # 空 = 全部启用；分组：web / http / files / notes / clock
+  enabled_groups: []          # 空 = 全部启用；分组：web / http / files / clock …
   disabled: []                # 逐个禁用的工具名
   http:
     allowed_domains: []       # 空 = http_request 不注册（默认拒绝一切出站请求）
   web_search:
     max_results: 5
-  notes:
-    directory: ./data/notes
   files:
     max_read_chars: 50000
 ```
@@ -163,7 +161,7 @@ agent:
 ```
 
 工具用 `side_effects=True` 自声明（见 `docs/tools.md`），因此大多数情况下不需要写 `interrupt_on`。
-显式写 `note_save: false` 可以关掉某个工具的确认。
+显式写 `workspace_write: false` 可以关掉某个工具的确认。
 
 几个容易踩坑的点：
 

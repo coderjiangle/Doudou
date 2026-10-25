@@ -28,9 +28,6 @@ DEFAULT_TOOLS = [
     "workspace_write",
     "workspace_edit",
     "workspace_delete",
-    "note_save",
-    "note_list",
-    "note_read",
     "now",
     "days_between",
 ]
@@ -40,7 +37,6 @@ DEFAULT_APPROVAL_TOOLS = {
     "workspace_write",
     "workspace_edit",
     "workspace_delete",
-    "note_save",
 }
 
 
@@ -129,7 +125,6 @@ def test_all_groups_declared() -> None:
         "web",
         "http",
         "files",
-        "notes",
         "shell",
         "skills",
         "memory",
@@ -145,24 +140,24 @@ def test_enabled_groups_restricts_tool_set(settings: Settings) -> None:
 
 
 def test_disabled_list_removes_single_tool(settings: Settings) -> None:
-    restricted = _with_tools(settings, disabled=["note_save", "workspace_list"])
+    restricted = _with_tools(settings, disabled=["workspace_write", "workspace_list"])
 
     names = [item.name for item in build_tools(restricted)]
 
-    assert "note_save" not in names
+    assert "workspace_write" not in names
     assert "workspace_list" not in names
-    assert "note_read" in names
+    assert "workspace_read" in names
 
 
 def test_disabled_tools_are_absent_from_infos(settings: Settings) -> None:
-    restricted = _with_tools(settings, disabled=["note_save"])
+    restricted = _with_tools(settings, disabled=["workspace_write"])
 
-    assert "note_save" not in {info.name for info in tool_infos(restricted)}
+    assert "workspace_write" not in {info.name for info in tool_infos(restricted)}
 
 
 def test_group_enabled_helper(settings: Settings) -> None:
     assert group_enabled(settings, "clock") is True
-    assert group_enabled(_with_tools(settings, enabled_groups=["clock"]), "notes") is False
+    assert group_enabled(_with_tools(settings, enabled_groups=["clock"]), "files") is False
 
 
 # --------------------------------------------------------------------------- 分组状态（为什么不在列表里）
@@ -181,8 +176,8 @@ def test_describe_groups_points_at_enabled_groups(settings: Settings) -> None:
 
     statuses = {status.name: status for status in describe_groups(restricted)}
 
-    assert statuses["notes"].enabled is False
-    assert "enabled_groups" in statuses["notes"].reason
+    assert statuses["files"].enabled is False
+    assert "enabled_groups" in statuses["files"].reason
 
 
 def test_describe_groups_reports_http_enabled_with_allowlist(tools_settings) -> None:  # type: ignore[no-untyped-def]
@@ -274,17 +269,17 @@ def test_annotations_coerce_bad_timeout() -> None:
 def test_side_effects_require_approval_by_default(settings: Settings) -> None:
     tools = {item.name: item for item in build_tools(settings)}
 
-    assert requires_approval(settings, tools["note_save"]) is True
+    assert requires_approval(settings, tools["workspace_write"]) is True
     assert requires_approval(settings, tools["workspace_read"]) is False
     assert requires_approval(settings, tools["now"]) is False
 
 
 def test_explicit_interrupt_on_overrides_side_effect_default(settings: Settings) -> None:
     """配置能覆盖自动拦截：显式 false 表示「这个写操作不必每次确认」。"""
-    relaxed = _with_agent(settings, interrupt_on={"note_save": False})
+    relaxed = _with_agent(settings, interrupt_on={"workspace_write": False})
     tools = {item.name: item for item in build_tools(relaxed)}
 
-    assert requires_approval(relaxed, tools["note_save"]) is False
+    assert requires_approval(relaxed, tools["workspace_write"]) is False
 
 
 def test_wildcard_interrupt_on_guards_everything(settings: Settings) -> None:
@@ -298,7 +293,7 @@ def test_require_approval_for_side_effects_can_be_disabled(settings: Settings) -
     relaxed = _with_agent(settings, require_approval_for_side_effects=False)
     tools = {item.name: item for item in build_tools(relaxed)}
 
-    assert requires_approval(relaxed, tools["note_save"]) is False
+    assert requires_approval(relaxed, tools["workspace_write"]) is False
 
 
 def test_effective_interrupt_on_covers_every_tool(settings: Settings) -> None:
@@ -311,7 +306,7 @@ def test_effective_interrupt_on_covers_every_tool(settings: Settings) -> None:
     policy = effective_interrupt_on(settings, tools)
 
     assert {item.name for item in tools} <= set(policy)
-    assert policy["note_save"] is True
+    assert policy["workspace_write"] is True
     assert policy["now"] is False
 
 
@@ -329,10 +324,10 @@ def test_tool_infos_shape(settings: Settings) -> None:
     assert clock_info.requires_approval is False
     assert clock_info.as_dict()["name"] == "now"
 
-    note_info = infos["note_save"]
-    assert note_info.side_effects is True
-    assert note_info.requires_approval is True
-    assert note_info.group == "notes"
+    write_info = infos["workspace_write"]
+    assert write_info.side_effects is True
+    assert write_info.requires_approval is True
+    assert write_info.group == "files"
 
 
 def test_write_tools_are_marked_for_approval(settings: Settings) -> None:
@@ -356,7 +351,7 @@ def test_describe_args_uses_annotations(settings: Settings) -> None:
     tools = {item.name: item for item in build_tools(settings)}
 
     assert describe_args(tools["days_between"]) == {"start_date": "str", "end_date": "str"}
-    assert describe_args(tools["note_save"]) == {"title": "str", "content": "str"}
+    assert describe_args(tools["workspace_write"]) == {"path": "str", "content": "str"}
 
 
 def test_providers_return_fresh_instances(settings: Settings) -> None:

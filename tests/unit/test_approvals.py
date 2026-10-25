@@ -171,7 +171,11 @@ async def test_hook_adapts_react_request(broker: ApprovalBroker) -> None:
     hook = broker.hook()
 
     approved, _ = await asyncio.gather(
-        hook(ToolApprovalRequest(tool_name="note_save", args={"title": "t"}, step=2, call_id="c7")),
+        hook(
+            ToolApprovalRequest(
+                tool_name="workspace_write", args={"path": "a.md"}, step=2, call_id="c7"
+            )
+        ),
         _decide_when_pending(broker, approved=True),
     )
 

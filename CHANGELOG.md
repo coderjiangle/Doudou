@@ -4,6 +4,11 @@
 
 ## 未发布
 
+### 变更
+
+- 移除 `note_save` / `note_list` / `note_read` 三个工具。需要记东西时直接用工作区文件工具
+  写 Markdown，模型能看到、人也能改。`tools.notes` 配置字段保留但不再生效，只为兼容旧配置文件。
+
 ### 修复
 
 - 飞书：`bot/v3/info` 的响应体只在 `raw.content` 里，字段是 `bot.open_id`；原来的解析路径
@@ -40,7 +45,7 @@
 - HTTP API：`/chat`、SSE 流式、threads 管理、Bearer 鉴权、结构化访问日志。
 - 持久化：SQLite / PostgreSQL 存储消息、线程与渠道绑定，重启后可续同一会话。
 - 内置工具：`web_search`、`http_request`（域名白名单 + 内网拒绝 + 仅 GET/HEAD）、
-  笔记、只读工作区文件；`side_effects` 声明触发自动确认。
+  只读工作区文件；`side_effects` 声明触发自动确认。
 - 飞书通道：WebSocket 长连接、流式卡片、群聊 @ 判定、事件幂等去重。
 - MCP：stdio / http / sse 接入，工具命名空间与单个 server 失败降级。
 - Skill 渐进式加载：提示词只注入索引，正文按需通过 `read_skill` 读取，支持热重载。

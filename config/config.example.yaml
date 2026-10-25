@@ -49,7 +49,7 @@ agent:
   skill_index_limit: 40
   subagents_file: agents.yaml
   # 手工覆盖「哪些工具需要人工确认」。通常不需要写 ——
-  # 工具自己用 `side_effects=True` 声明（写文件、写笔记、执行命令都会自动被拦）。
+  # 工具自己用 `side_effects=True` 声明（写文件、执行命令都会自动被拦）。
   # 这里只在两处有用：**关掉**某个工具的确认，或**额外加上**一个。
   interrupt_on:
     # workspace_delete: false   # 例如：删除也信任它（不推荐）
@@ -70,7 +70,7 @@ agent:
 # ---------------------------------------------------------------- 工具
 tools:
   # 空列表 = 全部启用；填分组名则只启用这些。
-  # 分组：web / http / files / notes / shell / skills / memory / clock / delegation
+  # 分组：web / http / files / shell / skills / memory / clock / delegation
   enabled_groups: []
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
@@ -113,12 +113,6 @@ tools:
     # 只透传白名单里的环境变量，避免把 *_API_KEY 交给子进程
     inherit_env: ["PATH", "HOME", "LANG", "LC_ALL", "TZ", "TEMP", "TMP"]
 
-  # 本地笔记（Markdown）。note_save 有副作用，默认需要人工确认。
-  notes:
-    directory: ./data/notes
-    max_list: 50
-    max_read_chars: 20000
-
 # ---------------------------------------------------------------- 虚拟文件系统
 # 目前只有 root_dir 生效：所有文件类工具的读写都被钉在这个目录里
 # （`resolve()` 之后再校验，软链接也逃不出去）。
@@ -136,7 +130,7 @@ context:
   offload_large_results: true    # 超大工具结果落盘，上下文里只留预览 + 路径
   offload_threshold_bytes: 20000
   # 注：context.todo_list 未使用（原为 deepagents 的 write_todos 预留，计划已取消）。
-  # 需要任务清单时现在用 note_* 工具写进工作区/笔记，模型能看到、人也能改。
+  # 需要任务清单时把条目写进工作区文件，模型能看到、人也能改。
   # ---- 这三个数决定「窗口有多大」 ----
   # 送进模型的历史 token 预算。**最关键的一个数**：
   # 默认 80000 刻意保守（成本可预期）；100 万上下文的大模型应该调高。

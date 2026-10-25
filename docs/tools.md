@@ -67,7 +67,6 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 | --- | --- |
 | `web_` | 联网检索（`web_search`） |
 | `workspace_` | 工作区文件读写（前缀即边界说明；也让第三方工具撞名的风险降到最低） |
-| `note_` | 备忘与待办 |
 | `http_` | 原始出站请求 |
 | `now` / `days_between` | 时间类 |
 | `shell_exec` | 命令执行（默认不注册） |
@@ -100,7 +99,7 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 | 档位 | 例子 | 默认行为 |
 | --- | --- | --- |
 | 只读 | 检索、抓取、读文件、查时间 | 直接执行 |
-| 可逆写 | 写笔记、写工作区文件、改文件内容 | `side_effects=True` → 需要确认 |
+| 可逆写 | 写工作区文件、改文件内容 | `side_effects=True` → 需要确认 |
 | 不可逆 / 对外 | 删文件、执行命令、发消息、提交代码 | 需要确认 + `agent.permissions` 兜底 |
 
 确认回调由入口层提供，语义各不相同：
@@ -135,7 +134,7 @@ def workspace_write(path: str, content: str) -> str:
 ```yaml
 agent:
   interrupt_on:
-    note_save: false          # 显式关掉某个工具的确认
+    workspace_write: false    # 显式关掉某个工具的确认
     "*": true                 # 或全部都要确认
   require_approval_for_side_effects: false   # 或整体关掉「有副作用就拦」
   approval_timeout_seconds: 300              # 等不到决策就按拒绝处理

@@ -19,7 +19,6 @@ from doudou.tools.builtin import (
     files,
     http,
     memory,
-    notes,
     shell,
     skills,
     web_search,
@@ -37,7 +36,6 @@ BUILTIN_PROVIDERS: tuple[tuple[str, ToolProvider], ...] = (
     ("web", web_search.build_tools),
     ("http", http.build_tools),
     ("files", files.build_tools),
-    ("notes", notes.build_tools),
     ("shell", shell.build_tools),
     ("skills", skills.build_tools),
     ("memory", memory.build_tools),
@@ -328,7 +326,7 @@ def requires_approval(settings: Settings, tool: BaseTool) -> bool:
     """该工具是否需要人工确认。
 
     优先级：``agent.interrupt_on`` 的显式设置 > 副作用声明。
-    也就是说 ``interrupt_on: {note_save: false}`` 能覆盖掉「有副作用就拦截」的默认。
+    也就是说 ``interrupt_on: {workspace_write: false}`` 能覆盖掉「有副作用就拦截」的默认。
     """
     explicit = settings.app.agent.interrupt_on.get(tool.name)
     if explicit is not None:

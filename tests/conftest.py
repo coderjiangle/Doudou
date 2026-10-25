@@ -72,10 +72,10 @@ def settings(config_dir: Path, missing_env_file: Path) -> Settings:
 def tools_settings(
     tmp_path: Path, settings_factory: Callable[..., Settings]
 ) -> Callable[..., Settings]:
-    """构造带临时工作区/笔记目录的配置。
+    """构造带临时工作区的配置。
 
-    ``filesystem.root_dir`` 与 ``tools.notes.directory`` 必须指向 ``tmp_path``，
-    否则工具会去读写仓库里的 ``data/``，测试之间互相污染。
+    ``filesystem.root_dir`` 必须指向 ``tmp_path``，否则工具会去读写仓库里的
+    ``data/``，测试之间互相污染。
     """
 
     def make(
@@ -85,7 +85,6 @@ def tools_settings(
         **kwargs: object,
     ) -> Settings:
         workspace = (tmp_path / "workspace").as_posix()
-        notes = (tmp_path / "notes").as_posix()
         limit_line = f"    max_response_chars: {max_response_chars}\n" if max_response_chars else ""
         config_yaml = (
             f'filesystem:\n  root_dir: "{workspace}"\n'
@@ -93,8 +92,6 @@ def tools_settings(
             f"  http:\n"
             f"    allowed_domains: {json.dumps(list(allowed_domains))}\n"
             f"{limit_line}"
-            f"  notes:\n"
-            f'    directory: "{notes}"\n'
         )
         return settings_factory(config_yaml=config_yaml, **kwargs)  # type: ignore[arg-type]
 

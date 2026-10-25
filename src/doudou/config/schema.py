@@ -85,7 +85,8 @@ class WebSearchToolConfig(_Section):
 
 
 class NotesToolConfig(_Section):
-    #: 笔记目录（相对当前工作目录解析，不存在时自动创建）。
+    """**已移除**：笔记工具不再提供。保留字段只为兼容既有配置文件。"""
+
     directory: str = "./data/notes"
     max_list: int = 50
     max_read_chars: int = 20000
@@ -132,6 +133,7 @@ class ToolsConfig(_Section):
     disabled: list[str] = Field(default_factory=list)
     http: HttpToolConfig = Field(default_factory=HttpToolConfig)
     web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
+    #: 已移除的笔记工具配置；保留字段仅为兼容旧配置文件，不生效。
     notes: NotesToolConfig = Field(default_factory=NotesToolConfig)
     files: FilesToolConfig = Field(default_factory=FilesToolConfig)
     shell: ShellToolConfig = Field(default_factory=ShellToolConfig)
@@ -212,7 +214,6 @@ class ContextConfig(_Section):
     """
 
     #: **未使用**：原为 deepagents 的 ``write_todos`` 预留，计划已取消。
-    #: 需要任务清单时用 ``note_*`` 写进工作区/笔记 —— 模型能看到，人也能改。
     todo_list: bool = True
     summarization: bool = True
     #: 次要触发条件：消息条数超过它时也考虑压缩。

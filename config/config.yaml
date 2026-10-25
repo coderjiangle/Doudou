@@ -75,7 +75,7 @@ agent:
 # ---------------------------------------------------------------- 工具
 tools:
   # 空列表 = 全部启用；填分组名则只启用这些。
-  # 分组：web / http / files / notes / shell / skills / memory / clock / delegation
+  # 分组：web / http / files / shell / skills / memory / clock / delegation
   enabled_groups: []
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
@@ -105,12 +105,6 @@ tools:
     max_list: 200
     # 单次写入（或替换后）的字符上限
     max_write_chars: 200000
-
-  # 本地笔记；写笔记有副作用，默认需要人工确认
-  notes:
-    directory: ./data/notes
-    max_list: 50
-    max_read_chars: 20000
 
   # 命令执行：**默认禁用**。这是唯一没有路径约束机制的出口
   # （权限规则拦不住 `rm -rf /`），只有人工确认这一道。

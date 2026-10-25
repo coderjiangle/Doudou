@@ -74,8 +74,8 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
 - **破坏性能力默认关闭**：`shell_exec` 只有在 `tools.shell.enabled: true` 时才注册。
   新加这类「没有约束机制」的出口时请照此办理。
 - **工具名不要与预期重名**：`tools.registry` 对重名是「留前者、丢后者」并只打告警，
-  静默失效比报错更难查。因此内置工具一律带前缀（`workspace_*`、`note_*`、
-  `web_*`、`server__tool` 的 MCP 命名空间），装任何第三方的工具时先看 `tools list`。
+  静默失效比报错更难查。因此内置工具一律带前缀（`workspace_*`、`web_*`、
+  `server__tool` 的 MCP 命名空间），装任何第三方的工具时先看 `tools list`。
 - **子 Agent 定义**放 `config/agents.yaml` 的 `subagents` 段；`tools` 白名单里请写
   **实际装载**的工具名（用 `doudou tools list` 核对），写错只告警不报错。
 

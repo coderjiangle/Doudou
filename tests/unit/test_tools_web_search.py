@@ -54,6 +54,13 @@ def test_unsupported_provider_is_rejected_at_config_load(tools_settings) -> None
         tools_settings(env={"DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "nope"})
 
 
+def test_provider_is_case_insensitive(tools_settings) -> None:  # type: ignore[no-untyped-def]
+    """``deepSeek`` / ``DeepSeek`` 都能用 —— 标识符不该因为大小写拒绝启动。"""
+    settings = tools_settings(env={"DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "  DeepSeek "})
+
+    assert settings.app.tools.web_search.provider == "deepseek"
+
+
 # --------------------------------------------------------------------------- DeepSeek
 
 

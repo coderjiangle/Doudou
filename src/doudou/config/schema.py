@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 FilesystemBackendName = Literal["state", "store", "filesystem", "composite"]
 CheckpointerName = Literal["memory", "sqlite", "postgres"]
@@ -85,6 +85,12 @@ class WebSearchToolConfig(_Section):
     include_answer: bool = True
     #: 仅 DeepSeek：是否在结果里返回网页正文（会显著增大上下文，默认只取 summary）。
     need_content: bool = False
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, value: Any) -> Any:
+        """provider 是标识符，大小写不该影响配置能否启动（``DeepSeek`` 也认）。"""
+        return value.strip().lower() if isinstance(value, str) else value
 
 
 class NotesToolConfig(_Section):

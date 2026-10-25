@@ -22,21 +22,20 @@ server:
   workers: 1
 
 # ---------------------------------------------------------------- 模型
-# 供应商：himodels 网关（OpenAI 兼容协议）
-#   base_url 指向网关，provider 用 openai
-#   API Key 从 .env 的 OPENAI_API_KEY 读取（见 model.models._secret_api_key）
+# 供应商：DeepSeek 官方 API（OpenAI 兼容协议）
+#   base_url 指向官方地址，provider 用 openai
+#   API Key 从 .env 的 OPENAI_API_KEY 读取（见 agent/models._secret_api_key）
 model:
-  primary: openai:deepseek-v4.1-flash
+  primary: openai:deepseek-flash
   fallbacks: []
   temperature: 0.2
-  # 该模型输出上限为 384000 token（上下文 1000000），但把 max_tokens 设成上限
-  # 意味着「允许单次生成 38 万 token」——既慢又贵。这里只封顶单次生成，
-  # 需要长文时再临时调高（或走 DOUDOU_MODEL__MAX_TOKENS 覆盖）。
-  max_tokens: 16384
+  # DeepSeek 允许的 max_tokens 范围是 [1, 393216]。这里只封顶单次生成，
+  # 设成上限既慢又贵；需要长文时用 DOUDOU_MODEL__MAX_TOKENS 临时调高。
+  max_tokens: 32768
   # 长文生成会明显超过默认 120s，这里放宽；网关侧若有更短超时会以网关为准。
   timeout: 300
   max_retries: 2
-  base_url: https://ark.cn-beijing.volces.com/api/coding/v3
+  base_url: https://api.deepseek.com
 
 # ---------------------------------------------------------------- Agent
 agent:

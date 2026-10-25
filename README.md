@@ -231,6 +231,12 @@ FEISHU_APP_SECRET=xxxxxxxx
 飞书开放平台里把事件订阅设为「**使用长连接接收事件**」并订阅
 `im.message.receive_v1`，然后 `uv run doudou serve` —— 长连接随服务一起托管。
 
+⚠️ **消息类权限必须开对**：私聊要 `im:message.p2p_msg:readonly`，群里 @ 要
+`im:message.group_at_msg:readonly`。只开 `im:message` 的话，长连接会正常建立、
+控制台「验证长连接」也会显示成功，但**一条消息都收不到**（飞书按权限过滤推送）。
+权限/事件改完记得重新发布版本。排查顺序见
+[`docs/channels.md`](docs/channels.md) 的 §2.11。
+
 会话隔离默认是「**同一个群共享一个上下文**」（`isolate_by_thread: false`），
 群里的助手像一个同事。完整步骤、@ 判定、卡片流式与已知限制见
 [`docs/channels.md`](docs/channels.md)。

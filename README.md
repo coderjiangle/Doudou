@@ -1,6 +1,6 @@
 # Doudou
 
-**内核自研**的个人助手 Agent（`doudou.agent.react` 的 ReAct 循环），不依赖 deepagents / LangGraph。
+**内核自研**的个人助手 Agent（`doudou.agent.react` 的 ReAct 循环）。
 
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
@@ -49,28 +49,9 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
 
 ## 2. 架构总览
 
-```
-                     ┌──────────────── 通道层 Channels ────────────────┐
-   飞书用户 ──事件──▶ │  feishu   │   webhook   │   cli               │
-                     └────┬─────────────┬──────────────┬────────────┘
-                          │             │              │
-                          ▼             ▼              ▼
-                  ┌──────────── Gateway（会话 / 路由 / 运行）────────────┐
-   HTTP 客户端 ──▶ │  session 映射 · 消息总线 · agent 执行 · 事件回流    │
-   (FastAPI)      └───────────────────────┬───────────────────────────┘
-                                          ▼
-                        ┌──────── Agent Core（自研 ReAct）────────┐
-                        │  doudou.agent.react                     │
-                        │  ├─ 系统提示词：记忆 + Skill 索引        │
-                        │  ├─ 上下文工程：预算裁剪 / 摘要 / 卸载   │
-                        │  ├─ 权限规则 + 确认（ApprovalBroker）    │
-                        │  ├─ tools  ◀── Tool Registry            │
-                        │  │            ├─ builtin tools          │
-                        │  │            ├─ MCP tools              │
-                        │  │            └─ task → 子 Agent         │
-                        │  └─ 事件流 RunEvent → 通道渲染           │
-                        └────────────────────────────────────────┘
-```
+![Doudou 架构总览](docs/assets/architecture.png)
+
+> 可编辑的矢量源文件：[`docs/assets/architecture.svg`](docs/assets/architecture.svg)。
 
 设计原则：
 

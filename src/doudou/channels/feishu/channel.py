@@ -417,7 +417,7 @@ class FeishuChannel:
         收尾时用最终卡片覆盖。任何一步失败都退回发一条文本，保证用户一定收到结果。
         """
         card_message_id = await self._open_card(message)
-        state = _CardState(question=message.text)
+        state = _CardState()
 
         async for event in events:
             state.consume(event)
@@ -433,7 +433,7 @@ class FeishuChannel:
             return await asyncio.to_thread(
                 self.client.send_card,
                 message.conversation_id,
-                cards.thinking_card(bot_name=self.config.bot_name, question=message.text),
+                cards.thinking_card(bot_name=self.config.bot_name),
             )
         except Exception as exc:
             logger.warning(
@@ -488,8 +488,7 @@ class _CardState:
     这些逻辑不必和通道的 IO 混在一起，也方便单独测试。
     """
 
-    def __init__(self, *, question: str) -> None:
-        self.question = question
+    def __init__(self) -> None:
         self.text = ""
         self.answer = ""
         self.tool_notes: list[str] = []
@@ -534,12 +533,10 @@ class _CardState:
             if self.failed:
                 return cards.error_card(
                     bot_name=bot_name,
-                    question=self.question,
                     message=self.error or "运行失败",
                 )
             return cards.answer_card(
                 bot_name=bot_name,
-                question=self.question,
                 answer=self.answer,
                 tool_notes=self.tool_notes,
                 footer=self._footer(),
@@ -547,7 +544,6 @@ class _CardState:
         partial = self.text.strip() or "正在思考…"
         return cards.answer_card(
             bot_name=bot_name,
-            question=self.question,
             answer=partial,
             tool_notes=self.tool_notes,
         )

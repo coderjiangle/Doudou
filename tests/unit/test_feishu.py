@@ -7,6 +7,7 @@ import json
 import pytest
 
 from doudou.channels.feishu.cards import (
+    MAX_CARD_BYTES,
     MAX_CARD_CHARS,
     answer_card,
     error_card,
@@ -346,17 +347,17 @@ def test_dedup_bounds_memory(monkeypatch: pytest.MonkeyPatch) -> None:
 # --------------------------------------------------------------------------- 卡片
 
 
-def test_thinking_card_has_question_and_pending() -> None:
-    card = thinking_card(bot_name="Doudou", question="现在几点")
+def test_thinking_card_shows_pending_without_echoing_question() -> None:
+    card = thinking_card(bot_name="Doudou")
 
-    assert "现在几点" in json.dumps(card, ensure_ascii=False)
     assert "正在思考" in json.dumps(card, ensure_ascii=False)
+    # 占位卡片只有一行提示：不再把用户原话抄一遍（卡片就紧跟在那条消息下面）
+    assert [element["tag"] for element in card["elements"]] == ["markdown"]
 
 
 def test_answer_card_includes_tool_notes() -> None:
     card = answer_card(
         bot_name="Doudou",
-        question="查一下 X",
         answer="X 是 Y",
         tool_notes=["✓ web_search — 找到了 3 条"],
     )
@@ -368,23 +369,43 @@ def test_answer_card_includes_tool_notes() -> None:
     assert "note" in rendered
 
 
+def test_answer_card_does_not_echo_question() -> None:
+    """回归：回复卡片只放答复，不能把用户消息再打印一遍。"""
+    card = answer_card(bot_name="D", answer="上午好，豆豆")
+
+    body = [element for element in card["elements"] if element["tag"] == "markdown"]
+    assert [element["content"] for element in body] == ["上午好，豆豆"]
+
+
 def test_answer_card_truncates_long_body() -> None:
-    card = answer_card(bot_name="D", question="q", answer="字" * (MAX_CARD_CHARS + 500))
+    card = answer_card(bot_name="D", answer="字" * (MAX_CARD_CHARS + 500))
     rendered = json.dumps(card, ensure_ascii=False)
 
     assert "已截断" in rendered
-    assert len(rendered) < MAX_CARD_CHARS * 2
+    # 只留一处提示，不要「（已截断 N 字）」叠加「内容过长已截断」
+    assert rendered.count("已截断") == 1
+
+
+def test_answer_card_respects_feishu_byte_limit() -> None:
+    """飞书限制的是 30 KB 体积，不是字符数：4 字节的 emoji 会先撞上限。"""
+    card = answer_card(bot_name="D", answer="😀" * (MAX_CARD_CHARS + 1000))
+    rendered = json.dumps(card, ensure_ascii=False)
+
+    assert len(rendered.encode("utf-8")) <= MAX_CARD_BYTES
+    assert "已截断" in rendered
+    # 字节先撑爆，所以实际保留的字符数比字符上限更少
+    assert len(rendered) < MAX_CARD_CHARS
 
 
 def test_error_card_marks_failure() -> None:
-    card = error_card(bot_name="D", question="q", message="跑挂了")
+    card = error_card(bot_name="D", message="跑挂了")
 
     assert card["header"]["template"] == "red"
     assert "跑挂了" in json.dumps(card, ensure_ascii=False)
 
 
 def test_answer_card_handles_empty_answer() -> None:
-    card = answer_card(bot_name="D", question="q", answer="   ")
+    card = answer_card(bot_name="D", answer="   ")
 
     assert "没有给出内容" in json.dumps(card, ensure_ascii=False)
 

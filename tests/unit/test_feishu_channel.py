@@ -30,15 +30,31 @@ from doudou.config.loader import Settings
 
 class FakeResponse:
     def __init__(
-        self, *, message_id: str | None = None, ok: bool = True, code: int = 0, msg: str = "ok"
+        self,
+        *,
+        message_id: str | None = None,
+        ok: bool = True,
+        code: int = 0,
+        msg: str = "ok",
+        raw: Any | None = None,
     ) -> None:
         self.data = SimpleNamespace(message_id=message_id) if message_id else None
         self._ok = ok
         self.code = code
         self.msg = msg
+        #: 通用 ``BaseRequest`` 的原始响应；body 只在 ``raw.content`` 里。
+        self.raw = raw
 
     def success(self) -> bool:
         return self._ok
+
+
+def bot_info_response(body: dict[str, Any] | str | None = None, *, ok: bool = True) -> FakeResponse:
+    """构造 ``GET /open-apis/bot/v3/info`` 的响应。"""
+    if body is None:
+        body = {"code": 0, "msg": "ok", "bot": {"open_id": "ou_self", "app_name": "Doudou"}}
+    content = body.encode() if isinstance(body, str) else json.dumps(body).encode()
+    return FakeResponse(ok=ok, raw=SimpleNamespace(content=content))
 
 
 class FakeMessageApi:
@@ -78,14 +94,16 @@ class FakeLarkClient:
         create_ok: bool = True,
         patch_ok: bool = True,
         fail_msg_types: tuple[str, ...] = (),
+        bot_response: FakeResponse | None = None,
     ) -> None:
         self.message = FakeMessageApi(
             create_ok=create_ok, patch_ok=patch_ok, fail_msg_types=fail_msg_types
         )
         self.im = SimpleNamespace(v1=SimpleNamespace(message=self.message))
+        self.bot_response = bot_response if bot_response is not None else bot_info_response()
 
     def request(self, payload: Any) -> FakeResponse:  # bot info
-        return FakeResponse()
+        return self.bot_response
 
 
 class FakeWsRunner:
@@ -229,6 +247,76 @@ def test_parse_action_value_accepts_dict_and_json_string() -> None:
     assert parse_action_value('{"action": "reject", "call_id": "c2"}').call_id == "c2"
     assert parse_action_value("不是 JSON").action == ""
     assert parse_action_value(None).action == ""
+
+
+# --------------------------------------------------------------------------- 机器人身份
+
+
+def test_fetch_bot_open_id_reads_raw_content(settings: Settings) -> None:
+    """回归：``bot/v3/info`` 的 body 只在 ``raw.content`` 里，字段是 ``bot.open_id``。
+
+    之前读的是 ``response.data``（通用 ``BaseRequest`` 通道不会解析 body，恒为
+    ``None``），于是「自动获取 bot_open_id」永远返回 ``None``，而且没有任何日志。
+    """
+    body = {"code": 0, "msg": "ok", "bot": {"open_id": "ou_real", "app_name": "Doudou"}}
+    client = FeishuClient(
+        settings.app.channels.feishu,
+        client=FakeLarkClient(bot_response=bot_info_response(body)),
+    )
+
+    assert client.fetch_bot_open_id() == "ou_real"
+
+
+def test_fetch_bot_open_id_ignores_data_field(settings: Settings) -> None:
+    """``data`` 即使有内容也不采信：它不是这个接口的返回位置。"""
+    response = bot_info_response({"code": 0, "bot": {"open_id": "ou_raw"}})
+    response.data = {"open_id": "ou_wrong"}
+    client = FeishuClient(
+        settings.app.channels.feishu, client=FakeLarkClient(bot_response=response)
+    )
+
+    assert client.fetch_bot_open_id() == "ou_raw"
+
+
+def test_fetch_bot_open_id_missing_field_returns_none(settings: Settings) -> None:
+    """成功但没字段时返回 None（退回按名字匹配），不能抛异常。"""
+    client = FeishuClient(
+        settings.app.channels.feishu,
+        client=FakeLarkClient(bot_response=bot_info_response({"code": 0, "bot": {}})),
+    )
+
+    assert client.fetch_bot_open_id() is None
+
+
+def test_fetch_bot_open_id_handles_broken_json(settings: Settings) -> None:
+    client = FeishuClient(
+        settings.app.channels.feishu,
+        client=FakeLarkClient(bot_response=bot_info_response("不是 JSON")),
+    )
+
+    assert client.fetch_bot_open_id() is None
+
+
+def test_fetch_bot_open_id_handles_unsuccessful_response(settings: Settings) -> None:
+    """典型场景：应用没加机器人能力时飞书返回 11205。"""
+    client = FeishuClient(
+        settings.app.channels.feishu,
+        client=FakeLarkClient(
+            bot_response=FakeResponse(ok=False, code=11205, msg="app do not have bot")
+        ),
+    )
+
+    assert client.fetch_bot_open_id() is None
+
+
+def test_fetch_bot_open_id_handles_exception(settings: Settings) -> None:
+    class Exploding(FakeLarkClient):
+        def request(self, payload: Any) -> FakeResponse:
+            raise RuntimeError("network down")
+
+    client = FeishuClient(settings.app.channels.feishu, client=Exploding())
+
+    assert client.fetch_bot_open_id() is None
 
 
 # --------------------------------------------------------------------------- 通道生命周期
@@ -440,7 +528,7 @@ async def test_deliver_text_mode_skips_card(settings_factory) -> None:  # type: 
 
 
 def test_card_state_replaces_tool_note() -> None:
-    state = _CardState(question="q")
+    state = _CardState()
     state.consume(RunEvent.tool_call(step=1, name="now", call_id="c1", args={}))
     state.consume(RunEvent.tool_result(step=1, name="now", call_id="c1", result="12:00", ok=True))
 
@@ -449,7 +537,7 @@ def test_card_state_replaces_tool_note() -> None:
 
 
 def test_card_state_keeps_multiple_tools() -> None:
-    state = _CardState(question="q")
+    state = _CardState()
     for index, name in enumerate(("now", "days_between"), start=1):
         state.consume(RunEvent.tool_call(step=index, name=name, call_id=f"c{index}", args={}))
         state.consume(
@@ -460,7 +548,7 @@ def test_card_state_keeps_multiple_tools() -> None:
 
 
 def test_card_state_marks_failure() -> None:
-    state = _CardState(question="q")
+    state = _CardState()
     state.consume(RunEvent.error("达到最大步数"))
 
     assert state.finished is True
@@ -472,7 +560,7 @@ def test_card_state_marks_failure() -> None:
 
 
 def test_card_state_reports_patch_failures() -> None:
-    state = _CardState(question="q")
+    state = _CardState()
     state.answer = "答复"
     state.finished = True
     state.patch_failures = 2

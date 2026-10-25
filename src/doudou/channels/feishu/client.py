@@ -123,6 +123,12 @@ class FeishuClient:
 
         用于群聊 @ 判定（比按显示名比对可靠）。接口不存在或调用失败时返回 ``None``：
         @ 判定会退回按 ``bot_name`` 匹配，功能不至于失效。
+
+        注意**不能**读 ``response.data``：``/open-apis/bot/v3/info`` 走的是通用
+        ``BaseRequest`` 通道，SDK 不会把响应体解析成 ``data``（恒为 ``None``），
+        真实内容在 ``response.raw.content`` 的 JSON 里，字段在 ``bot`` 下。
+        这里踩过一次坑：取不到时静默返回 ``None``，导致「自动获取 bot_open_id」
+        长期失效却没有任何日志。
         """
         try:  # pragma: no cover - 需要真实凭据，测试用假客户端覆盖
             response = self._client.request(_bot_info_request())
@@ -136,9 +142,42 @@ class FeishuClient:
                 msg=getattr(response, "msg", None),
             )
             return None
-        data = getattr(response, "data", None) or {}
-        open_id = data.get("open_id") if isinstance(data, dict) else None
-        return str(open_id) if open_id else None
+
+        open_id = _bot_open_id_from_response(response)
+        if not open_id:
+            # 成功但取不到：静默会让「自动获取」失效得毫无痕迹，这里必须留痕。
+            logger.warning(
+                "feishu.bot_identity_absent",
+                hint="接口调用成功但响应里没有 bot.open_id，请配置 channels.feishu.bot_open_id",
+            )
+        return open_id
+
+
+def _bot_open_id_from_response(response: Any) -> str | None:
+    """从 ``GET /open-apis/bot/v3/info`` 的原始响应里取出 ``bot.open_id``。
+
+    响应体形如::
+
+        {"code": 0, "msg": "ok", "bot": {"open_id": "ou_...", "app_name": "..."}}
+
+    解析失败一律返回 ``None``（调用方会退回按名字匹配），不抛异常。
+    """
+    raw = getattr(response, "raw", None)
+    content = getattr(raw, "content", None)
+    if not content:
+        return None
+    try:
+        body = json.loads(content)
+    except (TypeError, ValueError):
+        logger.warning("feishu.bot_info_unparsable", hint="bot/v3/info 响应不是合法 JSON")
+        return None
+    if not isinstance(body, dict):
+        return None
+    bot = body.get("bot")
+    if not isinstance(bot, dict):
+        return None
+    open_id = bot.get("open_id")
+    return str(open_id) if open_id else None
 
 
 def _bot_info_request() -> Any:  # pragma: no cover - 需要真实凭据

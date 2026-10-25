@@ -14,16 +14,24 @@ cardkit 增量作为后续优化，见 docs/channels.md。
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from typing import Any
 
 from doudou.utils.text import truncate
 
-#: 卡片正文单条上限（飞书卡片有长度限制，超了会整条发送失败）。
-MAX_CARD_CHARS = 3000
+#: 答复正文的字符上限（粗筛，避免对超大文本反复序列化）。
+MAX_CARD_CHARS = 8000
+#: 整张卡片序列化后的字节上限。
+#:
+#: 飞书的硬限制是 **30 KB**（卡片与富文本消息，见「发送消息」接口的 230025 错误码），
+#: 这里留 2 KB 余量给 JSON 转义、工具痕迹与样式标签 —— 样式标签会让实际体积
+#: 大于纯文本，只按字符数估算迟早会撞上限。
+MAX_CARD_BYTES = 28_000
 #: 工具结果在卡片里的展示上限。
 MAX_TOOL_CHARS = 200
 
-#: 需要转义成行内代码的字符，避免 Markdown 被模型输出破坏排版。
+#: 占位卡片里显示的提示文案。
 _PENDING_TEXT = "正在思考…"
 
 
@@ -39,11 +47,51 @@ def _hr() -> dict[str, Any]:
     return {"tag": "hr"}
 
 
-def thinking_card(*, bot_name: str, question: str) -> dict[str, Any]:
+def _truncated(text: str, kept: int) -> str:
+    """截断到 ``kept`` 个字符，并在结尾说明丢了多少。
+
+    只留**一处**提示：以前是「…（已截断 N 字）」叠加「_内容过长已截断_」，
+    同一件事说两遍，用户会以为出了两个问题。
+    """
+    return f"{text[:kept]}\n\n_（内容过长，已截断 {len(text) - kept} 字）_"
+
+
+def _card_bytes(card: dict[str, Any]) -> int:
+    """卡片序列化后的真实体积（发送出去的就是这份 JSON 的 UTF-8 字节）。"""
+    return len(json.dumps(card, ensure_ascii=False).encode("utf-8"))
+
+
+def _fit_answer(answer: str, render: Callable[[str], dict[str, Any]]) -> str:
+    """把答复收缩到能塞进一张卡片里。
+
+    两级限制：先按字符数粗筛，再按**整卡序列化后的字节数**精筛。
+    只按字符数猜不准 —— 中文一个字符 3 字节，代码里的引号/换行还会被 JSON
+    转义放大，真正该守的是 ``MAX_CARD_BYTES``。
+    """
+    body = answer if len(answer) <= MAX_CARD_CHARS else _truncated(answer, MAX_CARD_CHARS)
+    if _card_bytes(render(body)) <= MAX_CARD_BYTES:
+        return body
+
+    # 二分找「最大还能放下的前缀」：前缀每多一个字符，体积单调增长。
+    low, high, best = 0, len(answer), 0
+    while low <= high:
+        middle = (low + high) // 2
+        candidate = answer if middle >= len(answer) else _truncated(answer, middle)
+        if _card_bytes(render(candidate)) <= MAX_CARD_BYTES:
+            best, low = middle, middle + 1
+        else:
+            high = middle - 1
+    return answer if best >= len(answer) else _truncated(answer, best)
+
+
+def thinking_card(*, bot_name: str) -> dict[str, Any]:
     """收到消息后立刻发出去的「占位卡片」。
 
     先发一张卡再不断更新，比等模型跑完再回一句体验好得多 ——
     用户马上知道「它收到了」。
+
+    **不回显用户原话**：这张卡就紧跟在用户消息下面，再抄一遍只是噪音；
+    何况它稍后会被 patch 成最终答复，同一句话会显得被重复打印。
     """
     return {
         "config": {"wide_screen_mode": True, "update_multi": True},
@@ -51,56 +99,50 @@ def thinking_card(*, bot_name: str, question: str) -> dict[str, Any]:
             "template": "blue",
             "title": {"tag": "plain_text", "content": f"{bot_name} 正在处理"},
         },
-        "elements": [
-            _markdown(f"**{truncate(question, 200)}**"),
-            _hr(),
-            _markdown(_PENDING_TEXT),
-        ],
+        "elements": [_markdown(_PENDING_TEXT)],
     }
 
 
 def answer_card(
     *,
     bot_name: str,
-    question: str,
     answer: str,
     tool_notes: list[str] | None = None,
     footer: str | None = None,
     failed: bool = False,
 ) -> dict[str, Any]:
-    """最终卡片：问题 + 工具调用痕迹 + 答复。
+    """最终卡片：工具调用痕迹 + 答复。
 
     ``tool_notes`` 让用户看到「它查了什么」，这是检索类回答建立信任的关键 ——
     只给答案不给过程，用户无法判断可信度。
-    """
-    elements: list[dict[str, Any]] = [_markdown(f"**{truncate(question, 200)}**"), _hr()]
 
-    if tool_notes:
-        elements.append(_note("\n".join(tool_notes[:6])))
+    不含用户原话：卡片本身就是那条消息的回复，回显只会让人以为消息被重复推送。
+    """
+
+    def render(body_text: str) -> dict[str, Any]:
+        elements: list[dict[str, Any]] = []
+        if tool_notes:
+            elements.append(_note("\n".join(tool_notes[:6])))
+        elements.append(_markdown(body_text))
+        if footer:
+            elements.append(_note(footer))
+        return {
+            "config": {"wide_screen_mode": True, "update_multi": True},
+            "header": {
+                "template": "red" if failed else "green",
+                "title": {"tag": "plain_text", "content": f"{bot_name} 的回复"},
+            },
+            "elements": elements,
+        }
 
     body = answer.strip() or "（模型没有给出内容）"
-    if len(body) > MAX_CARD_CHARS:
-        body = f"{truncate(body, MAX_CARD_CHARS)}\n\n_内容过长已截断_"
-    elements.append(_markdown(body))
-
-    if footer:
-        elements.append(_note(footer))
-
-    return {
-        "config": {"wide_screen_mode": True, "update_multi": True},
-        "header": {
-            "template": "red" if failed else "green",
-            "title": {"tag": "plain_text", "content": f"{bot_name} 的回复"},
-        },
-        "elements": elements,
-    }
+    return render(_fit_answer(body, render))
 
 
-def error_card(*, bot_name: str, question: str, message: str) -> dict[str, Any]:
+def error_card(*, bot_name: str, message: str) -> dict[str, Any]:
     """运行失败时的卡片。明确说失败，不要假装成功。"""
     return answer_card(
         bot_name=bot_name,
-        question=question,
         answer=message,
         footer="可稍后重试；若持续失败请查看服务端日志。",
         failed=True,
@@ -220,6 +262,7 @@ def approval_decided_card(
 
 
 __all__ = [
+    "MAX_CARD_BYTES",
     "MAX_CARD_CHARS",
     "MAX_TOOL_CHARS",
     "answer_card",

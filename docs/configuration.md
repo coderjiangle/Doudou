@@ -7,12 +7,36 @@
 ```
 
 - 密钥（App Secret、API Key、Token）**只放 `.env`**，绝不进 `config.yaml`。
-- 环境变量前缀 `DOUDOU_`，嵌套用 `__` 分隔：`DOUDOU_SERVER__PORT=8080`。
-- 模型厂商相关环境变量沿用官方命名（`OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 等），不加前缀。
+- 配置项用 `DOUDOU_` 前缀，嵌套用 `__` 分隔：`DOUDOU_SERVER__PORT=8080`。
+- 凭据**不加前缀**，沿用各家官方命名（`OPENAI_API_KEY`、`FEISHU_APP_SECRET` 等），
+  由 `Secrets` 单独读取，只从 `.env` / 进程环境变量来。
+- 少数运行期结构（`agent.interrupt_on`、`agent.permissions`、`observability.cost.prices`、
+  飞书卡片节奏等）**只能写 YAML**，没有对应的环境变量，见 §2.1。
 
 ## 2. 关键环境变量
 
 命名约定：配置项一律 `DOUDOU_` 前缀 + 双下划线表示层级；凭据**无前缀**，沿用官方名。
+列表类字段要写成 **JSON 数组**（`DOUDOU_MODEL__FALLBACKS='["openai:gpt-5.5"]'`），
+逗号分隔的写法会直接报校验错误。
+
+### 2.1 只能写在 config.yaml 里的项
+
+`EnvSettings` 只覆盖 `AppConfig` 的一部分字段，其余字段读环境变量会被静默忽略
+（`extra="ignore"`）。目前没有环境变量入口的是：
+
+| 段落 | 字段 |
+| --- | --- |
+| `agent` | `interrupt_on`、`permissions`、`max_tool_calls_per_step`、`subagents_file` |
+| `tools` | `files.max_list` / `files.max_write_chars`、`http.max_redirects` / `http.user_agent` |
+| `context` | `summarize_after_messages` |
+| `filesystem` | `routes` |
+| `mcp` | `call_timeout`、`tool_name_prefix` |
+| `channels.feishu` | `card_update_interval_ms`、`dedup_ttl_seconds`、`event_path`、`group_require_at`、`max_reply_chars`、`reply_mode` |
+| `channels.webhook` | `token_header` |
+| `observability` | `audit.batch_size` / `audit.max_rows` / `audit.max_memory_entries`、`cost.batch_size` / `cost.currency` / `cost.prices`，以及 `langsmith.*` / `otel.*` / `metrics.*` |
+
+`version` 只用于配置版本标记，不接受环境变量覆盖。飞书的 `app_id` / `app_secret`
+不属于这一类 —— 它们走 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（无 `DOUDOU_` 前缀）。
 
 ### 运行环境
 
@@ -87,15 +111,20 @@ OPENAI_API_KEY=<网关签发的 Key>
 | `DOUDOU_STORAGE__DATABASE_URL` | `sqlite+aiosqlite:///./data/doudou.db` | 业务库 |
 | `DOUDOU_STORAGE__HISTORY` | `database` | 会话历史存哪：`database`（重启可续）/ `memory`（进程内，轻量） |
 | `DOUDOU_STORAGE__CHECKPOINTER` | `sqlite` | **未使用**：LangGraph 概念，接入 deepagents 的计划已取消（同 `store`） |
+| `DOUDOU_STORAGE__STORE` | `sqlite` | 长期记忆存储 |
+
+### 可观测性
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
 | `DOUDOU_OBSERVABILITY__AUDIT__ENABLED` | `true` | 审计开关 |
-| `DOUDOU_OBSERVABILITY__AUDIT__BATCH_SIZE` | `50` | 攒批写；`1` = 逐条严格持久化（SQLite 下慢 20 倍，见 `docs/performance.md`） |
-| `DOUDOU_OBSERVABILITY__AUDIT__MAX_ROWS` | `50000` | 审计表行数上限，超出按时间清理 |
+| `observability.audit.batch_size`（YAML） | `50` | 攒批写；`1` = 逐条严格持久化（SQLite 下慢 20 倍，见 `docs/performance.md`） |
+| `observability.audit.max_rows`（YAML） | `50000` | 审计表行数上限，超出按时间清理 |
 | `DOUDOU_OBSERVABILITY__COST__ENABLED` | `true` | 成本统计开关 |
 | `DOUDOU_OBSERVABILITY__COST__DAILY_BUDGET` | `0` | 日预算（美元）；`0` = 不设。**超了只告警不拦截** |
 | `DOUDOU_OBSERVABILITY__TRACING__ENABLED` | `false` | Langfuse 追踪；需同时有 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` |
 | `DOUDOU_OBSERVABILITY__TRACING__HOST` | `https://cloud.langfuse.com` | 自建填自己的地址 |
-| `DOUDOU_OBSERVABILITY__LANGSMITH__ENABLED` | `false` | **未使用**（早期预留） |
-| `DOUDOU_STORAGE__STORE` | `sqlite` | 长期记忆存储 |
+| `observability.langsmith.enabled`（YAML） | `false` | **未使用**（早期预留） |
 
 > SQLite 文件所在目录不存在时会自动创建；生产建议换 Postgres：
 > `uv sync --extra postgres` 后把 URL 改成 `postgresql+asyncpg://...`。
@@ -110,7 +139,7 @@ OPENAI_API_KEY=<网关签发的 Key>
 | `DOUDOU_CHANNELS__FEISHU__ENABLED` | 是否启用 |
 | `DOUDOU_CHANNELS__FEISHU__MODE` | `callback`（事件回调）或 `websocket`（长连接） |
 | `DOUDOU_CHANNELS__FEISHU__STREAM_REPLY` | 是否用卡片流式更新 |
-| `DOUDOU_CHANNELS__FEISHU__ALLOWED_CHATS` | 白名单，逗号分隔 |
+| `DOUDOU_CHANNELS__FEISHU__ALLOWED_CHATS` | 白名单，JSON 数组：`'["oc_xxx"]'` |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 应用凭证（无前缀，必填） |
 | `FEISHU_VERIFICATION_TOKEN` | 事件订阅校验 Token |
 | `FEISHU_ENCRYPT_KEY` | 加密模式密钥；prod 必须配置 |

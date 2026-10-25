@@ -196,8 +196,6 @@ tools:
 | --- | --- |
 | `web_search` | 当前 provider 对应的 key 非空（默认 `tavily` → `TAVILY_API_KEY`；`deepseek` → `DEEPSEEK_API_KEY`） |
 | `http_request` | `tools.http.allowed_domains` 非空，且目标域名命中（解析到内网地址也会被拒） |
-| `workspace_read` / `workspace_list` | 始终可用，根目录 = `filesystem.root_dir` |
-| `now` | 始终可用 |
 
 配置好之后，在飞书里问一句就会走搜索，卡片上能看到 `web_search` 的调用痕迹与结果来源：
 

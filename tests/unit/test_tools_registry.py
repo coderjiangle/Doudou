@@ -29,7 +29,6 @@ DEFAULT_TOOLS = [
     "workspace_edit",
     "workspace_delete",
     "now",
-    "days_between",
 ]
 
 #: 需要人工确认的默认工具：所有写操作。
@@ -76,22 +75,6 @@ def test_now_tool_rejects_unknown_timezone(settings: Settings) -> None:
         tools["now"].invoke({"timezone": "Mars/Olympus"})
 
 
-def test_days_between(settings: Settings) -> None:
-    tools = {item.name: item for item in build_tools(settings)}
-
-    assert (
-        tools["days_between"].invoke({"start_date": "2026-10-01", "end_date": "2026-10-23"})
-        == "2026-10-01 到 2026-10-23 相差 22 天"
-    )
-
-
-def test_days_between_rejects_bad_format(settings: Settings) -> None:
-    tools = {item.name: item for item in build_tools(settings)}
-
-    with pytest.raises(Exception, match="日期格式错误"):
-        tools["days_between"].invoke({"start_date": "10/01/2026", "end_date": "2026-10-23"})
-
-
 def test_extra_tools_are_appended(settings: Settings) -> None:
     @tool
     def mcp_ping() -> str:
@@ -136,7 +119,7 @@ def test_all_groups_declared() -> None:
 def test_enabled_groups_restricts_tool_set(settings: Settings) -> None:
     restricted = _with_tools(settings, enabled_groups=["clock"])
 
-    assert [item.name for item in build_tools(restricted)] == ["now", "days_between"]
+    assert [item.name for item in build_tools(restricted)] == ["now"]
 
 
 def test_disabled_list_removes_single_tool(settings: Settings) -> None:
@@ -350,7 +333,6 @@ def test_tool_infos_is_pure_and_repeatable(settings: Settings) -> None:
 def test_describe_args_uses_annotations(settings: Settings) -> None:
     tools = {item.name: item for item in build_tools(settings)}
 
-    assert describe_args(tools["days_between"]) == {"start_date": "str", "end_date": "str"}
     assert describe_args(tools["workspace_write"]) == {"path": "str", "content": "str"}
 
 
@@ -363,7 +345,7 @@ def test_providers_return_fresh_instances(settings: Settings) -> None:
 
 
 def test_builtin_clock_provider_is_standalone(settings: Settings) -> None:
-    assert [item.name for item in clock.build_tools(settings)] == ["now", "days_between"]
+    assert [item.name for item in clock.build_tools(settings)] == ["now"]
 
 
 # --------------------------------------------------------------------------- 辅助

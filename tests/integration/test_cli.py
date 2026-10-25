@@ -130,7 +130,6 @@ def test_tools_list(config_dir: Path) -> None:
 
     assert result.exit_code == 0  # type: ignore[attr-defined]
     assert "now" in result.stdout  # type: ignore[attr-defined]
-    assert "days_between" in result.stdout  # type: ignore[attr-defined]
 
 
 def test_tools_show_json(config_dir: Path) -> None:

@@ -41,7 +41,6 @@ subagents:
       - http_request
       - workspace_read
       - now
-      - days_between
     max_steps: 8
 
   - name: planner

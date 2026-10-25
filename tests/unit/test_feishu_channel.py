@@ -538,7 +538,7 @@ def test_card_state_replaces_tool_note() -> None:
 
 def test_card_state_keeps_multiple_tools() -> None:
     state = _CardState()
-    for index, name in enumerate(("now", "days_between"), start=1):
+    for index, name in enumerate(("now", "workspace_write"), start=1):
         state.consume(RunEvent.tool_call(step=index, name=name, call_id=f"c{index}", args={}))
         state.consume(
             RunEvent.tool_result(step=index, name=name, call_id=f"c{index}", result="ok", ok=True)

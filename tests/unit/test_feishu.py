@@ -416,7 +416,7 @@ def test_tool_note_marks_success_and_failure() -> None:
 
 
 def test_tool_running_note_renders_args() -> None:
-    note = tool_running_note("days_between", {"start_date": "2026-01-01"})
+    note = tool_running_note("workspace_write", {"path": "report.md"})
 
-    assert "正在调用 days_between" in note
-    assert "2026-01-01" in note
+    assert "正在调用 workspace_write" in note
+    assert "report.md" in note

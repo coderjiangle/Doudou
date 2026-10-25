@@ -8,6 +8,8 @@
 
 - 移除 `note_save` / `note_list` / `note_read` 三个工具。需要记东西时直接用工作区文件工具
   写 Markdown，模型能看到、人也能改。`tools.notes` 配置字段保留但不再生效，只为兼容旧配置文件。
+- 移除 `days_between` 工具（`clock` 分组只剩 `now`）。日期差属于低频操作，
+  需要时让模型算或写个脚本即可；同时从 `config/agents.yaml` 的子 Agent 白名单里去掉。
 
 ### 修复
 

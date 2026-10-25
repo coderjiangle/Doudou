@@ -94,7 +94,7 @@ async def test_health_is_public_and_light(settings_for_api: Settings) -> None:
     assert body["engine"] == "react"
     assert body["model"] == "scripted:demo"
     # 默认配置下 web/http 因依赖不满足而不注册，其余分组全部可用
-    assert {"now", "days_between", "workspace_read", "workspace_write"} <= set(body["tools"])
+    assert {"now", "workspace_read", "workspace_write"} <= set(body["tools"])
     assert "web_search" not in body["tools"]
     assert body["checks"]["history"] == "database"
     # 默认配置没开任何常驻通道；通道列表为空也要出现在响应里
@@ -169,7 +169,7 @@ async def test_tools_list(settings_for_api: Settings) -> None:
         response = await client.get("/api/v1/tools")
 
     tools = {item["name"]: item for item in response.json()["tools"]}
-    assert {"now", "days_between", "workspace_read", "workspace_write"} <= set(tools)
+    assert {"now", "workspace_read", "workspace_write"} <= set(tools)
     # 写文件有副作用 → 清单里要标出来，客户端据此决定是否提示确认
     assert tools["workspace_write"]["side_effects"] is True
     assert tools["workspace_write"]["requires_approval"] is True

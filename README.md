@@ -175,7 +175,7 @@ tools:
 | `web_search` | `TAVILY_API_KEY` 非空 |
 | `http_request` | `tools.http.allowed_domains` 非空，且目标域名命中（解析到内网地址也会被拒） |
 | `workspace_read` / `workspace_list` | 始终可用，根目录 = `filesystem.root_dir` |
-| `now` / `days_between` | 始终可用 |
+| `now` | 始终可用 |
 
 ```powershell
 uv run doudou tools list          # 看哪些工具已装载、哪些分组未启用及原因

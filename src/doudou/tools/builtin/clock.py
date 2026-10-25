@@ -1,9 +1,9 @@
-"""Time and date tools with timezone support."""
+"""Current time tool with timezone support."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from langchain_core.tools import BaseTool, tool
@@ -31,7 +31,7 @@ def resolve_timezone(name: str | None) -> ZoneInfo:
 
 
 def build_tools(settings: Settings) -> Sequence[BaseTool]:
-    """构造时间类工具，默认时区取自 ``runtime.timezone``。"""
+    """构造时间工具，默认时区取自 ``runtime.timezone``。"""
     default_timezone = settings.app.runtime.timezone
 
     @tool
@@ -54,36 +54,13 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
         abbreviation = current.tzname() or ""
         return f"{current:%Y-%m-%d %H:%M:%S} {abbreviation}（周{weekday}）".strip()
 
-    @tool
-    def days_between(start_date: str, end_date: str) -> str:
-        """计算两个日期之间相差多少天。
-
-        Args:
-            start_date: 起始日期，ISO 格式 ``YYYY-MM-DD``。
-            end_date: 结束日期，ISO 格式 ``YYYY-MM-DD``。
-
-        Returns:
-            形如 "2026-10-01 到 2026-10-23 相差 22 天" 的字符串；
-            ``end_date`` 早于 ``start_date`` 时天数为负数。
-        """
-        try:
-            start = date.fromisoformat(start_date.strip())
-            end = date.fromisoformat(end_date.strip())
-        except ValueError as exc:
-            raise ValueError(
-                f"日期格式错误，需要 YYYY-MM-DD，收到 {start_date!r} 与 {end_date!r}。"
-            ) from exc
-        delta = (end - start).days
-        return f"{start.isoformat()} 到 {end.isoformat()} 相差 {delta} 天"
-
     # 把实际生效的默认时区补进描述，让模型知道留空时用哪个时区。
     # 只能事后追加：docstring 里做字符串插值会让它不再是合法的 __doc__。
     now.description = f"{now.description}\n\n当前默认时区：{default_timezone}。"
 
-    # 两个工具都是纯读操作：显式声明，否则会被当成有副作用而要求人工确认。
+    # 纯读操作：显式声明，否则会被当成有副作用而要求人工确认。
     annotate(now, group=GROUP, side_effects=False)
-    annotate(days_between, group=GROUP, side_effects=False)
-    return [now, days_between]
+    return [now]
 
 
 __all__ = ["GROUP", "build_tools", "resolve_timezone"]

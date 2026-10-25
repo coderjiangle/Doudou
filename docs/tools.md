@@ -68,7 +68,7 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 | `web_` | 联网检索（`web_search`） |
 | `workspace_` | 工作区文件读写（前缀即边界说明；也让第三方工具撞名的风险降到最低） |
 | `http_` | 原始出站请求 |
-| `now` / `days_between` | 时间类 |
+| `now` | 当前日期与时间 |
 | `shell_exec` | 命令执行（默认不注册） |
 | `read_skill` / `list_skill_files` / `skill_read_file` | 技能按需加载 |
 | `remember` | 往记忆文件里追加（有副作用） |

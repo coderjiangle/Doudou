@@ -226,7 +226,13 @@ uv run doudou serve --port 9000 --reload
 | `DELETE /api/v1/threads/{id}` | 删除会话 |
 | `GET /api/v1/tools` | 工具清单 |
 | `GET /api/v1/health` / `/health/ready` | 健康 / 就绪检查（**不需要鉴权**） |
+| `GET /` | 内置聊天页（会话列表 + 流式对话） |
 | `GET /docs` | OpenAPI 交互文档 |
+
+> 浏览器直接打开 `http://127.0.0.1:8000/` 就是内置聊天页：左侧是历史会话，顶部显示
+> 当前模型与工具数，回复走 `/chat/stream` 流式输出；需要确认的工具（写文件、`shell_exec`）
+> 会在输入框上方弹出「同意 / 拒绝」卡片。开启 `DOUDOU_API_TOKEN` 后，点右上角「设置」
+> 填入令牌即可；页面不依赖任何外部 CDN。
 
 会话历史默认落库（`storage.history: database`），**进程重启后同一 thread 仍可续聊**。
 设置 `DOUDOU_API_TOKEN` 后，除健康检查外的接口都要求

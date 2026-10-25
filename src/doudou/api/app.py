@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from doudou.api.errors import install_error_handlers
 from doudou.api.lifespan import make_lifespan
@@ -15,6 +18,9 @@ from doudou.utils.console import configure_stdio
 from doudou.version import __version__
 
 logger = get_logger(__name__)
+
+#: 内置的极简聊天页（无构建步骤，直接由服务托管）。
+WEB_INDEX = Path(__file__).with_name("web") / "index.html"
 
 DESCRIPTION = """\
 Doudou 个人助手 Agent 的 HTTP 接口。
@@ -72,6 +78,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     router: APIRouter = build_router(resolved.app.server.base_path)
     app.include_router(router)
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/ui", include_in_schema=False)
+    async def web_ui() -> HTMLResponse:
+        """内置聊天页：打开服务根地址就能对话。
+
+        把 ``base_path`` 注入页面，这样改了 ``server.base_path`` 也不用改前端。
+        """
+        html = WEB_INDEX.read_text(encoding="utf-8").replace(
+            "__DOUDOU_BASE_PATH__", resolved.app.server.base_path
+        )
+        return HTMLResponse(html)
 
     logger.debug(
         "api.app_created",

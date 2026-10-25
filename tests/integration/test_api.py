@@ -87,7 +87,6 @@ def settings_for_api(tmp_path: Path) -> Settings:
 async def test_health_is_public_and_light(settings_for_api: Settings) -> None:
     async with api_client(settings_for_api) as client:
         response = await client.get("/api/v1/health")
-
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
@@ -107,6 +106,23 @@ async def test_ready_probes_the_store(settings_for_api: Settings) -> None:
 
     assert response.status_code == 200
     assert response.json()["history"] == "ok"
+
+
+async def test_web_ui_is_served(settings_for_api: Settings) -> None:
+    """内置聊天页由服务托管，且不需要鉴权（页面自己处理令牌）。"""
+    async with api_client(settings_for_api) as client:
+        page = await client.get("/")
+        alias = await client.get("/ui")
+
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    assert "Doudou" in page.text
+    assert "/chat/stream" in page.text  # 前端确实接的是流式接口
+    assert "/approvals" in page.text  # 人工确认也在页面里处理
+    # base_path 在服务端注入，改配置不需要改前端
+    assert "__DOUDOU_BASE_PATH__" not in page.text
+    assert 'const BASE_PATH = "/api/v1"' in page.text
+    assert alias.status_code == 200
 
 
 async def test_request_id_is_echoed(settings_for_api: Settings) -> None:

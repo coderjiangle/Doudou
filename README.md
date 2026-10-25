@@ -355,4 +355,4 @@ make lint / test / fmt                     # 见 Makefile
 
 ## 7. 许可证
 
-Proprietary（内部项目）。
+[MIT](LICENSE) © 2026 Jiang Le

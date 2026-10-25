@@ -168,7 +168,7 @@ model:
 
 详见 [`docs/configuration.md`](docs/configuration.md) 的「接入兼容 OpenAI 协议的网关」。
 
-### 4.2 开启联网能力（可选）
+### 4.3 开启联网能力（可选）
 
 默认配置下**联网工具不注册**：没有凭据的工具只会占提示词、诱导模型乱试。
 想启用就补上对应的钥匙：
@@ -199,12 +199,18 @@ tools:
 | `workspace_read` / `workspace_list` | 始终可用，根目录 = `filesystem.root_dir` |
 | `now` | 始终可用 |
 
+配置好之后，在飞书里问一句就会走搜索，卡片上能看到 `web_search` 的调用痕迹与结果来源：
+
+<p align="center">
+  <img src="image/飞书对话3.png" alt="飞书对话：联网搜索今日新闻" width="820">
+</p>
+
 ```bash
 uv run doudou tools list          # 看哪些工具已装载、哪些分组未启用及原因
 uv run doudou config check        # 一次性检查配置、凭据、工具与 Skill
 ```
 
-### 4.3 HTTP 服务
+### 4.4 HTTP 服务
 
 ```bash
 uv run doudou serve                 # 默认 127.0.0.1:8000，接口前缀 /api/v1
@@ -240,7 +246,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
   -d '{"message":"现在几点了？"}'
 ```
 
-### 4.4 接入飞书（可选）
+### 4.5 接入飞书（可选）
 
 飞书通道用 **WebSocket 长连接**，不需要公网地址、不需要内网穿透；接入后的效果见 §1.2。
 
@@ -264,7 +270,7 @@ FEISHU_APP_SECRET=xxxxxxxx
 群里的助手像一个同事。完整步骤、@ 判定、卡片流式与已知限制见
 [`docs/channels.md`](docs/channels.md)。
 
-### 4.5 接入 MCP（可选）
+### 4.6 接入 MCP（可选）
 
 MCP 让工具来源从「写死在代码里」变成「配置声明」：
 
@@ -282,7 +288,7 @@ uv run doudou tools list        # Agent 实际装载的工具（含 MCP）
 > 对 `stdio` 就是每次调用重新拉起子进程，`npx`/`uvx` 那类会到秒级；
 > 需要频繁调用优先用 `http`。详见 [`docs/mcp.md`](docs/mcp.md) §4。
 
-### 4.6 编写 Skill（可选）
+### 4.7 编写 Skill（可选）
 
 在 `skills/<name>/SKILL.md` 写一个带 frontmatter 的技能即可扩展能力，
 无需改代码：
@@ -308,7 +314,7 @@ uv run doudou skills reload               # 重新扫描（HTTP 侧会热更新�
 
 详见 [`docs/skills.md`](docs/skills.md)。
 
-### 4.7 让它记住你（长期记忆）
+### 4.8 让它记住你（长期记忆）
 
 `agent.memory_files` 指向的文件会**每轮**注入系统提示词：
 
@@ -321,7 +327,7 @@ agent:
 助手也能自己记 —— 说「记住我不喜欢大段贴原文」时它会调用 `remember` 工具追加到该文件，
 **并立刻刷新提示词**（写操作有副作用，默认需要确认）。
 
-### 4.8 长会话与上下文预算
+### 4.9 长会话与上下文预算
 
 三个旋钮在 `context` 段，决定「窗口有多大」：
 
@@ -339,7 +345,7 @@ context:
 curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
 ```
 
-### 4.9 其他入口
+### 4.10 其他入口
 ```bash
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```

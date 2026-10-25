@@ -2,10 +2,11 @@
 
 优先级（右 > 左）::
 
-    代码内默认值 → config/config.yaml → config/config.local.yaml
-                 → 厂商变量（OPENAI_BASE_URL / FEISHU_* 等） → DOUDOU_* 环境变量
+    代码内默认值 → config/config.yaml → config/config.local.yaml → DOUDOU_* 环境变量
 
-凭据（API Key）只从环境变量 / ``.env`` 读，配置文件里没有对应字段。
+环境变量名 = ``DOUDOU_`` + ``config.yaml`` 的路径（下划线连接），例如
+``DOUDOU_MODEL_PRIMARY``、``DOUDOU_MODEL_MAX_TOKENS``。映射逻辑见
+:mod:`doudou.config.env`；旧的无前缀厂商变量仍兼容但会打弃用日志。
 """
 
 from __future__ import annotations
@@ -18,9 +19,9 @@ from typing import Any, cast
 import yaml
 from pydantic import BaseModel, ConfigDict
 
-from doudou.config.providers import PROVIDER_BASE_URL_ENV, provider_of
-from doudou.config.schema import AppConfig, ModelConfig
-from doudou.config.settings import EnvSettings, Secrets
+from doudou.config.env import build_overrides, read_env
+from doudou.config.schema import AppConfig
+from doudou.config.settings import Secrets
 from doudou.observability.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,9 +29,6 @@ logger = get_logger(__name__)
 DEFAULT_CONFIG_DIR = Path("config")
 DEFAULT_CONFIG_NAME = "config.yaml"
 DEFAULT_LOCAL_CONFIG_NAME = "config.local.yaml"
-
-#: 只影响配置加载自身、不属于 :class:`AppConfig` 的顶层环境变量。
-_META_KEYS = frozenset({"config_dir", "config_file", "local_config_file", "api_token"})
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -147,24 +145,18 @@ def load_settings(
             默认 ``config.yaml``，可被 ``DOUDOU_CONFIG_FILE`` 覆盖。
         local_config_file: 本地覆盖文件，默认 ``config.local.yaml``。
         env_file: ``.env`` 路径；默认读取当前工作目录下的 ``.env``。
-        use_env: 是否读取 ``DOUDOU_*`` 环境变量（测试中可关闭）。
+        use_env: 是否读取环境变量（测试中可关闭）。
     """
-    env_kwargs: dict[str, Any] = {"_env_file": env_file} if env_file is not None else {}
-    env = (
-        EnvSettings(**env_kwargs)
-        if use_env
-        else EnvSettings(_env_file=None, **dict.fromkeys(EnvSettings.model_fields))
-    )
-    secrets = Secrets(_env_file=env_file) if env_file is not None else Secrets()
+    meta, env_overrides = build_overrides(read_env(env_file=env_file, use_env=use_env))
 
     resolved_config_dir = resolve_path(
-        Path.cwd(), config_dir or env.config_dir or DEFAULT_CONFIG_DIR
+        Path.cwd(), config_dir or meta.get("config_dir") or DEFAULT_CONFIG_DIR
     )
 
     raw: dict[str, Any] = {}
     loaded: list[Path] = []
 
-    main_name = config_file or env.config_file or DEFAULT_CONFIG_NAME
+    main_name = config_file or meta.get("config_file") or DEFAULT_CONFIG_NAME
     main_path = resolve_path(resolved_config_dir, main_name)
     if main_path.is_file():
         raw = deep_merge(raw, load_yaml(main_path))
@@ -172,92 +164,23 @@ def load_settings(
     else:
         logger.debug("config.file_missing", path=str(main_path))
 
-    local_name = local_config_file or env.local_config_file or DEFAULT_LOCAL_CONFIG_NAME
+    local_name = local_config_file or meta.get("local_config_file") or DEFAULT_LOCAL_CONFIG_NAME
     local_path = resolve_path(resolved_config_dir, local_name)
     if local_path.is_file():
         raw = deep_merge(raw, load_yaml(local_path))
         loaded.append(local_path)
 
-    env_overrides = _env_overrides(env) if use_env else {}
     raw = deep_merge(raw, env_overrides)
-    # 厂商变量（OPENAI_BASE_URL / FEISHU_*）也是环境变量，同样高于配置文件；
-    # 但它们低于显式的 DOUDOU_* 覆盖，所以放在 env_overrides 之后、按缺失补齐。
-    raw = deep_merge(raw, _vendor_overrides(raw, secrets, env_overrides))
-
     app = AppConfig.model_validate(raw)
 
     return Settings(
         app=app,
-        secrets=secrets,
+        secrets=Secrets.from_config(app),
         config_dir=resolved_config_dir,
         config_file=main_path if main_path.is_file() else None,
         loaded_files=tuple(loaded),
-        api_token=env.api_token,
+        api_token=meta.get("api_token"),
     )
-
-
-def _env_overrides(env: EnvSettings) -> dict[str, Any]:
-    """把 ``DOUDOU_*`` 环境变量转成可深合并的嵌套字典。"""
-    dumped = env.model_dump(exclude_none=True, exclude=set(_META_KEYS))
-    return {key: value for key, value in dumped.items() if value}
-
-
-def _vendor_overrides(
-    raw: dict[str, Any],
-    secrets: Secrets,
-    env_overrides: dict[str, Any],
-) -> dict[str, Any]:
-    """把无前缀的厂商环境变量合并到对应配置字段。
-
-    这些变量（``OPENAI_BASE_URL``、``FEISHU_APP_ID`` 等）同样属于环境变量，
-    因此**覆盖配置文件**；但优先级低于显式 ``DOUDOU_*`` —— 同一个字段两处都写时
-    以 ``DOUDOU_*`` 为准（``env_overrides`` 里已经有的路径不再覆盖）。
-
-    Args:
-        raw: 合并了 YAML 与 ``DOUDOU_*`` 之后的配置。
-        secrets: 从环境变量 / ``.env`` 读出的凭据与厂商变量。
-        env_overrides: ``DOUDOU_*`` 覆盖，用来判断某个路径是否已被显式指定。
-    """
-    overrides: dict[str, Any] = {}
-
-    feishu: dict[str, Any] = {}
-    for field, value in (
-        ("app_id", secrets.feishu_app_id),
-        ("app_secret", secrets.feishu_app_secret),
-        ("base_url", secrets.feishu_base_url),
-    ):
-        if value and not _has_path(env_overrides, f"channels.feishu.{field}"):
-            feishu[field] = value
-    if feishu:
-        overrides["channels"] = {"feishu": feishu}
-
-    primary = _get_path(raw, "model.primary") or ModelConfig().primary
-    env_name = PROVIDER_BASE_URL_ENV.get(provider_of(str(primary)) or "")
-    value = getattr(secrets, env_name.lower(), None) if env_name else None
-    if value and not _has_path(env_overrides, "model.base_url"):
-        overrides.setdefault("model", {})["base_url"] = value
-
-    return overrides
-
-
-def _has_path(data: dict[str, Any], path: str) -> bool:
-    """``data`` 里是否存在点号路径。"""
-    current: Any = data
-    for part in path.split("."):
-        if not isinstance(current, dict) or part not in current:
-            return False
-        current = current[part]
-    return True
-
-
-def _get_path(data: dict[str, Any], path: str) -> Any:
-    """取点号路径的值；不存在时返回 ``None``。"""
-    current: Any = data
-    for part in path.split("."):
-        if not isinstance(current, dict) or part not in current:
-            return None
-        current = current[part]
-    return current
 
 
 @lru_cache(maxsize=1)

@@ -67,11 +67,11 @@ class Channel(Protocol):
 ### 2.3 配置
 
 ```dotenv
-# .env
-DOUDOU_CHANNELS__FEISHU__ENABLED=true
-DOUDOU_CHANNELS__FEISHU__MODE=websocket
-FEISHU_APP_ID=cli_xxxxxxxx
-FEISHU_APP_SECRET=xxxxxxxx
+# .env —— 环境变量 = DOUDOU_ + config.yaml 路径
+DOUDOU_CHANNELS_FEISHU_ENABLED=true
+DOUDOU_CHANNELS_FEISHU_MODE=websocket
+DOUDOU_CHANNELS_FEISHU_APP_ID=cli_xxxxxxxx
+DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 ```
 
 ```yaml

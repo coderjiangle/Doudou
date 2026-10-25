@@ -52,7 +52,7 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
 
 `scripted:demo` 是内置的确定性离线模型（`doudou.agent.testing`）：它会按关键词决定是否
 调用 `now` 工具，因此**完整的 ReAct 循环（推理 → 工具调用 → 观察 → 收敛）无需联网即可验证**。
-接入真实模型只需在 `.env` 里配好 `DOUDOU_MODEL__PRIMARY` 与对应 API Key。
+接入真实模型只需在 `.env` 里配好 `DOUDOU_MODEL_PRIMARY` 与对应 API Key。
 
 ## 1.2 效果预览（飞书）
 
@@ -144,12 +144,15 @@ bash scripts/dev.sh
 `config/config.yaml`；需要 MCP 时再复制 `config/mcp.servers.example.yaml` →
 `config/mcp.servers.yaml`。
 
-然后在 `.env` 里设置 `DOUDOU_MODEL__PRIMARY` 与对应的 API Key，例如：
+然后在 `.env` 里设置 `DOUDOU_MODEL_PRIMARY` 与对应的 API Key，例如：
 
 ```dotenv
-DOUDOU_MODEL__PRIMARY=openai:gpt-5.5
-OPENAI_API_KEY=sk-...
+DOUDOU_MODEL_PRIMARY=openai:gpt-5.5
+DOUDOU_MODEL_API_KEY=sk-...
 ```
+
+所有环境变量都是 `DOUDOU_` + `config.yaml` 路径，完整规则见
+[`docs/configuration.md`](docs/configuration.md) §1。
 
 ```bash
 uv run doudou config check          # 校验配置与凭据，输出可操作的问题清单
@@ -175,18 +178,16 @@ model:
 想启用就补上对应的钥匙：
 
 ```dotenv
-# 联网检索：二选一（provider 决定用哪个 key）
-#   tavily   → TAVILY_API_KEY=tvly-...
-#   deepseek → DEEPSEEK_API_KEY=sk-...   （DeepSeek 自研搜索，按次计费）
-DEEPSEEK_API_KEY=sk-...
+# 联网检索：provider 决定用哪家服务，key 都放在同一个配置路径
+#   tavily   → 到 Tavily 控制台申请
+#   deepseek → DeepSeek 自研搜索（按次计费）
+DOUDOU_TOOLS_WEB_SEARCH_PROVIDER=deepseek    # tavily | deepseek（大小写不敏感）
+DOUDOU_TOOLS_WEB_SEARCH_API_KEY=sk-...
 ```
 
 ```yaml
-# config/config.yaml —— 搜索 provider 与出站抓取的域名白名单
+# config/config.yaml —— 出站抓取的域名白名单
 tools:
-  web_search:
-    provider: deepseek        # tavily | deepseek（大小写不敏感）
-    max_results: 5
   http:
     allowed_domains:
       - docs.python.org      # 含任意子域
@@ -195,7 +196,7 @@ tools:
 
 | 工具 | 启用条件 |
 | --- | --- |
-| `web_search` | 当前 provider 对应的 key 非空（默认 `tavily` → `TAVILY_API_KEY`；`deepseek` → `DEEPSEEK_API_KEY`） |
+| `web_search` | `DOUDOU_TOOLS_WEB_SEARCH_API_KEY` 非空（provider 只决定调哪家服务） |
 | `http_request` | `tools.http.allowed_domains` 非空，且目标域名命中（解析到内网地址也会被拒） |
 
 配置好之后，在飞书里问一句就会走搜索，卡片上能看到 `web_search` 的调用痕迹与结果来源：
@@ -258,9 +259,9 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
 
 ```dotenv
 # .env
-DOUDOU_CHANNELS__FEISHU__ENABLED=true
-FEISHU_APP_ID=cli_xxxxxxxx
-FEISHU_APP_SECRET=xxxxxxxx
+DOUDOU_CHANNELS_FEISHU_ENABLED=true
+DOUDOU_CHANNELS_FEISHU_APP_ID=cli_xxxxxxxx
+DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 ```
 
 飞书开放平台里把事件订阅设为「**使用长连接接收事件**」并订阅

@@ -19,8 +19,9 @@
                                                     优先级：右 > 左
 ```
 
-实现位置：`src/doudou/config/loader.py`；环境变量前缀统一为 `DOUDOU_`，
-嵌套字段用双下划线分隔，例如 `DOUDOU_SERVER__PORT=8080`。
+实现位置：`src/doudou/config/loader.py`；环境变量统一为
+`DOUDOU_` + 配置路径（下划线连接），例如 `DOUDOU_SERVER_PORT=8080`、
+`DOUDOU_MODEL_MAX_TOKENS=4096`。
 
 ## 校验
 

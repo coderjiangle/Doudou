@@ -62,10 +62,9 @@ def test_unknown_section_lists_available(settings_factory) -> None:  # type: ign
 
 def test_credentials_only_report_presence(settings_factory) -> None:  # type: ignore[no-untyped-def]
     secrets = {
-        "OPENAI_API_KEY": "sk-super-secret",
-        "FEISHU_APP_SECRET": "feishu-secret-value",
-        "TAVILY_API_KEY": "tvly-super-secret",
-        "DEEPSEEK_API_KEY": "deepseek-super-secret",
+        "DOUDOU_MODEL_API_KEY": "sk-super-secret",
+        "DOUDOU_CHANNELS_FEISHU_APP_SECRET": "feishu-secret-value",
+        "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "search-super-secret",
         "DOUDOU_API_TOKEN": "api-token-secret",
     }
     tool = _make(settings_factory, env=secrets)

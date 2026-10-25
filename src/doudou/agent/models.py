@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -60,7 +59,7 @@ def parse_spec(spec: str) -> ModelSpec:
 
 
 def credential_hint(spec: ModelSpec) -> tuple[str, str] | None:
-    """返回 ``(环境变量名, 提示语)``；该 provider 不需要凭据时返回 ``None``。"""
+    """返回 ``(变量名, 提示语)``；该 provider 不需要凭据时返回 ``None``。"""
     if spec.provider is None or spec.is_scripted:
         return None
     env_name = PROVIDER_CREDENTIALS.get(spec.provider)
@@ -69,7 +68,11 @@ def credential_hint(spec: ModelSpec) -> tuple[str, str] | None:
         return None
     if not env_name:
         return None
-    return env_name, f"模型 {spec.raw} 需要 {env_name}，请在 .env 中设置"
+    return (
+        "DOUDOU_MODEL_API_KEY",
+        f"模型 {spec.raw} 需要 API Key，请在 .env 设置 DOUDOU_MODEL_API_KEY"
+        "（多 provider 用 DOUDOU_MODEL_API_KEYS）",
+    )
 
 
 def build_model(
@@ -101,10 +104,10 @@ def build_model(
         "timeout": config.timeout,
         "max_retries": config.max_retries,
     }
-    base_url = config.base_url or _secret_base_url(resolved, secrets)
+    base_url = _secret_base_url(resolved, secrets) or _config_base_url(config, resolved)
     if base_url:
         kwargs["base_url"] = base_url
-    api_key = _secret_api_key(resolved, secrets)
+    api_key = _secret_api_key(resolved, secrets) or _config_api_key(config, resolved)
     if api_key:
         kwargs["api_key"] = api_key
     kwargs.update(extra or {})
@@ -148,12 +151,7 @@ def _secret_api_key(resolved: ModelSpec, secrets: Secrets | None) -> str | None:
 
 
 def _secret_base_url(resolved: ModelSpec, secrets: Secrets | None) -> str | None:
-    """从凭据对象取该 provider 的 base_url。
-
-    只认官方命名的厂商变量（``OPENAI_BASE_URL``、``DEEPSEEK_API_BASE`` …）。
-    正常加载流程里这些值已经被合并进 ``config.base_url``，这里保留作为
-    直接调用 :func:`build_model` 时的兜底。
-    """
+    """从凭据视图取该 provider 的 base_url（由 ``model.base_urls`` / ``base_url`` 派生）。"""
     if secrets is None or resolved.provider is None:
         return None
     env_name = PROVIDER_BASE_URL_ENV.get(resolved.provider)
@@ -162,14 +160,32 @@ def _secret_base_url(resolved: ModelSpec, secrets: Secrets | None) -> str | None
     return cast("str | None", getattr(secrets, env_name.lower(), None))
 
 
+def _config_api_key(config: ModelConfig, resolved: ModelSpec) -> str | None:
+    """直接从 ``model.api_keys`` / ``model.api_key`` 取 key。"""
+    if resolved.provider is None:
+        return None
+    key = config.api_keys.get(resolved.provider)
+    if key:
+        return key
+    return config.api_key if resolved.provider == provider_of(config.primary) else None
+
+
+def _config_base_url(config: ModelConfig, resolved: ModelSpec) -> str | None:
+    """直接从 ``model.base_urls`` / ``model.base_url`` 取地址。"""
+    if resolved.provider is None:
+        return None
+    url = config.base_urls.get(resolved.provider)
+    if url:
+        return url
+    return config.base_url if resolved.provider == provider_of(config.primary) else None
+
+
 def has_credential(secrets: Secrets, spec: ModelSpec) -> bool:
-    """判断该模型所需的凭据是否已就绪（配置对象或进程环境变量）。"""
+    """判断该模型所需的凭据是否已就绪。"""
     env_name = PROVIDER_CREDENTIALS.get(spec.provider or "")
     if not env_name:
         return True
-    if _secret_api_key(spec, secrets):
-        return True
-    return bool(os.environ.get(env_name))
+    return bool(_secret_api_key(spec, secrets))
 
 
 def build_fallback_models(

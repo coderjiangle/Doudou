@@ -7,7 +7,7 @@ from typing import Any
 
 #: 与密钥相关的字段名模式。命中后其值在日志与 ``config show`` 中被打码。
 _SENSITIVE_NAME = re.compile(
-    r"(?:api[_-]?key|apikey|secret|token|password|passwd|credential|authorization)",
+    r"(?:api[_-]?key|apikey|secret|token|password|passwd|credential|authorization|(?:^|_)key$)",
     re.IGNORECASE,
 )
 
@@ -31,15 +31,27 @@ def mask(value: str, *, keep: int = 4) -> str:
 def redact(value: Any) -> Any:
     """递归打码字典/列表中的敏感字段值。
 
-    非敏感字段原样保留，方便排查配置问题。
+    非敏感字段原样保留，方便排查配置问题。敏感字段如果是字典/列表
+    （例如 ``model.api_keys``），里面的字符串值也全部打码，只保留键名。
     """
     if isinstance(value, dict):
         return {
-            key: (mask(item) if isinstance(item, str) and is_sensitive(str(key)) else redact(item))
+            key: (_redact_tree(item) if is_sensitive(str(key)) else redact(item))
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
         return [redact(item) for item in value]
+    return value
+
+
+def _redact_tree(value: Any) -> Any:
+    """把敏感字段下的所有字符串都打码。"""
+    if isinstance(value, str):
+        return mask(value)
+    if isinstance(value, dict):
+        return {key: _redact_tree(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_tree(item) for item in value]
     return value
 
 

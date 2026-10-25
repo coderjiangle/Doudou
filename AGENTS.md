@@ -46,7 +46,8 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
 - Python 3.12+，全量类型注解；`mypy --strict` 必须通过。
 - 行宽 100，格式化与 lint 由 `ruff` 负责（`ruff format` + `ruff check --fix`）。
 - 异步优先：I/O 一律 async；CPU 密集或阻塞调用用 `asyncio.to_thread` 下沉。
-- 配置读取**只**通过 `doudou.config.settings`，禁止散落 `os.environ`。
+- 配置读取**只**通过 `doudou.config`（`loader` / `settings`），业务代码里禁止散落
+  `os.environ`；环境变量到配置路径的映射集中在 `config/env.py`。
 - 日志用 `structlog`（`doudou.observability.logging`），禁止裸 `print`（CLI 输出除外）。关键位置必须打印日志，包括出入参，敏感信息请模糊化处理。
 - 出网调用统一走 `utils.async_utils.retry_async`，不要各写一套重试。
 - 异常：领域异常定义在模块内并继承统一基类；API 层由 `api.errors` 转成响应。

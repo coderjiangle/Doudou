@@ -153,7 +153,7 @@ def test_describe_groups_explains_gating(settings: Settings) -> None:
     statuses = {status.name: status for status in describe_groups(settings)}
 
     assert statuses["clock"].enabled is True
-    assert "TAVILY_API_KEY" in statuses["web"].reason
+    assert "DOUDOU_TOOLS_WEB_SEARCH_API_KEY" in statuses["web"].reason
     assert "allowed_domains" in statuses["http"].reason
 
 
@@ -181,23 +181,23 @@ def test_web_search_is_not_registered_without_key(settings: Settings) -> None:
 
 
 def test_web_search_registered_with_key(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
 
     assert "web_search" in {item.name for item in build_tools(settings)}
 
 
 def test_group_status_follows_web_search_provider(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    """换 provider 后，「为什么没启用」要说对缺的是哪把 key。"""
-    deepseek = tools_settings(env={"DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek"})
+    """换 provider 后，「为什么没启用」要指向同一个配置路径。"""
+    deepseek = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek"})
 
     status = {item.name: item for item in describe_groups(deepseek)}["web"]
     assert status.enabled is False
-    assert "DEEPSEEK_API_KEY" in status.reason
+    assert "DOUDOU_TOOLS_WEB_SEARCH_API_KEY" in status.reason
 
     ready = tools_settings(
         env={
-            "DEEPSEEK_API_KEY": "sk-test",
-            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
+            "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "sk-test",
+            "DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek",
         }
     )
     assert {item.name: item for item in describe_groups(ready)}["web"].enabled is True

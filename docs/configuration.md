@@ -1,87 +1,66 @@
 # 配置说明
 
-## 1. 优先级
+## 1. 优先级与命名
 
 ```
-代码内默认值  <  config/config.yaml  <  config/config.local.yaml
-             <  厂商变量（OPENAI_BASE_URL / FEISHU_* 等）  <  DOUDOU_* 环境变量
+代码内默认值  <  config/config.yaml  <  config/config.local.yaml  <  环境变量
 ```
 
-- **环境变量始终高于配置文件**，无论它带不带 `DOUDOU_` 前缀。
-- 两族环境变量冲突时（很少见），显式的 `DOUDOU_*` 优先：
-  `DOUDOU_MODEL__BASE_URL` > `OPENAI_BASE_URL` > `config.yaml` 的 `model.base_url`。
-- 密钥（App Secret、API Key、Token）**只放 `.env`**，绝不进 `config.yaml`；
-  配置文件里即使写了同名字段，也会被环境变量覆盖。
-- 配置项用 `DOUDOU_` 前缀，嵌套用 `__` 分隔：`DOUDOU_SERVER__PORT=8080`。
-- 凭据**不加前缀**，沿用各家官方命名（`OPENAI_API_KEY`、`FEISHU_APP_SECRET` 等），
-  由 `Secrets` 单独读取，只从 `.env` / 进程环境变量来。
-- 少数运行期结构（`agent.interrupt_on`、`agent.permissions`、`observability.cost.prices`、
-  飞书卡片节奏等）**只能写 YAML**，没有对应的环境变量，见 §2.1。
+环境变量只有一条规则：
 
-## 2. 关键环境变量
+> **`DOUDOU_` + `config.yaml` 的路径，层级用下划线连接。**
 
-命名约定：配置项一律 `DOUDOU_` 前缀 + 双下划线表示层级；凭据**无前缀**，沿用官方名。
-列表类字段要写成 **JSON 数组**（`DOUDOU_MODEL__FALLBACKS='["openai:gpt-5.5"]'`），
-逗号分隔的写法会直接报校验错误。
-
-### 2.1 只能写在 config.yaml 里的项
-
-`EnvSettings` 只覆盖 `AppConfig` 的一部分字段，其余字段读环境变量会被静默忽略
-（`extra="ignore"`）。目前没有环境变量入口的是：
-
-| 段落 | 字段 |
+| config.yaml | 环境变量 |
 | --- | --- |
-| `agent` | `interrupt_on`、`permissions`、`max_tool_calls_per_step`、`subagents_file` |
-| `tools` | `files.max_list` / `files.max_write_chars`、`http.max_redirects` / `http.user_agent` |
-| `context` | `summarize_after_messages` |
-| `filesystem` | `routes` |
-| `mcp` | `call_timeout`、`tool_name_prefix` |
-| `channels.feishu` | `card_update_interval_ms`、`dedup_ttl_seconds`、`event_path`、`group_require_at`、`max_reply_chars`、`reply_mode` |
-| `channels.webhook` | `token_header` |
-| `observability` | `audit.batch_size` / `audit.max_rows` / `audit.max_memory_entries`、`cost.batch_size` / `cost.currency` / `cost.prices`，以及 `langsmith.*` / `otel.*` / `metrics.*` |
+| `server.port` | `DOUDOU_SERVER_PORT` |
+| `model.primary` | `DOUDOU_MODEL_PRIMARY` |
+| `model.max_tokens` | `DOUDOU_MODEL_MAX_TOKENS` |
+| `tools.web_search.provider` | `DOUDOU_TOOLS_WEB_SEARCH_PROVIDER` |
+| `channels.feishu.app_secret` | `DOUDOU_CHANNELS_FEISHU_APP_SECRET` |
 
-`version` 只用于配置版本标记，不接受环境变量覆盖。飞书的 `app_id` / `app_secret`
-不属于这一类 —— 它们走 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（无 `DOUDOU_` 前缀）。
+字段名本身带下划线（`max_tokens`、`base_url`）也不会歧义 —— 加载器用
+`AppConfig` 的叶子路径做精确匹配，而不是 pydantic 的嵌套分隔符。
 
-### 运行环境
+- 进程环境变量 > `.env` > `config.yaml`。
+- 列表/字典字段写 **JSON**：
+  `DOUDOU_MODEL_FALLBACKS='["openai:gpt-5.5"]'`。
+- 凭据也是配置字段，只是约定**只放 `.env`**，不要写进 `config.yaml`。
+- 旧写法（`DOUDOU_MODEL__PRIMARY`、无前缀的 `OPENAI_API_KEY`）**不再读取**，
+  迁移表见 §2.7。
+
+## 2. 环境变量
+
+下表列出常用项；没有列出的字段按同一规则推导即可（`config show` 能看到完整路径）。
+
+### 2.1 运行环境
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `DOUDOU_RUNTIME__ENV` | `local` | `local` / `dev` / `prod` |
-| `DOUDOU_RUNTIME__DEBUG` | `true` | 调试模式，prod 应关闭 |
-| `DOUDOU_RUNTIME__LOG_LEVEL` | `INFO` | 日志级别 |
-| `DOUDOU_RUNTIME__LOG_JSON` | `false` | 输出 JSON 日志（prod 建议 true） |
-| `DOUDOU_RUNTIME__TIMEZONE` | `Asia/Shanghai` | 默认时区，`now` 工具会用到 |
-| `DOUDOU_SERVER__HOST` / `DOUDOU_SERVER__PORT` | `127.0.0.1` / `8000` | 监听地址 |
-| `DOUDOU_SERVER__BASE_PATH` | `/api/v1` | API 前缀 |
-| `DOUDOU_FILESYSTEM__ROOT_DIR` | `./data/workspace` | 工作区根目录 |
+| `DOUDOU_RUNTIME_ENV` | `local` | `local` / `dev` / `prod` |
+| `DOUDOU_RUNTIME_DEBUG` | `true` | 调试模式，prod 应关闭 |
+| `DOUDOU_RUNTIME_LOG_LEVEL` | `INFO` | 日志级别 |
+| `DOUDOU_RUNTIME_LOG_JSON` | `false` | 输出 JSON 日志（prod 建议 true） |
+| `DOUDOU_RUNTIME_TIMEZONE` | `Asia/Shanghai` | `now` 工具的默认时区 |
+| `DOUDOU_SERVER_HOST` / `DOUDOU_SERVER_PORT` | `127.0.0.1` / `8000` | 监听地址 |
+| `DOUDOU_SERVER_BASE_PATH` | `/api/v1` | API 前缀 |
+| `DOUDOU_FILESYSTEM_ROOT_DIR` | `./data/workspace` | 工作区根目录 |
 | `DOUDOU_CONFIG_DIR` / `DOUDOU_CONFIG_FILE` | `./config` / `config.yaml` | 配置位置 |
 
-### Agent
-
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `DOUDOU_AGENT__NAME` | `Doudou` | 助手名称（会渲染进提示词） |
-| `DOUDOU_AGENT__MAX_STEPS` | `8` | ReAct 循环单次运行的最大步数（模型往返次数） |
-| `DOUDOU_AGENT__RECURSION_LIMIT` | `60` | **未使用**（原为接入 deepagents 预留，计划已取消） |
-
-### 模型
+### 2.2 模型
 
 | 变量 | 说明 |
 | --- | --- |
-| `DOUDOU_MODEL__PRIMARY` | `provider:model`，如 `openai:gpt-5.5`、`anthropic:claude-sonnet-5`、`deepseek:deepseek-chat`；`scripted:demo` 为内置离线模型 |
-| `DOUDOU_MODEL__TEMPERATURE` / `__MAX_TOKENS` / `__TIMEOUT` / `__MAX_RETRIES` | 采样与限制 |
-| `DOUDOU_MODEL__BASE_URL` | 自建/兼容网关地址（也可用 `OPENAI_BASE_URL`） |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | 各家凭据（无前缀） |
-| `TAVILY_API_KEY` | 内置 `web_search`（`provider: tavily`） |
-| `DEEPSEEK_API_KEY` | DeepSeek 模型 / 内置 `web_search`（`provider: deepseek`，自研搜索） |
+| `DOUDOU_MODEL_PRIMARY` | `provider:model`，如 `openai:gpt-5.5`、`anthropic:claude-sonnet-5`、`deepseek:deepseek-chat`；`scripted:demo` 为内置离线模型 |
+| `DOUDOU_MODEL_TEMPERATURE` / `_MAX_TOKENS` / `_TIMEOUT` / `_MAX_RETRIES` | 采样与限制 |
+| `DOUDOU_MODEL_BASE_URL` | 自建/兼容网关地址 |
+| `DOUDOU_MODEL_API_KEY` | 主 provider 的 API Key |
+| `DOUDOU_MODEL_API_KEYS` | 多 provider 的 key（JSON）：`'{"openai": "sk-...", "anthropic": "sk-ant-..."}'` |
+| `DOUDOU_MODEL_BASE_URLS` | 多 provider 的地址（JSON） |
 
-> 非 OpenAI 厂商需要装对应包：`uv sync --extra anthropic` / `--extra deepseek`。
+`api_keys` / `base_urls` 优先于 `api_key` / `base_url`。非 OpenAI 厂商需要装对应包：
+`uv sync --extra anthropic` / `--extra deepseek`。
 
 #### 接入兼容 OpenAI 协议的网关
-
-自建网关或第三方聚合服务（只要实现了 OpenAI 的 `/chat/completions`）一律用
-**`openai:` 前缀 + 自定义 `base_url`**，不要另找 provider 包：
 
 ```yaml
 # config/config.yaml
@@ -92,72 +71,85 @@ model:
 
 ```dotenv
 # .env
-OPENAI_API_KEY=<网关签发的 Key>
+DOUDOU_MODEL_API_KEY=<网关签发的 Key>
 ```
 
 `langchain-openai` 已随主依赖安装，无需额外 `--extra`。
-`base_url` 也可以改用 `OPENAI_BASE_URL` 环境变量提供 —— 它属于环境变量，
-**优先级高于** `config.yaml` 里的 `model.base_url`。想固定某个地址时，
-最稳的是写 `DOUDOU_MODEL__BASE_URL`（优先级最高）。
-`doudou config show` 显示的是合并后的实际生效值。
 
-#### 多模态（原生图片输入）
-
-配置层目前**没有**多模态开关。若网关模型支持原生图片输入，需要先补两处：
-
-1. `utils/text.py` 的 `content_to_text` 只抽取 text 块，会丢掉图片块；
-2. ReAct 循环的输入是 `HumanMessage(content: str)`，还没有附件入口。
-
-也就是说图片链路要等飞书支持收发图片时一并打通，届时图片块需要原样透传给模型，
-不能走 `content_to_text`。
-
-### 存储
+### 2.3 Agent
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `DOUDOU_STORAGE__DATABASE_URL` | `sqlite+aiosqlite:///./data/doudou.db` | 业务库 |
-| `DOUDOU_STORAGE__HISTORY` | `database` | 会话历史存哪：`database`（重启可续）/ `memory`（进程内，轻量） |
-| `DOUDOU_STORAGE__CHECKPOINTER` | `sqlite` | **未使用**：LangGraph 概念，接入 deepagents 的计划已取消（同 `store`） |
-| `DOUDOU_STORAGE__STORE` | `sqlite` | 长期记忆存储 |
+| `DOUDOU_AGENT_NAME` | `Doudou` | 助手名称（会渲染进提示词） |
+| `DOUDOU_AGENT_MAX_STEPS` | `8` | ReAct 循环单次运行的最大步数 |
+| `DOUDOU_AGENT_RECURSION_LIMIT` | `60` | **未使用**（早期预留） |
+| `DOUDOU_AGENT_SKILL_INDEX_LIMIT` | `40` | 提示词里最多列几个 Skill |
+| `DOUDOU_AGENT_INTERRUPT_ON` | `{}` | 额外需确认的工具（JSON 对象） |
+| `DOUDOU_AGENT_PERMISSIONS` | `[]` | 路径权限规则（JSON 数组） |
 
-### 可观测性
+### 2.4 上下文工程
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `DOUDOU_OBSERVABILITY__AUDIT__ENABLED` | `true` | 审计开关 |
-| `observability.audit.batch_size`（YAML） | `50` | 攒批写；`1` = 逐条严格持久化（SQLite 下慢 20 倍，见 `docs/performance.md`） |
-| `observability.audit.max_rows`（YAML） | `50000` | 审计表行数上限，超出按时间清理 |
-| `DOUDOU_OBSERVABILITY__COST__ENABLED` | `true` | 成本统计开关 |
-| `DOUDOU_OBSERVABILITY__COST__DAILY_BUDGET` | `0` | 日预算（美元）；`0` = 不设。**超了只告警不拦截** |
-| `DOUDOU_OBSERVABILITY__TRACING__ENABLED` | `false` | Langfuse 追踪；需同时有 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` |
-| `DOUDOU_OBSERVABILITY__TRACING__HOST` | `https://cloud.langfuse.com` | 自建填自己的地址 |
-| `observability.langsmith.enabled`（YAML） | `false` | **未使用**（早期预留） |
+| `DOUDOU_CONTEXT_MAX_INPUT_TOKENS` | `80000` | 送进模型的历史 token 预算 |
+| `DOUDOU_CONTEXT_SUMMARIZE_THRESHOLD_RATIO` | `0.7` | 超过预算多少比例开始压缩 |
+| `DOUDOU_CONTEXT_SUMMARIZE_AFTER_MESSAGES` | `40` | 消息数达到多少开始摘要 |
+| `DOUDOU_CONTEXT_KEEP_RECENT_MESSAGES` | `12` | 压缩时保留最近几条 |
+| `DOUDOU_CONTEXT_SUMMARIZATION` | `true` | 是否启用摘要压缩 |
+| `DOUDOU_CONTEXT_OFFLOAD_LARGE_RESULTS` | `true` | 超大工具结果落盘 |
+| `DOUDOU_CONTEXT_OFFLOAD_THRESHOLD_BYTES` | `20000` | 落盘阈值 |
+| `DOUDOU_CONTEXT_MAX_MEMORY_CHARS` | `8000` | 长期记忆注入上限 |
+
+### 2.5 存储 / MCP
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `DOUDOU_STORAGE_DATABASE_URL` | `sqlite+aiosqlite:///./data/doudou.db` | 业务库 |
+| `DOUDOU_STORAGE_HISTORY` | `database` | `database`（重启可续）/ `memory` |
+| `DOUDOU_STORAGE_MAX_MESSAGES_PER_THREAD` | `500` | 单会话保留的消息条数 |
+| `DOUDOU_STORAGE_CHECKPOINTER` | `sqlite` | **未使用**（早期预留） |
+| `DOUDOU_MCP_ENABLED` | `true` | MCP 总开关 |
+| `DOUDOU_MCP_CONFIG_FILE` | `mcp.servers.yaml` | 清单路径（相对 `config/`） |
 
 > SQLite 文件所在目录不存在时会自动创建；生产建议换 Postgres：
 > `uv sync --extra postgres` 后把 URL 改成 `postgresql+asyncpg://...`。
->
-> **表结构**：用 `create_all` 建表（`threads` / `messages` / `session_bindings`）。
-> 第一次需要改表结构时再引入 Alembic，见 `src/doudou/storage/migrations/README.md`。
 
-### 飞书
+### 2.6 飞书 / 可观测性
 
 | 变量 | 说明 |
 | --- | --- |
-| `DOUDOU_CHANNELS__FEISHU__ENABLED` | 是否启用 |
-| `DOUDOU_CHANNELS__FEISHU__MODE` | `callback`（事件回调）或 `websocket`（长连接） |
-| `DOUDOU_CHANNELS__FEISHU__STREAM_REPLY` | 是否用卡片流式更新 |
-| `DOUDOU_CHANNELS__FEISHU__ALLOWED_CHATS` | 白名单，JSON 数组：`'["oc_xxx"]'` |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 应用凭证（无前缀，必填；覆盖 YAML 里的同名字段） |
-| `FEISHU_VERIFICATION_TOKEN` | 事件订阅校验 Token |
-| `FEISHU_ENCRYPT_KEY` | 加密模式密钥；prod 必须配置 |
-| `FEISHU_BASE_URL` | 国内版 `https://open.feishu.cn`，国际版 `https://open.larksuite.com`；覆盖 YAML 里的 `channels.feishu.base_url` |
+| `DOUDOU_CHANNELS_FEISHU_ENABLED` | 是否启用 |
+| `DOUDOU_CHANNELS_FEISHU_MODE` | `callback`（事件回调）或 `websocket`（长连接） |
+| `DOUDOU_CHANNELS_FEISHU_STREAM_REPLY` | 是否用卡片流式更新 |
+| `DOUDOU_CHANNELS_FEISHU_ALLOWED_CHATS` | 白名单（JSON 数组） |
+| `DOUDOU_CHANNELS_FEISHU_APP_ID` / `_APP_SECRET` | 应用凭证（只放 `.env`） |
+| `DOUDOU_CHANNELS_FEISHU_VERIFICATION_TOKEN` | 事件订阅校验 Token |
+| `DOUDOU_CHANNELS_FEISHU_ENCRYPT_KEY` | 加密模式密钥；prod 必须配置 |
+| `DOUDOU_CHANNELS_FEISHU_BASE_URL` | 国内版 `https://open.feishu.cn`，国际版 `https://open.larksuite.com` |
+| `DOUDOU_OBSERVABILITY_AUDIT_ENABLED` | 审计开关 |
+| `DOUDOU_OBSERVABILITY_AUDIT_BATCH_SIZE` | 攒批写；`1` = 逐条持久化 |
+| `DOUDOU_OBSERVABILITY_AUDIT_MAX_ROWS` | 审计表行数上限 |
+| `DOUDOU_OBSERVABILITY_COST_ENABLED` | 成本统计开关 |
+| `DOUDOU_OBSERVABILITY_COST_DAILY_BUDGET` | 日预算（美元）；`0` = 不设，超了只告警 |
+| `DOUDOU_OBSERVABILITY_TRACING_ENABLED` | Langfuse 追踪 |
+| `DOUDOU_OBSERVABILITY_TRACING_HOST` | 自建填自己的地址 |
+| `DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY` / `_SECRET_KEY` | Langfuse 凭据（只放 `.env`） |
 
-### MCP
+### 2.7 从旧变量迁移
 
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `DOUDOU_MCP__ENABLED` | `true` | 总开关 |
-| `DOUDOU_MCP__CONFIG_FILE` | `mcp.servers.yaml` | 清单路径（相对 `config/`） |
+旧写法已不再读取，对照替换即可：
+
+| 旧 | 新 |
+| --- | --- |
+| `DOUDOU_SERVER__PORT` | `DOUDOU_SERVER_PORT` |
+| `DOUDOU_MODEL__PRIMARY` | `DOUDOU_MODEL_PRIMARY` |
+| `OPENAI_API_KEY` | `DOUDOU_MODEL_API_KEY`（多 provider 用 `DOUDOU_MODEL_API_KEYS`） |
+| `OPENAI_BASE_URL` | `DOUDOU_MODEL_BASE_URL` |
+| `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | `DOUDOU_MODEL_API_KEYS` |
+| `TAVILY_API_KEY` / DeepSeek 搜索 key | `DOUDOU_TOOLS_WEB_SEARCH_API_KEY` |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | `DOUDOU_CHANNELS_FEISHU_APP_ID` / `_APP_SECRET` |
+| `FEISHU_BASE_URL` | `DOUDOU_CHANNELS_FEISHU_BASE_URL` |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY` / `_SECRET_KEY` |
 
 ## 3. config.yaml 主要段落
 
@@ -174,7 +166,8 @@ tools:
   http:
     allowed_domains: []       # 空 = http_request 不注册（默认拒绝一切出站请求）
   web_search:
-    provider: tavily          # tavily | deepseek（决定用哪个 key）
+    provider: tavily          # tavily | deepseek
+    api_key: null             # 只放 .env：DOUDOU_TOOLS_WEB_SEARCH_API_KEY
     max_results: 5
     need_content: false       # 仅 deepseek：是否返回网页正文（体积大）
   files:
@@ -183,14 +176,13 @@ tools:
 
 要点：
 
-- **web_search 的两个 provider**：`tavily` 用 `TAVILY_API_KEY`，支持 `search_depth` /
-  `include_answer`；`deepseek` 用 `DEEPSEEK_API_KEY`，走自研搜索，结果优先取 `summary`，
-  `need_content: true` 才会返回网页正文。`provider` 大小写不敏感。
+- **web_search 的两个 provider** 共用一个 key 路径 `tools.web_search.api_key`，换 provider
+  不必换字段名；`tavily` 支持 `search_depth` / `include_answer`，`deepseek` 走自研搜索，
+  结果优先取 `summary`，`need_content: true` 才会返回网页正文。`provider` 大小写不敏感。
 - **分组开关**：`enabled_groups` 非空时只有列出的分组生效；`disabled` 按工具名精确禁用，
   优先级更高。
-- **依赖不满足就不注册**：没有当前 provider 的 key（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY`）
-  就没有 `web_search`；`allowed_domains` 为空就没有 `http_request`。
-  用 `doudou tools list` 查看「哪个分组为什么不在」。
+- **依赖不满足就不注册**：没有 `DOUDOU_TOOLS_WEB_SEARCH_API_KEY` 就没有 `web_search`；
+  `allowed_domains` 为空就没有 `http_request`。用 `doudou tools list` 查看原因。
 - `files` 的根目录固定用 `filesystem.root_dir`，没有独立配置项 —— 避免出现「两个 root」。
 - 域名匹配规则：`example.com` 含任意子域，`*.example.com` 只含子域。
 

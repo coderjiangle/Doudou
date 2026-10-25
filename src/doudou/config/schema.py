@@ -54,6 +54,15 @@ class ModelConfig(_Section):
     timeout: float = 120.0
     max_retries: int = 2
     base_url: str | None = None
+    #: 主 provider 的 API Key。**只放 `.env`**，不要写进 config.yaml。
+    #: 环境变量：``DOUDOU_MODEL_API_KEY``。
+    api_key: str | None = None
+    #: provider → API Key。给 fallbacks 或子 Agent 换 provider 时用；
+    #: 环境变量：``DOUDOU_MODEL_API_KEYS``（JSON 对象）。
+    api_keys: dict[str, str] = Field(default_factory=dict)
+    #: provider → 自定义 base_url，优先于 ``base_url``；
+    #: 环境变量：``DOUDOU_MODEL_BASE_URLS``（JSON 对象）。
+    base_urls: dict[str, str] = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- tools
@@ -79,6 +88,9 @@ class WebSearchToolConfig(_Section):
     provider: Literal["tavily", "deepseek"] = "tavily"
     max_results: int = 5
     timeout: float = 20.0
+    #: 当前 provider 的 API Key。**只放 `.env`**；
+    #: 环境变量：``DOUDOU_TOOLS_WEB_SEARCH_API_KEY``。
+    api_key: str | None = None
     #: 仅 Tavily：``advanced`` 更准但更慢、更贵。
     search_depth: Literal["basic", "advanced"] = "basic"
     #: 仅 Tavily：是否附带 Tavily 生成的摘要答案。
@@ -293,9 +305,12 @@ class FeishuChannelConfig(_Section):
     bot_name: str = "Doudou"
     #: 机器人自己的 open_id。留空时按 ``bot_name`` 或事件的 mentioned_type 判定 @。
     bot_open_id: str | None = None
-    #: 应用凭据。留空时由 .env 的 FEISHU_APP_ID / FEISHU_APP_SECRET 注入。
+    #: 应用凭据。留空时由环境变量注入（DOUDOU_CHANNELS_FEISHU_APP_ID / _APP_SECRET）。
     app_id: str | None = None
     app_secret: str | None = None
+    #: 事件订阅校验 Token / 加密密钥；callback 模式需要，websocket 模式不用。
+    verification_token: str | None = None
+    encrypt_key: str | None = None
     event_path: str = "/webhooks/feishu/events"
     reply_mode: Literal["card", "text"] = "card"
     stream_reply: bool = True
@@ -331,6 +346,8 @@ class LangSmithConfig(_Section):
 
     enabled: bool = False
     project: str = "doudou"
+    #: 环境变量：``DOUDOU_OBSERVABILITY_LANGSMITH_API_KEY``。
+    api_key: str | None = None
 
 
 class OtelConfig(_Section):
@@ -381,6 +398,10 @@ class TracingConfig(_Section):
     #: 显式开关：默认关闭，避免无意间把对话内容发到第三方。
     enabled: bool = False
     host: str = "https://cloud.langfuse.com"
+    #: Langfuse 凭据。**只放 `.env`**；
+    #: 环境变量：``DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY`` / ``_SECRET_KEY``。
+    public_key: str | None = None
+    secret_key: str | None = None
     #: 打进 trace 标签，便于区分环境（prod / staging）。
     environment: str | None = None
     release: str | None = None

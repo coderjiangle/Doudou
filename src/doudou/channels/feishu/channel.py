@@ -184,7 +184,8 @@ class FeishuChannel:
     async def start(self) -> None:
         if not self.config.app_id or not self.config.app_secret:
             raise FeishuError(
-                "飞书通道已启用但缺少凭据：请设置 FEISHU_APP_ID 与 FEISHU_APP_SECRET。"
+                "飞书通道已启用但缺少凭据：请设置 DOUDOU_CHANNELS_FEISHU_APP_ID "
+                "与 DOUDOU_CHANNELS_FEISHU_APP_SECRET。"
             )
         if self.config.mode != "websocket":
             logger.warning(

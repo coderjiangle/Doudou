@@ -33,8 +33,8 @@ GROUP = "web"
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
 DEEPSEEK_ENDPOINT = "https://api.deepseek.com/v1/tools/search"
 
-#: provider → 需要的环境变量名。用于日志与「为什么没注册」的说明。
-PROVIDER_ENV = {"tavily": "TAVILY_API_KEY", "deepseek": "DEEPSEEK_API_KEY"}
+#: 当前 provider 的 key 所在环境变量（两个 provider 共用同一个配置路径）。
+API_KEY_ENV = "DOUDOU_TOOLS_WEB_SEARCH_API_KEY"
 
 #: DeepSeek 搜索的 count 上限（接口要求 1–50）。
 DEEPSEEK_MAX_COUNT = 50
@@ -45,8 +45,10 @@ MAX_SNIPPET_CHARS = 600
 
 def api_key_for(settings: Settings) -> str | None:
     """当前 provider 对应的 API Key。"""
-    provider = settings.app.tools.web_search.provider
-    if provider == "deepseek":
+    config = settings.app.tools.web_search
+    if config.api_key:
+        return config.api_key
+    if config.provider == "deepseek":
         return settings.secrets.deepseek_api_key
     return settings.secrets.tavily_api_key
 
@@ -55,7 +57,7 @@ def missing_requirement(settings: Settings) -> str | None:
     """未配置凭据时返回可读原因（给 ``describe_groups`` 用）。"""
     if api_key_for(settings):
         return None
-    return f"缺少 {PROVIDER_ENV[settings.app.tools.web_search.provider]}"
+    return f"缺少 {API_KEY_ENV}"
 
 
 def build_tools(
@@ -71,7 +73,7 @@ def build_tools(
         logger.debug(
             "tools.web_search_skipped",
             provider=provider,
-            reason=f"missing {PROVIDER_ENV[provider]}",
+            reason=f"missing {API_KEY_ENV}",
         )
         return []
 

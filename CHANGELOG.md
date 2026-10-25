@@ -18,11 +18,15 @@
   「只有工作区可写」的文件系统视图（父目录 tmpfs 遮罩、系统路径只读、网络不隔离）；
   `bwrap` 不可用或工作区在根目录时，`shell` 分组整组不注册并说明原因。
 - `web_search` 支持 **DeepSeek 自研搜索**：`tools.web_search.provider: deepseek`，
-  使用 `DEEPSEEK_API_KEY` 调 `POST /v1/tools/search`；结果优先取官方的 `summary`
-  （为模型准备的长摘要），可选 `need_content` 返回正文。
+  使用 `DOUDOU_TOOLS_WEB_SEARCH_API_KEY` 调 `POST /v1/tools/search`；结果优先取官方的
+  `summary`（为模型准备的长摘要），可选 `need_content` 返回正文。
 
 ### 变更
 
+- **环境变量命名统一**：所有环境变量都是 `DOUDOU_` + `config.yaml` 路径（单下划线），
+  例如 `DOUDOU_MODEL_PRIMARY`、`DOUDOU_MODEL_MAX_TOKENS`、`DOUDOU_CHANNELS_FEISHU_APP_SECRET`。
+  旧的双下划线写法与无前缀厂商变量（`OPENAI_API_KEY` 等）不再读取；凭据也改成配置字段
+  （`model.api_key`、`tools.web_search.api_key`、`channels.feishu.*`），仍约定只放 `.env`。
 - 许可证改为 **MIT**（新增 `LICENSE`，`pyproject.toml` 去掉 `Private :: Do Not Upload`）。
 - 跨平台适配：CLI 在 Windows 上不再因 GBK 控制台编码崩掉（终端切 UTF-8，管道只替换
   不可编码字符）；补齐 `scripts/*.sh`，文档命令同时给出 PowerShell 与 bash 版本；
@@ -34,9 +38,6 @@
 
 ### 修复
 
-- **环境变量优先级统一**：`OPENAI_BASE_URL` / `FEISHU_APP_ID` / `FEISHU_APP_SECRET` /
-  `FEISHU_BASE_URL` 等无前缀厂商变量现在会覆盖 `config.yaml` 里的同名字段，不再出现
-  「`.env` 改了、YAML 有值就不生效」。两族环境变量冲突时 `DOUDOU_*` 优先。
 - 飞书：`bot/v3/info` 的响应体只在 `raw.content` 里，字段是 `bot.open_id`；原来的解析路径
   读 `response.data`（恒为 `None`），导致「自动获取 `bot_open_id`」从未生效，而且没有任何日志。
   现在解析原始 JSON，成功但取不到 `open_id` 时打 warning。

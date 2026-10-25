@@ -28,10 +28,10 @@ FROM python:${PYTHON_VERSION}-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
-    DOUDOU_ENV=prod \
-    DOUDOU_HOST=0.0.0.0 \
-    DOUDOU_PORT=8000 \
-    DOUDOU_ROOT_DIR=/data
+    DOUDOU_RUNTIME_ENV=prod \
+    DOUDOU_SERVER_HOST=0.0.0.0 \
+    DOUDOU_SERVER_PORT=8000 \
+    DOUDOU_FILESYSTEM_ROOT_DIR=/data
 
 RUN groupadd --system --gid 1000 doudou \
     && useradd --system --uid 1000 --gid doudou --create-home doudou \

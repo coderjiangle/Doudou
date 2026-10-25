@@ -40,7 +40,7 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 
 | 情况 | 行为 |
 | --- | --- |
-| 没有当前 provider 的 key（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY`） | `web_search` 整组不出现 |
+| 没有 `DOUDOU_TOOLS_WEB_SEARCH_API_KEY` | `web_search` 整组不出现 |
 | `tools.http.allowed_domains` 为空 | `http_request` 不出现 |
 | `config.yaml` 里 `tools.disabled: [x]` | `x` 不出现 |
 
@@ -52,12 +52,13 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 
 `tools.web_search.provider` 可选 `tavily`（默认）或 `deepseek`：
 
-| provider | 凭据 | 说明 |
-| --- | --- | --- |
-| `tavily` | `TAVILY_API_KEY` | 支持 `search_depth` / `include_answer`，可返回综合答案 |
-| `deepseek` | `DEEPSEEK_API_KEY` | DeepSeek 自研搜索，结果优先取 `summary`；`need_content` 控制是否取网页正文 |
+| provider | 说明 |
+| --- | --- |
+| `tavily` | 支持 `search_depth` / `include_answer`，可返回综合答案 |
+| `deepseek` | DeepSeek 自研搜索，结果优先取 `summary`；`need_content` 控制是否取网页正文 |
 
-换 provider 必须同时换对应的 key —— 拿另一家的 key 不会把工具点亮（这条有单测钉住）。
+凭据统一放在 `tools.web_search.api_key`（环境变量 `DOUDOU_TOOLS_WEB_SEARCH_API_KEY`），
+provider 只决定调哪家服务，换 provider 不必换字段名。
 
 ### 2.4 shell_exec 的沙箱
 

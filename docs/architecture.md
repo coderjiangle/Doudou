@@ -127,7 +127,7 @@ run_start
 
 | 模块 | 职责 |
 | --- | --- |
-| `config` | `settings`（env）+ `schema`（类型模型）+ `loader`（合并优先级）。全局唯一配置入口。 |
+| `config` | `env`（环境变量→配置路径）+ `schema`（类型模型）+ `loader`（合并优先级）+ `settings`（凭据视图）。全局唯一配置入口。 |
 | `storage.database` | 引擎、会话工厂、建表；SQLite 外键开关；自动建父目录。 |
 | `storage.models` | `threads` / `messages` / `session_bindings` 三张表。 |
 | `storage.repositories` | 单表读写与聚合，不持有会话生命周期。 |

@@ -1,18 +1,19 @@
-"""Provider 元数据：凭据与 base_url 的官方环境变量名。
+"""Provider 元数据：凭据与 base_url 的官方命名。
 
-放在 ``config`` 层，是因为配置加载需要用它把「无前缀的厂商变量」映射到
-``model.base_url`` 与 ``Secrets``；``agent.models`` 也复用同一份，避免两边各写一套。
+配置层和模型工厂共用这一份，避免两边各写一套：
 
-约定：
+* ``PROVIDER_CREDENTIALS`` 用来判断某个 provider 是否需要 API Key，以及
+  旧版环境变量名（仅作兼容提示）；
+* ``PROVIDER_BASE_URL_ENV`` 把 provider 映射到 ``Secrets`` 里的 base_url 字段，
+  新配置优先用 ``model.base_urls`` / ``model.base_url``。
 
-* 凭据沿用各家官方命名，只有 ``Secrets`` 声明的才会读 ``.env``；
-* ``base_url`` 同样是厂商变量，优先级低于 ``DOUDOU_MODEL__BASE_URL``、
-  高于 ``config.yaml`` 的 ``model.base_url``。
+新代码请不要直接读这些厂商环境变量 —— 统一走 ``DOUDOU_*`` 配置路径
+（见 :mod:`doudou.config.env`）。
 """
 
 from __future__ import annotations
 
-#: provider -> 该 provider 需要的环境变量（用于报错提示与凭据检查）。
+#: provider -> 该 provider 需要的凭据。值为旧版官方环境变量名，仅用于提示与兼容。
 PROVIDER_CREDENTIALS: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "azure_openai": "AZURE_OPENAI_API_KEY",
@@ -26,7 +27,7 @@ PROVIDER_CREDENTIALS: dict[str, str] = {
     "ollama": "",
 }
 
-#: provider -> 该 provider 读取 base_url 的官方环境变量名。
+#: provider -> ``Secrets`` 里对应的 base_url 字段名。
 #: 变量名小写后与 :class:`~doudou.config.settings.Secrets` 的字段一一对应。
 PROVIDER_BASE_URL_ENV: dict[str, str] = {
     "openai": "OPENAI_BASE_URL",

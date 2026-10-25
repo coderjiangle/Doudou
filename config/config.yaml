@@ -24,14 +24,14 @@ server:
 # ---------------------------------------------------------------- 模型
 # 供应商：火山方舟 Coding Plan（OpenAI 兼容协议）
 #   base_url 指向方舟 coding 端点，provider 用 openai
-#   API Key 从 .env 的 OPENAI_API_KEY 读取（见 agent/models._secret_api_key）
+#   API Key 从 .env 的 DOUDOU_MODEL_API_KEY 读取（见 agent/models._secret_api_key）
 #   模型名必须是 coding plan 支持的 ID；deepseek-v4.1-flash 已验证可用
 model:
   primary: openai:deepseek-v4.1-flash
   fallbacks: []
   temperature: 0.2
   # 只封顶单次生成，避免「允许生成几十万 token」既慢又贵；
-  # 需要长文时用 DOUDOU_MODEL__MAX_TOKENS 临时调高。
+  # 需要长文时用 DOUDOU_MODEL_MAX_TOKENS 临时调高。
   max_tokens: 32768
   # 长文生成会明显超过默认 120s，这里放宽；网关侧若有更短超时会以网关为准。
   timeout: 300
@@ -80,7 +80,7 @@ tools:
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
 
-  # web_search（tavily | deepseek）：缺少对应 API Key 时该分组整组不注册
+  # web_search（tavily | deepseek）：key 统一由 DOUDOU_TOOLS_WEB_SEARCH_API_KEY 提供
   web_search:
     provider: deepseek
     max_results: 5
@@ -178,7 +178,7 @@ channels:
     base_url: https://open.feishu.cn
     bot_name: 豆豆助手           # 群聊 @ 判定用，需与飞书里的显示名一致
     # bot_open_id:       # 更可靠的 @ 判定；留空时启动会自动获取
-    # app_id / app_secret 从 .env 的 FEISHU_APP_ID / FEISHU_APP_SECRET 注入
+    # app_id / app_secret 从 .env 的 DOUDOU_CHANNELS_FEISHU_APP_ID / DOUDOU_CHANNELS_FEISHU_APP_SECRET 注入
     reply_mode: card           # card（流式卡片）| text
     stream_reply: true
     card_update_interval_ms: 800
@@ -210,7 +210,7 @@ observability:
     prices:
       default: {input: 0.0, output: 0.0}
   tracing:
-    enabled: false             # 需要 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
+    enabled: false             # 需要 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY
     host: https://cloud.langfuse.com
     sample_rate: 1.0
   # 以下两项未使用（早期预留），保留以兼容既有配置

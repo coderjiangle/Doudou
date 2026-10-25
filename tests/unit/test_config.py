@@ -15,7 +15,6 @@ from doudou.config.loader import (
     reset_settings_cache,
 )
 from doudou.config.schema import AppConfig
-from doudou.config.settings import Secrets
 from doudou.security.secrets import mask, redact
 from tests.conftest import MINIMAL_CONFIG
 
@@ -58,9 +57,9 @@ def test_env_overrides_yaml(settings_factory) -> None:  # type: ignore[no-untype
     settings = settings_factory(
         config_yaml=MINIMAL_CONFIG,
         env={
-            "DOUDOU_AGENT__NAME": "EnvName",
-            "DOUDOU_SERVER__PORT": "9123",
-            "DOUDOU_MODEL__PRIMARY": "scripted:demo",
+            "DOUDOU_AGENT_NAME": "EnvName",
+            "DOUDOU_SERVER_PORT": "9123",
+            "DOUDOU_MODEL_PRIMARY": "scripted:demo",
         },
     )
 
@@ -77,7 +76,7 @@ def test_api_token_is_meta_config(settings_factory) -> None:  # type: ignore[no-
 
 
 def test_use_env_false_ignores_process_env(settings_factory, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("DOUDOU_AGENT__NAME", "ShouldBeIgnored")
+    monkeypatch.setenv("DOUDOU_AGENT_NAME", "ShouldBeIgnored")
 
     settings = settings_factory(config_yaml=MINIMAL_CONFIG, use_env=False)
 
@@ -92,23 +91,30 @@ def test_unknown_yaml_key_is_rejected(settings_factory) -> None:  # type: ignore
 def test_secrets_read_from_env(settings_factory) -> None:  # type: ignore[no-untyped-def]
     settings = settings_factory(
         config_yaml=MINIMAL_CONFIG,
-        env={"OPENAI_API_KEY": "sk-test", "FEISHU_APP_SECRET": "shh"},
+        env={
+            "DOUDOU_MODEL_API_KEY": "sk-test",
+            "DOUDOU_CHANNELS_FEISHU_APP_SECRET": "shh",
+        },
     )
 
+    assert settings.app.model.api_key == "sk-test"
+    assert settings.app.channels.feishu.app_secret == "shh"
+    # Secrets 只是派生视图：主 provider 是 openai，所以能按 provider 取到。
     assert settings.secrets.openai_api_key == "sk-test"
     assert settings.secrets.feishu_app_secret == "shh"
 
 
 def test_feishu_base_url_secret_is_applied_to_channel(settings_factory) -> None:  # type: ignore[no-untyped-def]
     settings = settings_factory(
-        config_yaml=MINIMAL_CONFIG, env={"FEISHU_BASE_URL": "https://open.larksuite.com"}
+        config_yaml=MINIMAL_CONFIG,
+        env={"DOUDOU_CHANNELS_FEISHU_BASE_URL": "https://open.larksuite.com"},
     )
 
     assert settings.app.channels.feishu.base_url == "https://open.larksuite.com"
 
 
 def test_feishu_env_overrides_yaml(settings_factory) -> None:  # type: ignore[no-untyped-def]
-    """无前缀的 FEISHU_* 也是环境变量，必须覆盖 config.yaml。"""
+    """环境变量必须覆盖 config.yaml。"""
     settings = settings_factory(
         config_yaml=MINIMAL_CONFIG
         + (
@@ -119,9 +125,9 @@ def test_feishu_env_overrides_yaml(settings_factory) -> None:  # type: ignore[no
             "    base_url: https://open.feishu.cn\n"
         ),
         env={
-            "FEISHU_APP_ID": "env-app",
-            "FEISHU_APP_SECRET": "env-secret",
-            "FEISHU_BASE_URL": "https://open.larksuite.com",
+            "DOUDOU_CHANNELS_FEISHU_APP_ID": "env-app",
+            "DOUDOU_CHANNELS_FEISHU_APP_SECRET": "env-secret",
+            "DOUDOU_CHANNELS_FEISHU_BASE_URL": "https://open.larksuite.com",
         },
     )
 
@@ -135,53 +141,49 @@ def test_openai_base_url_env_overrides_yaml(settings_factory) -> None:  # type: 
     settings = settings_factory(
         config_yaml=MINIMAL_CONFIG
         + "model:\n  primary: openai:gpt-5.5\n  base_url: https://yaml.example/v1\n",
-        env={"OPENAI_BASE_URL": "https://env.example/v1"},
+        env={"DOUDOU_MODEL_BASE_URL": "https://env.example/v1"},
     )
 
     assert settings.app.model.base_url == "https://env.example/v1"
 
 
-def test_doudou_override_beats_vendor_env(settings_factory) -> None:  # type: ignore[no-untyped-def]
-    """两族环境变量都设置了同一字段时，显式的 DOUDOU_* 优先。"""
-    settings = settings_factory(
-        config_yaml=MINIMAL_CONFIG + "model:\n  primary: openai:gpt-5.5\n",
-        env={
-            "OPENAI_BASE_URL": "https://vendor.example/v1",
-            "DOUDOU_MODEL__BASE_URL": "https://doudou.example/v1",
-        },
-    )
-
-    assert settings.app.model.base_url == "https://doudou.example/v1"
-
-
-def test_doudou_feishu_base_url_beats_vendor_env(settings_factory) -> None:  # type: ignore[no-untyped-def]
+def test_structured_values_are_json(settings_factory) -> None:  # type: ignore[no-untyped-def]
+    """列表/字典字段用 JSON，单下划线不会破坏字段名里的下划线。"""
     settings = settings_factory(
         config_yaml=MINIMAL_CONFIG,
         env={
-            "FEISHU_BASE_URL": "https://lark.example",
-            "DOUDOU_CHANNELS__FEISHU__BASE_URL": "https://doudou.example",
+            "DOUDOU_MODEL_API_KEYS": '{"openai": "sk-a", "anthropic": "sk-b"}',
+            "DOUDOU_AGENT_INTERRUPT_ON": '{"workspace_write": false}',
         },
     )
 
-    assert settings.app.channels.feishu.base_url == "https://doudou.example"
+    assert settings.app.model.api_keys["anthropic"] == "sk-b"
+    assert settings.app.agent.interrupt_on["workspace_write"] is False
 
 
-def test_vendor_base_url_is_provider_scoped(settings_factory) -> None:  # type: ignore[no-untyped-def]
-    """OPENAI_BASE_URL 不应该影响非 openai provider。"""
+def test_base_urls_are_provider_scoped(settings_factory) -> None:  # type: ignore[no-untyped-def]
     settings = settings_factory(
-        config_yaml=MINIMAL_CONFIG
-        + "model:\n  primary: anthropic:claude-sonnet-5\n  base_url: https://yaml.example\n",
-        env={"OPENAI_BASE_URL": "https://env.example"},
+        config_yaml=MINIMAL_CONFIG,
+        env={"DOUDOU_MODEL_BASE_URLS": '{"openai": "https://env.example"}'},
     )
 
-    assert settings.app.model.base_url == "https://yaml.example"
+    assert settings.app.model.base_urls == {"openai": "https://env.example"}
+    assert settings.secrets.openai_base_url == "https://env.example"
+    assert settings.secrets.anthropic_base_url is None
 
 
-def test_nested_env_delimiter(settings_factory) -> None:  # type: ignore[no-untyped-def]
-    """嵌套字段用 ``__`` 分隔，这是写在 docs/configuration.md 里的约定。"""
-    settings = settings_factory(config_yaml=MINIMAL_CONFIG, env={"DOUDOU_SERVER__PORT": "8080"})
+def test_env_path_uses_single_underscore(settings_factory) -> None:  # type: ignore[no-untyped-def]
+    """``DOUDOU_MODEL_MAX_TOKENS`` 必须落到 ``model.max_tokens``。"""
+    settings = settings_factory(
+        config_yaml=MINIMAL_CONFIG,
+        env={
+            "DOUDOU_SERVER_PORT": "8080",
+            "DOUDOU_MODEL_MAX_TOKENS": "1234",
+        },
+    )
 
     assert settings.app.server.port == 8080
+    assert settings.app.model.max_tokens == 1234
 
 
 # --------------------------------------------------------------------------- 路径解析
@@ -229,6 +231,31 @@ def test_redact_only_touches_sensitive_keys() -> None:
     assert redacted["nested"]["token"] != "xyzxyzxyz"
 
 
+def test_redact_masks_nested_values_under_sensitive_key() -> None:
+    payload = {"api_keys": {"openai": "sk-abcdef123456", "anthropic": "sk-ant-987"}}
+
+    redacted = redact(payload)
+
+    assert redacted["api_keys"]["openai"] != "sk-abcdef123456"
+    assert "sk-abcdef123456" not in str(redacted)
+    assert "sk-ant-987" not in str(redacted)
+
+
+def test_describe_redacts_api_keys_and_encrypt_key(settings_factory) -> None:  # type: ignore[no-untyped-def]
+    settings = settings_factory(
+        config_yaml=MINIMAL_CONFIG,
+        env={
+            "DOUDOU_MODEL_API_KEYS": '{"openai": "sk-nested-secret"}',
+            "DOUDOU_CHANNELS_FEISHU_ENCRYPT_KEY": "encrypt-secret",
+        },
+    )
+
+    shown = str(settings.describe())
+
+    assert "sk-nested-secret" not in shown
+    assert "encrypt-secret" not in shown
+
+
 def test_mask_edge_cases() -> None:
     assert mask("") == ""
     assert mask("abc") == "********"
@@ -258,14 +285,15 @@ def test_settings_cache_can_be_reset() -> None:
     reset_settings_cache()
 
 
-def test_secrets_field_names_match_official_env_names() -> None:
-    """无前缀凭据直接沿用官方环境变量名。"""
-    assert set(Secrets.model_fields) >= {
-        "openai_api_key",
-        "anthropic_api_key",
-        "feishu_app_secret",
-        "tavily_api_key",
-    }
+def test_env_names_follow_config_paths() -> None:
+    """所有环境变量都以 DOUDOU_ 开头，后缀就是 config.yaml 的路径。"""
+    from doudou.config.env import CONFIG_ENV_PATHS
+
+    assert CONFIG_ENV_PATHS["DOUDOU_MODEL_PRIMARY"] == "model.primary"
+    assert CONFIG_ENV_PATHS["DOUDOU_MODEL_MAX_TOKENS"] == "model.max_tokens"
+    assert CONFIG_ENV_PATHS["DOUDOU_MODEL_API_KEY"] == "model.api_key"
+    assert CONFIG_ENV_PATHS["DOUDOU_CHANNELS_FEISHU_APP_SECRET"] == "channels.feishu.app_secret"
+    assert all(name.startswith("DOUDOU_") for name in CONFIG_ENV_PATHS)
 
 
 def test_app_config_defaults_are_complete() -> None:

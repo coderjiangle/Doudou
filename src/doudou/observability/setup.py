@@ -145,8 +145,9 @@ def _build_tracer(settings: Settings) -> LangfuseTracer | None:
     if not public_key or not secret_key:
         logger.warning(
             "tracing.missing_credentials",
-            hint="observability.tracing.enabled 为真，但缺少 LANGFUSE_PUBLIC_KEY / "
-            "LANGFUSE_SECRET_KEY，追踪已关闭",
+            hint="observability.tracing.enabled 为真，但缺少 "
+            "DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / "
+            "DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY，追踪已关闭",
         )
         return None
 

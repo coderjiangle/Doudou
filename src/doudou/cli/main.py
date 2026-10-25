@@ -514,15 +514,20 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
         missing = [
             name
             for name, value in (
-                ("FEISHU_APP_ID", settings.secrets.feishu_app_id),
-                ("FEISHU_APP_SECRET", settings.secrets.feishu_app_secret),
+                ("DOUDOU_CHANNELS_FEISHU_APP_ID", feishu.app_id),
+                ("DOUDOU_CHANNELS_FEISHU_APP_SECRET", feishu.app_secret),
             )
             if not value
         ]
         if missing:
             problems.append(("warn", f"飞书通道已启用但缺少：{', '.join(missing)}"))
-        if not settings.secrets.feishu_encrypt_key:
-            problems.append(("warn", "飞书未配置 FEISHU_ENCRYPT_KEY，生产环境应启用加密"))
+        if not feishu.encrypt_key:
+            problems.append(
+                (
+                    "warn",
+                    "飞书未配置 DOUDOU_CHANNELS_FEISHU_ENCRYPT_KEY，生产环境应启用加密",
+                )
+            )
 
     skill_registry = SkillRegistry.from_settings(settings)
     for message in skill_registry.errors:

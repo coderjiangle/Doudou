@@ -221,8 +221,9 @@ def _resolve_cwd(settings: Settings, configured: str | None, *, create: bool = T
 def _build_env(inherit: Sequence[str], *, sandboxed: bool = False) -> dict[str, str]:
     """只透传白名单里的环境变量。
 
-    默认不继承整个环境：那会把 ``OPENAI_API_KEY``、``FEISHU_APP_SECRET``
-    之类一并交给子进程，而子进程可能是模型临时拼出来的命令。
+    默认不继承整个环境：那会把 ``DOUDOU_MODEL_API_KEY``、
+    ``DOUDOU_CHANNELS_FEISHU_APP_SECRET`` 之类一并交给子进程，而子进程可能是
+    模型临时拼出来的命令。
 
     沙箱里没有宿主的 ``HOME``，这里指向 ``/tmp``：npm / pip 之类需要一个可写的
     home 与缓存目录，否则会在「跟隔离无关」的地方失败。

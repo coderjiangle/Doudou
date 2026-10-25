@@ -215,8 +215,8 @@ def _sanitize(value: Any) -> Any:
     if isinstance(value, dict):
         cleaned: dict[str, Any] = {}
         for key, item in value.items():
-            if isinstance(item, str) and is_sensitive(str(key)):
-                cleaned[key] = MASK
+            if is_sensitive(str(key)):
+                cleaned[key] = _mask_tree(item)
             else:
                 cleaned[key] = _sanitize(item)
         return cleaned
@@ -224,6 +224,17 @@ def _sanitize(value: Any) -> Any:
         return [_sanitize(item) for item in value]
     if isinstance(value, str):
         return _URL_CREDENTIALS.sub(rf"\g<scheme>\g<user>:{MASK}@", value)
+    return value
+
+
+def _mask_tree(value: Any) -> Any:
+    """敏感字段下的所有字符串都打码（保留字典的键名）。"""
+    if isinstance(value, str):
+        return MASK
+    if isinstance(value, dict):
+        return {key: _mask_tree(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_mask_tree(item) for item in value]
     return value
 
 

@@ -4,8 +4,8 @@
 由 :mod:`doudou.tools.registry` 统一装配。
 
 「按配置装配」的一条重要约定：**缺依赖的工具不注册**，而不是注册一个永远失败的。
-例：没有当前搜索 provider 的 key（``TAVILY_API_KEY`` / ``DEEPSEEK_API_KEY``）就没有
-``web_search``；``tools.http.allowed_domains`` 为空就没有 ``http_request``。
+例：没有 ``DOUDOU_TOOLS_WEB_SEARCH_API_KEY`` 就没有 ``web_search``；
+``tools.http.allowed_domains`` 为空就没有 ``http_request``。
 这样工具列表恒等于「现在真的能用」的能力。
 """
 

@@ -39,7 +39,7 @@ def test_no_tool_without_key(settings) -> None:  # type: ignore[no-untyped-def]
 
 
 def test_tool_created_with_key(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
 
     tools = web_search.build_tools(settings)
 
@@ -51,12 +51,12 @@ def test_unsupported_provider_is_rejected_at_config_load(tools_settings) -> None
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
-        tools_settings(env={"DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "nope"})
+        tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "nope"})
 
 
 def test_provider_is_case_insensitive(tools_settings) -> None:  # type: ignore[no-untyped-def]
     """``deepSeek`` / ``DeepSeek`` 都能用 —— 标识符不该因为大小写拒绝启动。"""
-    settings = tools_settings(env={"DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "  DeepSeek "})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "  DeepSeek "})
 
     assert settings.app.tools.web_search.provider == "deepseek"
 
@@ -64,30 +64,30 @@ def test_provider_is_case_insensitive(tools_settings) -> None:  # type: ignore[n
 # --------------------------------------------------------------------------- DeepSeek
 
 
-def test_deepseek_provider_needs_its_own_key(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek"})
+def test_deepseek_without_key_is_not_registered(tools_settings) -> None:  # type: ignore[no-untyped-def]
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek"})
 
     assert web_search.build_tools(settings) == []
-    assert web_search.missing_requirement(settings) == "缺少 DEEPSEEK_API_KEY"
+    assert web_search.missing_requirement(settings) == ("缺少 DOUDOU_TOOLS_WEB_SEARCH_API_KEY")
 
 
-def test_tavily_key_does_not_unlock_deepseek(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    """换 provider 就得换 key —— 不能拿另一家的凭据把工具点亮。"""
+def test_same_api_key_serves_both_providers(tools_settings) -> None:  # type: ignore[no-untyped-def]
+    """key 属于 ``tools.web_search``，不绑定 provider；换 provider 不必改字段名。"""
     settings = tools_settings(
         env={
-            "TAVILY_API_KEY": "tvly-test",
-            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
+            "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "shared-test",
+            "DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek",
         }
     )
 
-    assert web_search.build_tools(settings) == []
+    assert [item.name for item in web_search.build_tools(settings)] == ["web_search"]
 
 
 def test_deepseek_tool_created_with_key(tools_settings) -> None:  # type: ignore[no-untyped-def]
     settings = tools_settings(
         env={
-            "DEEPSEEK_API_KEY": "sk-test",
-            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
+            "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "sk-test",
+            "DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek",
         }
     )
 
@@ -100,8 +100,8 @@ def test_deepseek_tool_created_with_key(tools_settings) -> None:  # type: ignore
 async def test_deepseek_request_shape_and_formatting(tools_settings) -> None:  # type: ignore[no-untyped-def]
     settings = tools_settings(
         env={
-            "DEEPSEEK_API_KEY": "sk-test",
-            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
+            "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "sk-test",
+            "DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek",
         }
     )
     captured: dict = {}
@@ -147,9 +147,9 @@ async def test_deepseek_request_shape_and_formatting(tools_settings) -> None:  #
 async def test_deepseek_need_content_is_configurable(tools_settings) -> None:  # type: ignore[no-untyped-def]
     settings = tools_settings(
         env={
-            "DEEPSEEK_API_KEY": "sk-test",
-            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
-            "DOUDOU_TOOLS__WEB_SEARCH__NEED_CONTENT": "true",
+            "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "sk-test",
+            "DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek",
+            "DOUDOU_TOOLS_WEB_SEARCH_NEED_CONTENT": "true",
         }
     )
     captured: dict = {}
@@ -170,8 +170,8 @@ async def test_deepseek_need_content_is_configurable(tools_settings) -> None:  #
 async def test_deepseek_handles_empty_results(tools_settings) -> None:  # type: ignore[no-untyped-def]
     settings = tools_settings(
         env={
-            "DEEPSEEK_API_KEY": "sk-test",
-            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
+            "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "sk-test",
+            "DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek",
         }
     )
     client = _client({"results": []})
@@ -187,8 +187,8 @@ async def test_deepseek_surfaces_error_message(tools_settings) -> None:  # type:
     """402/401 的 body 里有人话，要把它带到异常里，而不是只剩一个状态码。"""
     settings = tools_settings(
         env={
-            "DEEPSEEK_API_KEY": "sk-test",
-            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
+            "DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "sk-test",
+            "DOUDOU_TOOLS_WEB_SEARCH_PROVIDER": "deepseek",
         }
     )
     calls: list[int] = []
@@ -214,7 +214,7 @@ async def test_deepseek_surfaces_error_message(tools_settings) -> None:  # type:
 
 
 async def test_formats_results_with_sources(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
     client = _client()
     tool = web_search.build_tools(settings, client=client)[0]
 
@@ -229,7 +229,7 @@ async def test_formats_results_with_sources(tools_settings) -> None:  # type: ig
 
 
 async def test_handles_empty_results(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
     client = _client({"results": []})
     tool = web_search.build_tools(settings, client=client)[0]
 
@@ -241,7 +241,7 @@ async def test_handles_empty_results(tools_settings) -> None:  # type: ignore[no
 
 async def test_handles_missing_fields(tools_settings) -> None:  # type: ignore[no-untyped-def]
     """接口字段缺失时不能崩，只要还能给出可用信息就行。"""
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
     client = _client({"results": [{"url": "https://example.com/x"}, "垃圾数据"]})
     tool = web_search.build_tools(settings, client=client)[0]
 
@@ -252,7 +252,7 @@ async def test_handles_missing_fields(tools_settings) -> None:  # type: ignore[n
 
 
 async def test_truncates_long_snippet(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
     client = _client({"results": [{"title": "t", "url": "u", "content": "长" * 5000}]})
     tool = web_search.build_tools(settings, client=client)[0]
 
@@ -268,7 +268,7 @@ async def test_truncates_long_snippet(tools_settings) -> None:  # type: ignore[n
 
 async def test_client_error_is_raised_not_retried(tools_settings) -> None:  # type: ignore[no-untyped-def]
     """401/429 这类错误重试没有意义，直接抛出（由 Agent 转成工具失败）。"""
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
     calls: list[int] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -286,7 +286,7 @@ async def test_client_error_is_raised_not_retried(tools_settings) -> None:  # ty
 
 
 async def test_transport_error_is_retried(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
     calls: list[int] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -304,7 +304,7 @@ async def test_transport_error_is_retried(tools_settings) -> None:  # type: igno
 
 
 async def test_non_object_payload_is_rejected(tools_settings) -> None:  # type: ignore[no-untyped-def]
-    settings = tools_settings(env={"TAVILY_API_KEY": "tvly-test"})
+    settings = tools_settings(env={"DOUDOU_TOOLS_WEB_SEARCH_API_KEY": "tvly-test"})
     client = _client([1, 2, 3])
     tool = web_search.build_tools(settings, client=client)[0]
 

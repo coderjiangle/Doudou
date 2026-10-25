@@ -73,7 +73,7 @@ observability:
 
 1. `observability.tracing.enabled: true`
 2. 装了 SDK：`uv sync --extra tracing`（或 `--all-extras`）
-3. `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` 齐备
+3. `DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY` / `_SECRET_KEY` 齐备
 
 ```yaml
 observability:

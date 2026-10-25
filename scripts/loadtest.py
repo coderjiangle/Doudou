@@ -117,7 +117,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 async def build(*, config_dir: Path, database: bool, with_tool: bool):  # type: ignore[no-untyped-def]
     """装配一个尽量贴近真实的 runner（含观察者）。"""
-    os.environ.setdefault("DOUDOU_RUNTIME__LOG_LEVEL", "ERROR")
+    os.environ.setdefault("DOUDOU_RUNTIME_LOG_LEVEL", "ERROR")
     settings = load_settings(config_dir=config_dir, use_env=True)
 
     model = LoadModel() if with_tool else ScriptedChatModel(fallback_text="结论：已完成。")

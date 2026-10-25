@@ -33,8 +33,13 @@ model:
   max_tokens: 4096
   timeout: 120
   max_retries: 2
-  # 供自建/兼容网关使用
+  # 凭据只放 .env：DOUDOU_MODEL_API_KEY（主 provider）
+  # 多 provider 用 DOUDOU_MODEL_API_KEYS='{"openai": "...", "anthropic": "..."}'
+  api_key: null
+  api_keys: {}
+  # 供自建/兼容网关使用；多 provider 用 DOUDOU_MODEL_BASE_URLS
   base_url: null
+  base_urls: {}
 
 # ---------------------------------------------------------------- Agent
 agent:
@@ -75,10 +80,11 @@ tools:
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
 
-  # 联网检索：provider = tavily | deepseek。缺少对应 API Key 时该分组整组不注册 ——
-  # 「永远失败的工具」只会占提示词并诱导模型乱试。
+  # 联网检索：provider = tavily | deepseek，key 都放 DOUDOU_TOOLS_WEB_SEARCH_API_KEY。
+  # 缺少 API Key 时该分组整组不注册 ——「永远失败的工具」只会占提示词并诱导模型乱试。
   web_search:
-    provider: tavily          # tavily → TAVILY_API_KEY；deepseek → DEEPSEEK_API_KEY（自研搜索）
+    provider: tavily          # tavily（默认）| deepseek（自研搜索）
+    api_key: null             # 只放 .env
     max_results: 5
     search_depth: basic        # 仅 tavily：basic | advanced（更准但更慢更贵）
     include_answer: true       # 仅 tavily：是否附带摘要答案
@@ -180,7 +186,7 @@ channels:
     base_url: https://open.feishu.cn
     bot_name: Doudou         # 群聊 @ 判定用，需与飞书里的显示名一致
     # bot_open_id: ou_xxx    # 更可靠的 @ 判定；留空时启动会自动去查
-    # app_id / app_secret 从 .env 的 FEISHU_APP_ID / FEISHU_APP_SECRET 注入
+    # app_id / app_secret 从 .env 的 DOUDOU_CHANNELS_FEISHU_APP_ID / DOUDOU_CHANNELS_FEISHU_APP_SECRET 注入
     event_path: /webhooks/feishu/events
     reply_mode: card         # card | text
     stream_reply: true       # 卡片流式更新
@@ -226,7 +232,7 @@ observability:
       # openai:gpt-x: {input: 3.0, output: 15.0}   # 每 100 万 token
 
   # 追踪：Langfuse。默认关闭 —— 把对话内容发到第三方必须是明确的决定。
-  # 打开还需 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY，以及装好 SDK
+  # 打开还需 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY，以及装好 SDK
   # （uv sync --extra tracing）。缺任一条都会安静降级并告警。
   tracing:
     enabled: false

@@ -10,12 +10,11 @@ from doudou.config.loader import (
     reset_settings_cache,
 )
 from doudou.config.schema import AppConfig
-from doudou.config.settings import EnvSettings, Secrets
+from doudou.config.settings import Secrets
 
 __all__ = [
     "DEFAULT_CONFIG_DIR",
     "AppConfig",
-    "EnvSettings",
     "Secrets",
     "Settings",
     "get_settings",

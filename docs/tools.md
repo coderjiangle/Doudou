@@ -59,6 +59,21 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 
 换 provider 必须同时换对应的 key —— 拿另一家的 key 不会把工具点亮（这条有单测钉住）。
 
+### 2.4 shell_exec 的沙箱
+
+`tools.shell.sandbox: bwrap`（仅 Linux）会把命令包进 [bubblewrap](https://github.com/containers/bubblewrap)：
+
+| 范围 | 行为 |
+| --- | --- |
+| 工作区 | 读写绑定（唯一可写目录） |
+| 工作区的父目录 | tmpfs 遮住 —— `config/`、`.env`、数据库都不可见 |
+| 系统路径 | `/usr` 只读，`/bin`、`/lib*`、DNS、CA 证书等尽力只读挂载 |
+| `/proc`、`/dev`、`/tmp` | 新实例，独立 pid namespace；`HOME` 指向 `/tmp` |
+| 网络 | **不隔离**（装依赖、`curl` 仍可用） |
+
+需要系统安装 bubblewrap（Debian/Ubuntu：`apt install bubblewrap`）。不满足时 `shell`
+分组整组不注册，`doudou tools list` 会说明原因。沙箱只隔离文件系统，不替代容器。
+
 ## 3. 写一个内置工具
 
 1. 位于 `src/doudou/tools/builtin/<主题>.py`，导出 `build_tools(settings) -> Sequence[BaseTool]`。

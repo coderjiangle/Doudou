@@ -123,6 +123,9 @@ class ShellToolConfig(_Section):
     """
 
     enabled: bool = False
+    #: 沙箱 backend：``""``（不隔离）或 ``"bwrap"``（Linux，需要 bubblewrap）。
+    #: 打开后只有工作区可写，配置与密钥不在沙箱的可见范围内。
+    sandbox: Literal["", "bwrap"] = ""
     #: 工作目录，默认取 ``filesystem.root_dir``。
     cwd: str | None = None
     timeout: float = 60.0

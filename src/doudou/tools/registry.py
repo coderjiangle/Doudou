@@ -315,6 +315,11 @@ def describe_groups(settings: Settings) -> list[GroupStatus]:
             if missing:
                 statuses.append(GroupStatus(group, False, missing))
                 continue
+        if group == "shell":
+            reason = shell.missing_requirement(settings)
+            if reason:
+                statuses.append(GroupStatus(group, False, reason))
+                continue
         if group == "http" and not settings.app.tools.http.allowed_domains:
             statuses.append(
                 GroupStatus(group, False, "tools.http.allowed_domains 为空（默认拒绝一切出站请求）")

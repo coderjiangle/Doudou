@@ -194,7 +194,10 @@ agent:
 - `shell_exec` **默认禁用**（`tools.shell.enabled: false`）。它是唯一没有约束机制的出口：
   路径权限规则对它无效（`rm -rf /` 不经过我们的路径解析），工作目录只是「起点的默认位置」。
   打开时能给的保护仅限：执行超时、输出上限、环境变量白名单（不把 `*_API_KEY` 透传给
-  子进程）、以及人工确认。**需要真正隔离请用容器 / 沙箱，不要指望这个工具。**
+  子进程）、以及人工确认。
+- Linux 上可以再打开 `tools.shell.sandbox: bwrap`：命令被关进 bubblewrap 沙箱，只有工作区
+  可写，`config/`、`.env`、数据库都不可见。它**只隔离文件系统、不隔离网络**，也不替代
+  容器；容器内通常还需要额外的 namespace 权限。`bwrap` 不存在时 `shell` 分组整组不注册。
 - 子 Agent 拿不到 `task`（`FORBIDDEN_TOOLS`），递归深度因此有界；
   它的确认策略按**自己的**工具清单重算，不会继承主 Agent 而静默放宽。
 - `agent.recursion_limit` 防死循环；`mcp.call_timeout` 与模型 `timeout` 防挂死。

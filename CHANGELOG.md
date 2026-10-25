@@ -6,6 +6,9 @@
 
 ### 新增
 
+- `shell_exec` 支持 Linux 沙箱：`tools.shell.sandbox: bwrap` 用 bubblewrap 把命令关进
+  「只有工作区可写」的文件系统视图（父目录 tmpfs 遮罩、系统路径只读、网络不隔离）；
+  `bwrap` 不可用或工作区在根目录时，`shell` 分组整组不注册并说明原因。
 - `web_search` 支持 **DeepSeek 自研搜索**：`tools.web_search.provider: deepseek`，
   使用 `DEEPSEEK_API_KEY` 调 `POST /v1/tools/search`；结果优先取官方的 `summary`
   （为模型准备的长摘要），可选 `need_content` 返回正文。

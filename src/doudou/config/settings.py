@@ -84,12 +84,22 @@ class EnvFilesTool(_EnvSection):
     max_read_chars: int | None = None
 
 
+class EnvShellTool(_EnvSection):
+    enabled: bool | None = None
+    sandbox: str | None = None
+    cwd: str | None = None
+    timeout: float | None = None
+    max_output_chars: int | None = None
+    inherit_env: list[str] | None = None
+
+
 class EnvTools(_EnvSection):
     enabled_groups: list[str] | None = None
     disabled: list[str] | None = None
     http: EnvHttpTool | None = None
     web_search: EnvWebSearchTool | None = None
     files: EnvFilesTool | None = None
+    shell: EnvShellTool | None = None
 
 
 class EnvFilesystem(_EnvSection):

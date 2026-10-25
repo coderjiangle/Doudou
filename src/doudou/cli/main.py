@@ -534,7 +534,9 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
 
     skipped = [status for status in describe_groups(settings) if not status.enabled]
     for status in skipped:
-        level = "info" if status.reason.startswith("未列入") else "warn"
+        # 「被配置关掉」与「未列入 enabled_groups」都是用户的明确选择，不该每次都告警。
+        quiet = status.reason.startswith(("未列入", "tools.shell.enabled"))
+        level = "info" if quiet else "warn"
         problems.append((level, f"工具分组 {status.name} 未启用：{status.reason}"))
 
     tool_names = ", ".join(info.name for info in infos) or "（无）"

@@ -108,6 +108,9 @@ tools:
   # 权限规则拦不住 `rm -rf /`，只有人工确认这一道。需要真正隔离请用容器/沙箱。
   shell:
     enabled: false
+    # 沙箱："" 不隔离；"bwrap" 用 bubblewrap（仅 Linux，需要 apt install bubblewrap）。
+    # 开启后只有工作区可写，config/、.env、数据库都不会出现在沙箱里；网络不隔离。
+    sandbox: ""
     cwd: null                  # 缺省取 filesystem.root_dir
     timeout: 60
     max_output_chars: 20000

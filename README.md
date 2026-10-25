@@ -181,8 +181,11 @@ DEEPSEEK_API_KEY=sk-...
 ```
 
 ```yaml
-# config/config.yaml —— 出站抓取的域名白名单
+# config/config.yaml —— 搜索 provider 与出站抓取的域名白名单
 tools:
+  web_search:
+    provider: deepseek        # tavily | deepseek（大小写不敏感）
+    max_results: 5
   http:
     allowed_domains:
       - docs.python.org      # 含任意子域

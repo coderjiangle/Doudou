@@ -140,12 +140,16 @@ tools:
   web_search:
     provider: tavily          # tavily | deepseek（决定用哪个 key）
     max_results: 5
+    need_content: false       # 仅 deepseek：是否返回网页正文（体积大）
   files:
     max_read_chars: 50000
 ```
 
 要点：
 
+- **web_search 的两个 provider**：`tavily` 用 `TAVILY_API_KEY`，支持 `search_depth` /
+  `include_answer`；`deepseek` 用 `DEEPSEEK_API_KEY`，走自研搜索，结果优先取 `summary`，
+  `need_content: true` 才会返回网页正文。`provider` 大小写不敏感。
 - **分组开关**：`enabled_groups` 非空时只有列出的分组生效；`disabled` 按工具名精确禁用，
   优先级更高。
 - **依赖不满足就不注册**：没有当前 provider 的 key（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY`）

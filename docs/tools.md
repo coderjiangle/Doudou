@@ -48,6 +48,17 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 `doudou tools list` 与 `doudou config check` 会用
 `registry.describe_groups()` 说明**每个分组为什么在/不在**列表里。
 
+### 2.3 web_search 的 provider
+
+`tools.web_search.provider` 可选 `tavily`（默认）或 `deepseek`：
+
+| provider | 凭据 | 说明 |
+| --- | --- | --- |
+| `tavily` | `TAVILY_API_KEY` | 支持 `search_depth` / `include_answer`，可返回综合答案 |
+| `deepseek` | `DEEPSEEK_API_KEY` | DeepSeek 自研搜索，结果优先取 `summary`；`need_content` 控制是否取网页正文 |
+
+换 provider 必须同时换对应的 key —— 拿另一家的 key 不会把工具点亮（这条有单测钉住）。
+
 ## 3. 写一个内置工具
 
 1. 位于 `src/doudou/tools/builtin/<主题>.py`，导出 `build_tools(settings) -> Sequence[BaseTool]`。

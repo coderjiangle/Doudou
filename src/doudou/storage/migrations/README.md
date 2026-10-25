@@ -1,6 +1,6 @@
 # storage/migrations/
 
-**当前状态：暂缓。** M2 用 `Base.metadata.create_all` 建表（见 `storage/database.py`）。
+**当前状态：暂缓。** 用 `Base.metadata.create_all` 建表（见 `storage/database.py`）。
 
 理由：schema 还是全新的、没有任何线上数据要迁移，此刻引入 Alembic 只有仪式感。
 **触发条件**：第一次需要修改既有表结构时（加字段、改类型、加索引），

@@ -30,7 +30,7 @@
 
 ## 2. 模块职责
 
-### 2.0 ReAct 引擎（M1 已实现）
+### 2.0 ReAct 引擎
 
 `agent/react.py` 是循环本体，只有两个动作：**推理**与**执行**。
 
@@ -55,27 +55,27 @@ run_start
 | 模块 | 职责 |
 | --- | --- |
 | `channels.base` | 定义 `Channel` 协议：`start()` / `stop()` / 把外部消息归一化成 `InboundMessage` / `send(OutboundMessage)`。 |
-| `channels.registry` | 按配置实例化并启停通道。（M4） |
-| `channels.feishu` | 飞书长连接或事件回调接入，验签解密、去重、卡片渲染。（M4） |
-| `channels.webhook` | 通用入站 webhook，便于对接其他 IM / 自动化平台。（M4） |
-| `channels.cli_channel` | 终端交互，本地开发不依赖任何外部平台。✅ |
-| `api.app` | FastAPI 应用工厂：路由、中间件、异常处理、CORS。✅ |
-| `api.lifespan` | 进程级单例（agent / 数据库）的创建与释放，中间件与日志在此初始化。✅ |
-| `api.deps` | 依赖注入：运行期状态、runner、Bearer 鉴权。✅ |
-| `api.errors` | 领域异常 → 统一错误响应的翻译层。✅ |
-| `api.routes.chat` | `POST /chat` 与 `POST /chat/stream`（SSE）；`map_event()` 是纯函数，可单测。✅ |
-| `api.routes.threads` / `tools` / `health` | 会话与历史、工具清单、健康与就绪检查。✅ |
+| `channels.registry` | 按配置实例化并启停通道。 |
+| `channels.feishu` | 飞书长连接接入，去重与卡片渲染。 |
+| `channels.webhook` | 通用入站 webhook，便于对接其他 IM / 自动化平台。 |
+| `channels.cli_channel` | 终端交互，本地开发不依赖任何外部平台。 |
+| `api.app` | FastAPI 应用工厂：路由、中间件、异常处理、CORS。 |
+| `api.lifespan` | 进程级单例（agent / 数据库）的创建与释放，中间件与日志在此初始化。 |
+| `api.deps` | 依赖注入：运行期状态、runner、Bearer 鉴权。 |
+| `api.errors` | 领域异常 → 统一错误响应的翻译层。 |
+| `api.routes.chat` | `POST /chat` 与 `POST /chat/stream`（SSE）；`map_event()` 是纯函数，可单测。 |
+| `api.routes.threads` / `tools` / `health` | 会话与历史、工具清单、健康与就绪检查。 |
 
 ### 2.2 编排层 `gateway`
 
 | 模块 | 职责 |
 | --- | --- |
-| `history` | `HistoryStore` 协议 + 内存实现。**AgentRunner 只依赖这个协议**，因此历史放内存还是落库对上层透明。✅ |
-| `session` | thread_id 的生成与规范化（`<channel>-<conversation>-<随机后缀>`）。✅ |
-| `bus` | 进程内异步消息总线，按会话串行、跨会话并发。（M4） |
-| `router` | 把 `InboundMessage` 路由到对应 thread，组装 agent 输入。（M4） |
-| `runner` | 调用 agent、消费事件流、把结果落库，并做「同一 thread 串行」的并发保护。✅ |
-| `schema` | 层间共享的 `RunRequest` 定义。✅ |
+| `history` | `HistoryStore` 协议 + 内存实现。**AgentRunner 只依赖这个协议**，因此历史放内存还是落库对上层透明。 |
+| `session` | thread_id 的生成与规范化（`<channel>-<conversation>-<随机后缀>`）。 |
+| `bus` | 进程内异步消息总线，按会话串行、跨会话并发。 |
+| `router` | 把 `InboundMessage` 路由到对应 thread，组装 agent 输入。 |
+| `runner` | 调用 agent、消费事件流、把结果落库，并做「同一 thread 串行」的并发保护。 |
+| `schema` | 层间共享的 `RunRequest` 定义。 |
 
 **关键点**：`gateway` 不 import 任何具体通道实现，只依赖 `channels.base` 协议；
 也不认识 SQLAlchemy —— 落库由 `storage.history.SqlHistoryStore` 实现 `HistoryStore` 协议完成。
@@ -90,13 +90,13 @@ run_start
 | `models` | 通过 `init_chat_model` 解析 `provider:model`，配置超时/重试/回退；含 `scripted:*` 离线模型。 |
 | `testing` | 确定性脚本模型，供单元测试、CI 与 `--model scripted:demo` 离线自检共用。 |
 | `prompts` | 系统提示词加载与模板变量渲染。 |
-| `memory` | M7：`AGENTS.md` 等记忆文件的加载与回写。 |
-| `context` | M7：上下文工程（预算裁剪 / 摘要压缩 / 大结果卸载）。✅ |
-| `subagents` | M8：从 `agents.yaml` 生成子 Agent 定义。✅ |
-| `permissions` | M8：文件系统读写权限规则（首匹配生效 + containment 兜底）。✅ |
-| `approvals` | M8：人工确认中介（待决登记 / 超时按拒绝 / 决策复用）。✅ |
+| `memory` | `AGENTS.md` 等记忆文件的加载与回写。 |
+| `context` | 上下文工程（预算裁剪 / 摘要压缩 / 大结果卸载）。 |
+| `subagents` | 从 `agents.yaml` 生成子 Agent 定义。 |
+| `permissions` | 文件系统读写权限规则（首匹配生效 + containment 兜底）。 |
+| `approvals` | 人工确认中介（待决登记 / 超时按拒绝 / 决策复用）。 |
 
-### 2.3.1 可观测性（M9）
+### 2.3.1 可观测性
 
 审计、成本、追踪挂在**同一份事件流**上，runner 只认识一个很薄的协议：
 
@@ -113,9 +113,8 @@ run_start
 设计取舍见 `docs/observability.md`，容量数据见 `docs/performance.md`。
 
 > **没有 `middleware` / `backends` / `checkpointer` 这三个模块。**
-> 它们原本属于「接入 deepagents 引擎」的计划（旧 M9），该计划已取消 ——
-> 规划、子 Agent、虚拟文件系统、上下文压缩都由 `react` / `context` / `subagents` /
-> `tools.builtin.files` 自己实现。见 `docs/roadmap.md` 修正记录 #3。
+> 规划、子 Agent、虚拟文件系统、上下文压缩分别由 `react` / `context` / `subagents` /
+> `tools.builtin.files` 自己实现。
 
 ### 2.4 能力供给
 
@@ -128,16 +127,16 @@ run_start
 
 | 模块 | 职责 |
 | --- | --- |
-| `config` | `settings`（env）+ `schema`（类型模型）+ `loader`（合并优先级）。全局唯一配置入口。✅ |
-| `storage.database` | 引擎、会话工厂、建表；SQLite 外键开关；自动建父目录。✅ |
-| `storage.models` | `threads` / `messages` / `session_bindings` 三张表。✅ |
-| `storage.repositories` | 单表读写与聚合，不持有会话生命周期。✅ |
-| `storage.history` | `HistoryStore` 的 SQL 实现 + LangChain 消息 ↔ ORM 行的编解码。✅ |
-| `observability` | structlog 结构化日志（含噪音压制与脱敏）、运行指标。✅ |
-| `security.secrets` / `security.auth` | 脱敏、Bearer 令牌校验。✅ |
-| `utils.tokens` | token 计数（tiktoken `cl100k_base`，离线回退字符启发式）。✅ |
-| `agent.context` | 上下文工程：预算裁剪、摘要压缩、大结果卸载。✅ |
-| `agent.memory` | 长期记忆：`memory_files` 的加载与回写。✅ |
+| `config` | `settings`（env）+ `schema`（类型模型）+ `loader`（合并优先级）。全局唯一配置入口。 |
+| `storage.database` | 引擎、会话工厂、建表；SQLite 外键开关；自动建父目录。 |
+| `storage.models` | `threads` / `messages` / `session_bindings` 三张表。 |
+| `storage.repositories` | 单表读写与聚合，不持有会话生命周期。 |
+| `storage.history` | `HistoryStore` 的 SQL 实现 + LangChain 消息 ↔ ORM 行的编解码。 |
+| `observability` | structlog 结构化日志（含噪音压制与脱敏）、运行指标。 |
+| `security.secrets` / `security.auth` | 脱敏、Bearer 令牌校验。 |
+| `utils.tokens` | token 计数（tiktoken `cl100k_base`，离线回退字符启发式）。 |
+| `agent.context` | 上下文工程：预算裁剪、摘要压缩、大结果卸载。 |
+| `agent.memory` | 长期记忆：`memory_files` 的加载与回写。 |
 | `storage/migrations` | Alembic 迁移。（暂缓，见该目录 README） |
 
 ## 2.6 上下文工程
@@ -209,7 +208,7 @@ GET  /api/v1/health[/ready]  → 健康 / 就绪（免鉴权）
 - 同一 `thread_id` 上串行执行（`AgentRunner` 持进程内锁），避免历史互相踩踏；不同会话完全并发。
 - 进程内状态只剩「thread 锁」与指标计数器；**历史与渠道绑定都已落库**，
   因此重启进程后同一 thread 仍可继续对话。
-- 多副本时 thread 锁需要换成分布式锁（见 docs/roadmap.md M9）。
+- 多副本时 thread 锁需要换成分布式锁。
 
 ## 5. 扩展点
 

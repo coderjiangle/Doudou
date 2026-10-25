@@ -76,7 +76,7 @@ OPENAI_API_KEY=<网关签发的 Key>
 1. `utils/text.py` 的 `content_to_text` 只抽取 text 块，会丢掉图片块；
 2. ReAct 循环的输入是 `HumanMessage(content: str)`，还没有附件入口。
 
-也就是说图片链路要等 M4（飞书收发图片）一并打通，届时图片块需要原样透传给模型，
+也就是说图片链路要等飞书支持收发图片时一并打通，届时图片块需要原样透传给模型，
 不能走 `content_to_text`。
 
 ### 存储
@@ -86,7 +86,7 @@ OPENAI_API_KEY=<网关签发的 Key>
 | `DOUDOU_STORAGE__DATABASE_URL` | `sqlite+aiosqlite:///./data/doudou.db` | 业务库 |
 | `DOUDOU_STORAGE__HISTORY` | `database` | 会话历史存哪：`database`（重启可续）/ `memory`（进程内，轻量） |
 | `DOUDOU_STORAGE__CHECKPOINTER` | `sqlite` | **未使用**：LangGraph 概念，接入 deepagents 的计划已取消（同 `store`） |
-| `DOUDOU_OBSERVABILITY__AUDIT__ENABLED` | `true` | 审计开关（M9） |
+| `DOUDOU_OBSERVABILITY__AUDIT__ENABLED` | `true` | 审计开关 |
 | `DOUDOU_OBSERVABILITY__AUDIT__BATCH_SIZE` | `50` | 攒批写；`1` = 逐条严格持久化（SQLite 下慢 20 倍，见 `docs/performance.md`） |
 | `DOUDOU_OBSERVABILITY__AUDIT__MAX_ROWS` | `50000` | 审计表行数上限，超出按时间清理 |
 | `DOUDOU_OBSERVABILITY__COST__ENABLED` | `true` | 成本统计开关 |
@@ -94,12 +94,12 @@ OPENAI_API_KEY=<网关签发的 Key>
 | `DOUDOU_OBSERVABILITY__TRACING__ENABLED` | `false` | Langfuse 追踪；需同时有 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` |
 | `DOUDOU_OBSERVABILITY__TRACING__HOST` | `https://cloud.langfuse.com` | 自建填自己的地址 |
 | `DOUDOU_OBSERVABILITY__LANGSMITH__ENABLED` | `false` | **未使用**（早期预留） |
-| `DOUDOU_STORAGE__STORE` | `sqlite` | 长期记忆存储（M7） |
+| `DOUDOU_STORAGE__STORE` | `sqlite` | 长期记忆存储 |
 
 > SQLite 文件所在目录不存在时会自动创建；生产建议换 Postgres：
 > `uv sync --extra postgres` 后把 URL 改成 `postgresql+asyncpg://...`。
 >
-> **表结构**：M2 用 `create_all` 建表（`threads` / `messages` / `session_bindings`）。
+> **表结构**：用 `create_all` 建表（`threads` / `messages` / `session_bindings`）。
 > 第一次需要改表结构时再引入 Alembic，见 `src/doudou/storage/migrations/README.md`。
 
 ### 飞书

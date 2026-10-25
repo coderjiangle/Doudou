@@ -5,36 +5,32 @@
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
-> **当前进度：M9 已完成**（生产化：Langfuse 追踪 / 审计日志 / 成本核算 / 安全扫描 /
-> 压测容量评估），见 [`docs/roadmap.md`](docs/roadmap.md)。
-> 665 个离线测试 + `ruff` + `mypy --strict` 全绿。
->
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
 
 ---
 
 ## 1. 核心能力
 
-| 能力 | 实现方式 | 对应模块 | 状态 |
-| --- | --- | --- | --- |
-| ReAct 循环 | 自研：推理 → 工具调用 → 观察 → 收敛 | `doudou.agent.react` | ✅ M1 |
-| 工具调用 | LangChain `@tool` + 注册表装配 | `doudou.tools` | ✅ M1 |
-| 多轮会话 | 会话→thread 映射 + 内存历史 | `doudou.gateway` | ✅ M1 |
-| CLI 通道 | rich 渲染流式输出与工具日志 | `doudou.channels.cli_channel` | ✅ M1 |
-| 人在回路 | `interrupt_on` + 终端确认 | `doudou.agent.react` | ✅ M1 |
-| HTTP API | FastAPI + SSE + 落库 + Bearer 鉴权 | `doudou.api` | ✅ M2 |
-| 会话持久化 | 消息/线程/渠道绑定落库，重启可续 | `doudou.storage` | ✅ M2 |
-| 实用工具集 | 检索 / 抓取 / 笔记 / 只读文件，默认拒绝 | `doudou.tools.builtin` | ✅ M3 |
-| 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` | ✅ M4 |
-| 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` | ✅ M4 |
-| MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` | ✅ M5 |
-| Skill 渐进式加载 | 索引注入 + `read_skill` 按需读 + 热重载 | `doudou.skills` | ✅ M6 |
-| 上下文工程 | token 预算、摘要压缩、大结果卸载、长期记忆 | `doudou.agent.context` | ✅ M7 |
-| 权限与子 Agent | 路径权限 + 子 Agent 委派 + 跨重启确认 | `doudou.agent.permissions` | ✅ M8 |
-| 确认中介 | 超时按拒绝、决策复用、落库审计 | `doudou.agent.approvals` | ✅ M8 |
-| 审计日志 | 工具调用全量留痕（参数打码 + 截断） | `doudou.observability.audit` | ✅ M9 |
-| 成本核算 | 按天×会话的 token/费用、日预算告警 | `doudou.observability.cost` | ✅ M9 |
-| 追踪 | Langfuse（可选，缺 key 则降级） | `doudou.observability.tracing` | ✅ M9 |
+| 能力 | 实现方式 | 对应模块 |
+| --- | --- | --- |
+| ReAct 循环 | 自研：推理 → 工具调用 → 观察 → 收敛 | `doudou.agent.react` |
+| 工具调用 | LangChain `@tool` + 注册表装配 | `doudou.tools` |
+| 多轮会话 | 会话→thread 映射 + 内存历史 | `doudou.gateway` |
+| CLI 通道 | rich 渲染流式输出与工具日志 | `doudou.channels.cli_channel` |
+| 人在回路 | `interrupt_on` + 终端确认 | `doudou.agent.react` |
+| HTTP API | FastAPI + SSE + 落库 + Bearer 鉴权 | `doudou.api` |
+| 会话持久化 | 消息/线程/渠道绑定落库，重启可续 | `doudou.storage` |
+| 实用工具集 | 检索 / 抓取 / 笔记 / 只读文件，默认拒绝 | `doudou.tools.builtin` |
+| 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` |
+| 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` |
+| MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` |
+| Skill 渐进式加载 | 索引注入 + `read_skill` 按需读 + 热重载 | `doudou.skills` |
+| 上下文工程 | token 预算、摘要压缩、大结果卸载、长期记忆 | `doudou.agent.context` |
+| 权限与子 Agent | 路径权限 + 子 Agent 委派 + 跨重启确认 | `doudou.agent.permissions` |
+| 确认中介 | 超时按拒绝、决策复用、落库审计 | `doudou.agent.approvals` |
+| 审计日志 | 工具调用全量留痕（参数打码 + 截断） | `doudou.observability.audit` |
+| 成本核算 | 按天×会话的 token/费用、日预算告警 | `doudou.observability.cost` |
+| 追踪 | Langfuse（可选，缺 key 则降级） | `doudou.observability.tracing` |
 
 ## 1.1 立刻可跑（不需要任何 API Key）
 
@@ -132,7 +128,7 @@ uv run doudou chat --model scripted:demo                   # 交互式多轮
 ```powershell
 Copy-Item .env.example .env
 Copy-Item config/config.example.yaml config/config.yaml
-Copy-Item config/mcp.servers.example.yaml config/mcp.servers.yaml   # M5 起需要
+Copy-Item config/mcp.servers.example.yaml config/mcp.servers.yaml   # 需要 MCP 时
 
 # 在 .env 里设置 DOUDOU_MODEL__PRIMARY 与对应的 API Key，例如：
 #   DOUDOU_MODEL__PRIMARY=openai:gpt-5.5
@@ -345,13 +341,14 @@ make lint / test / fmt                     # 见 Makefile
 
 | 文档 | 内容 |
 | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | 分层架构、模块职责、数据流 || [docs/configuration.md](docs/configuration.md) | 配置项、优先级、环境变量清单 |
+| [docs/architecture.md](docs/architecture.md) | 分层架构、模块职责、数据流 |
+| [docs/configuration.md](docs/configuration.md) | 配置项、优先级、环境变量清单 |
 | [docs/channels.md](docs/channels.md) | 飞书通道接入与时序 |
 | [docs/mcp.md](docs/mcp.md) | MCP server 配置与工具装配 |
 | [docs/skills.md](docs/skills.md) | Skill 目录规范与编写指引 |
 | [docs/tools.md](docs/tools.md) | 自定义工具开发规范 |
 | [docs/security.md](docs/security.md) | 鉴权、密钥、权限与审计 |
-| [docs/roadmap.md](docs/roadmap.md) | 里程碑与待办 |
+| [CHANGELOG.md](CHANGELOG.md) | 按日期记录的变更 |
 
 ## 7. 许可证
 

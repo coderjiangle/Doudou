@@ -5,9 +5,9 @@
 | 来源 | 位置 | 状态 |
 | --- | --- | --- |
 | 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `notes` / `http` / `web_search` / `shell` / `skills` / `memory` / `delegation` |
-| MCP 工具 | `config/mcp.servers.yaml` | ✅ 通过 `build_tools(extra=...)` 注入（M5） |
-| deepagents / LangGraph 内置工具 | 框架提供 | ❌ 不采用：自研循环已覆盖 Skill / 上下文 / 子 Agent / 确认（见 roadmap 修正记录 #3） |
-| 沙箱执行 | 容器 / 沙箱后端 | ⏳ M9 生产化评估；当前 `shell_exec` 自带，默认禁用 |
+| MCP 工具 | `config/mcp.servers.yaml` | ✅ 通过 `build_tools(extra=...)` 注入 |
+| deepagents / LangGraph 内置工具 | 框架提供 | ❌ 不采用：自研循环已覆盖 Skill / 上下文 / 子 Agent / 确认 |
+| 沙箱执行 | 容器 / 沙箱后端 | ⏳ 待评估；当前 `shell_exec` 自带，默认禁用 |
 
 全部在 `tools/registry.py` 汇总后交给 Agent。
 

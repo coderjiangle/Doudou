@@ -10,15 +10,10 @@
 
 Doudou 是一个个人助手 Agent。**内核是自研的 ReAct 循环**（`doudou.agent.react`），
 **不引入 deepagents / LangGraph**：Skill 渐进加载、上下文压缩与卸载、子 Agent 委派、
-人在回路这四件事都由本仓库自己实现（各自对应 M6/M7/M8）。
-决定与取舍见 `docs/roadmap.md` 的修正记录 #3 —— 评估结论是收益不足以抵消
-「多一个必须跟随的框架」。
+人在回路这四件事都由本仓库自己实现。评估结论是收益不足以抵消「多一个必须跟随的框架」。
 
 能力面：自定义 Tool、MCP server、Agent Skill、飞书通道（WebSocket 长连接），
 以及 FastAPI HTTP 服务。
-
-**当前状态：M1–M8 已完成**（工具集 / 服务化 / 飞书 / MCP / Skill / 上下文工程 /
-权限与子 Agent）。进度与验收记录见 `docs/roadmap.md`。
 
 ## 分层与依赖方向
 

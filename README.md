@@ -174,8 +174,10 @@ model:
 想启用就补上对应的钥匙：
 
 ```dotenv
-# 联网检索（Tavily）
-TAVILY_API_KEY=tvly-...
+# 联网检索：二选一（provider 决定用哪个 key）
+#   tavily   → TAVILY_API_KEY=tvly-...
+#   deepseek → DEEPSEEK_API_KEY=sk-...   （DeepSeek 自研搜索，按次计费）
+DEEPSEEK_API_KEY=sk-...
 ```
 
 ```yaml
@@ -189,7 +191,7 @@ tools:
 
 | 工具 | 启用条件 |
 | --- | --- |
-| `web_search` | `TAVILY_API_KEY` 非空 |
+| `web_search` | 当前 provider 对应的 key 非空（默认 `tavily` → `TAVILY_API_KEY`；`deepseek` → `DEEPSEEK_API_KEY`） |
 | `http_request` | `tools.http.allowed_domains` 非空，且目标域名命中（解析到内网地址也会被拒） |
 | `workspace_read` / `workspace_list` | 始终可用，根目录 = `filesystem.root_dir` |
 | `now` | 始终可用 |

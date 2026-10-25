@@ -44,7 +44,8 @@
 | `DOUDOU_MODEL__TEMPERATURE` / `__MAX_TOKENS` / `__TIMEOUT` / `__MAX_RETRIES` | 采样与限制 |
 | `DOUDOU_MODEL__BASE_URL` | 自建/兼容网关地址（也可用 `OPENAI_BASE_URL`） |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | 各家凭据（无前缀） |
-| `TAVILY_API_KEY` | 内置 `web_search` 工具 |
+| `TAVILY_API_KEY` | 内置 `web_search`（`provider: tavily`） |
+| `DEEPSEEK_API_KEY` | DeepSeek 模型 / 内置 `web_search`（`provider: deepseek`，自研搜索） |
 
 > 非 OpenAI 厂商需要装对应包：`uv sync --extra anthropic` / `--extra deepseek`。
 
@@ -137,6 +138,7 @@ tools:
   http:
     allowed_domains: []       # 空 = http_request 不注册（默认拒绝一切出站请求）
   web_search:
+    provider: tavily          # tavily | deepseek（决定用哪个 key）
     max_results: 5
   files:
     max_read_chars: 50000
@@ -146,8 +148,8 @@ tools:
 
 - **分组开关**：`enabled_groups` 非空时只有列出的分组生效；`disabled` 按工具名精确禁用，
   优先级更高。
-- **依赖不满足就不注册**：没有 `TAVILY_API_KEY` 就没有 `web_search`；
-  `allowed_domains` 为空就没有 `http_request`。
+- **依赖不满足就不注册**：没有当前 provider 的 key（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY`）
+  就没有 `web_search`；`allowed_domains` 为空就没有 `http_request`。
   用 `doudou tools list` 查看「哪个分组为什么不在」。
 - `files` 的根目录固定用 `filesystem.root_dir`，没有独立配置项 —— 避免出现「两个 root」。
 - 域名匹配规则：`example.com` 含任意子域，`*.example.com` 只含子域。

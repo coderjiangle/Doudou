@@ -310,9 +310,11 @@ def describe_groups(settings: Settings) -> list[GroupStatus]:
         if declared and group not in declared:
             statuses.append(GroupStatus(group, False, "未列入 tools.enabled_groups"))
             continue
-        if group == "web" and not settings.secrets.tavily_api_key:
-            statuses.append(GroupStatus(group, False, "缺少 TAVILY_API_KEY"))
-            continue
+        if group == "web":
+            missing = web_search.missing_requirement(settings)
+            if missing:
+                statuses.append(GroupStatus(group, False, missing))
+                continue
         if group == "http" and not settings.app.tools.http.allowed_domains:
             statuses.append(
                 GroupStatus(group, False, "tools.http.allowed_domains 为空（默认拒绝一切出站请求）")

@@ -75,13 +75,16 @@ class HttpToolConfig(_Section):
 
 
 class WebSearchToolConfig(_Section):
-    provider: Literal["tavily"] = "tavily"
+    #: 搜索服务：``tavily`` 或 ``deepseek``（DeepSeek 自研搜索）。
+    provider: Literal["tavily", "deepseek"] = "tavily"
     max_results: int = 5
     timeout: float = 20.0
-    #: ``advanced`` 更准但更慢、更贵。
+    #: 仅 Tavily：``advanced`` 更准但更慢、更贵。
     search_depth: Literal["basic", "advanced"] = "basic"
-    #: 是否附带 Tavily 生成的摘要答案。
+    #: 仅 Tavily：是否附带 Tavily 生成的摘要答案。
     include_answer: bool = True
+    #: 仅 DeepSeek：是否在结果里返回网页正文（会显著增大上下文，默认只取 summary）。
+    need_content: bool = False
 
 
 class NotesToolConfig(_Section):

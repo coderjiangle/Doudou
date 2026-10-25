@@ -78,7 +78,7 @@ agent:
 | 面 | 策略 |
 | --- | --- |
 | 出站 HTTP | `tools.http.allowed_domains` 为空 → 工具**不注册**；允许列表 + 内网 IP 拒绝 + 仅 GET/HEAD + 大小与超时上限 |
-| 联网检索 | 缺少 `TAVILY_API_KEY` → 工具不注册 |
+| 联网检索 | 缺少当前 provider 的 key（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY`）→ 工具不注册 |
 | 文件读取 | 根目录固定为工作区，路径 `resolve()` 后必须在根目录内（软链接也拦）；超大文件读之前就拒 |
 | 文件写入 | 声明 `side_effects=True` → 默认需要人工确认；路径同时受工作区边界与权限规则约束 |
 | 副作用工具 | 无确认回调时**拒绝执行**，而不是静默放行 |
@@ -144,7 +144,7 @@ agent:
 | `FEISHU_APP_SECRET` | 飞书开放平台重置 → 改环境变量 | 重启进程（长连接需重连） |
 | `DOUDOU_API_TOKEN` | 直接换一个新随机串，同时通知调用方 | 重启进程 |
 | `LANGFUSE_SECRET_KEY` | Langfuse 项目设置里重建 | 重启进程 |
-| `TAVILY_API_KEY` | Tavily 后台重建 | 重启进程 |
+| `TAVILY_API_KEY` / `DEEPSEEK_API_KEY` | 对应平台后台重建（只用其中一个，取决于 `web_search.provider`） | 重启进程 |
 
 顺序很重要：**先让新 key 生效并验证，再吊销旧的**。反过来会出现一段
 「配置是新的、凭据是废的」的窗口，表现是「服务在跑但每个请求都 401」。

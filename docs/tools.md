@@ -40,7 +40,7 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 
 | 情况 | 行为 |
 | --- | --- |
-| 没有 `TAVILY_API_KEY` | `web_search` 整组不出现 |
+| 没有当前 provider 的 key（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY`） | `web_search` 整组不出现 |
 | `tools.http.allowed_domains` 为空 | `http_request` 不出现 |
 | `config.yaml` 里 `tools.disabled: [x]` | `x` 不出现 |
 

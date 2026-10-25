@@ -183,6 +183,23 @@ def test_web_search_registered_with_key(tools_settings) -> None:  # type: ignore
     assert "web_search" in {item.name for item in build_tools(settings)}
 
 
+def test_group_status_follows_web_search_provider(tools_settings) -> None:  # type: ignore[no-untyped-def]
+    """换 provider 后，「为什么没启用」要说对缺的是哪把 key。"""
+    deepseek = tools_settings(env={"DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek"})
+
+    status = {item.name: item for item in describe_groups(deepseek)}["web"]
+    assert status.enabled is False
+    assert "DEEPSEEK_API_KEY" in status.reason
+
+    ready = tools_settings(
+        env={
+            "DEEPSEEK_API_KEY": "sk-test",
+            "DOUDOU_TOOLS__WEB_SEARCH__PROVIDER": "deepseek",
+        }
+    )
+    assert {item.name: item for item in describe_groups(ready)}["web"].enabled is True
+
+
 # --------------------------------------------------------------------------- 注解
 
 

@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 新增
+
+- `web_search` 支持 **DeepSeek 自研搜索**：`tools.web_search.provider: deepseek`，
+  使用 `DEEPSEEK_API_KEY` 调 `POST /v1/tools/search`；结果优先取官方的 `summary`
+  （为模型准备的长摘要），可选 `need_content` 返回正文。
+
 ### 变更
 
 - 许可证改为 **MIT**（新增 `LICENSE`，`pyproject.toml` 去掉 `Private :: Do Not Upload`）。

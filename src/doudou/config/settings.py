@@ -75,6 +75,9 @@ class EnvWebSearchTool(_EnvSection):
     provider: str | None = None
     max_results: int | None = None
     search_depth: str | None = None
+    include_answer: bool | None = None
+    need_content: bool | None = None
+    timeout: float | None = None
 
 
 class EnvFilesTool(_EnvSection):

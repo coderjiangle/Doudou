@@ -80,12 +80,13 @@ tools:
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
 
-  # web_search（Tavily）：缺少 TAVILY_API_KEY 时该分组整组不注册
+  # web_search（Tavily | DeepSeek）：缺少对应 API Key 时该分组整组不注册
   web_search:
     provider: tavily
     max_results: 5
-    search_depth: basic        # basic | advanced（更准但更慢更贵）
-    include_answer: true
+    search_depth: basic        # 仅 tavily：basic | advanced
+    include_answer: true       # 仅 tavily：附带摘要答案
+    need_content: false        # 仅 deepseek：返回网页正文
     timeout: 20
 
   # http_request：**默认拒绝一切出站请求**，allowed_domains 为空时工具不注册。

@@ -1,6 +1,6 @@
 """Counters and timers for runs, tools and channels.
 
-刻意做成极简的进程内实现：需要的只是「跑过多少次、慢在哪」，
+极简的进程内实现：需要的只是「跑过多少次、慢在哪」，
 真正的指标体系（Prometheus / OTel）不在当前范围内。
 """
 

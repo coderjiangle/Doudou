@@ -53,7 +53,7 @@ def looks_like_content_blocks(value: Any) -> bool:
     """是否是「内容块列表」。
 
     判据：非空列表，且每一项都是带**已知** ``type`` 的 dict。
-    刻意保守 —— 误判的代价是静默改写工具结果，比漏判严重得多。
+    保守 —— 误判的代价是静默改写工具结果，比漏判严重得多。
     """
     if not isinstance(value, list) or not value:
         return False

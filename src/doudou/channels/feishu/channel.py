@@ -134,7 +134,7 @@ class FeishuWebSocketRunner:
             logger.warning("feishu.ws_stop_timeout", timeout=timeout)
         self._thread = None
         self._loop = None
-        # 刻意**不**调 loop.close()：lark 的长连接客户端可能在 loop 上留有
+        # **不**调 loop.close()：lark 的长连接客户端可能在 loop 上留有
         # 未完成的回调/任务，关闭它只会在退出阶段制造 "Event loop is closed" 噪音。
         # 线程已结束、loop 会被 GC 回收，而通道的启停在一个进程里只发生一次。
 
@@ -363,7 +363,7 @@ class FeishuChannel:
     def _raw_action_value(data: Any) -> Any:
         """从 lark 的卡片回调对象里掏出按钮的 ``value``。
 
-        这里刻意用 ``getattr`` 链而不是直接访问属性：lark 的事件对象在不同
+        这里用 ``getattr`` 链而不是直接访问属性：lark 的事件对象在不同
         版本里层级会变（``data.event.action.value`` vs ``data.action.value``），
         而「读不到」应该表现为「忽略这次点击」，不是把回调打崩。
 

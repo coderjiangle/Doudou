@@ -18,7 +18,7 @@ router = APIRouter(tags=["tools"])
 async def list_tools(state: StateDep) -> ToolListResponse:
     """列出 Agent **实际装载**的工具（含 MCP 拉取到的那些）。
 
-    刻意用 ``state.bundle.tools`` 而不是从配置重新推导：MCP 工具是运行时
+    用 ``state.bundle.tools`` 而不是从配置重新推导：MCP 工具是运行时
     拉取的、不在 provider 里，只有这条路径能把它们如实列出来。
     """
     settings = state.settings

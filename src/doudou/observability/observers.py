@@ -106,7 +106,7 @@ async def _safe_call(observers: Sequence[RunObserver], method: str, *args: Any) 
 async def _safe_call_one(observer: RunObserver, method: str, *args: Any) -> None:
     """调用观察者并吞掉异常。
 
-    刻意在这里吞：观察者是**旁路**，它失败的唯一正确后果是「少一条记录」，
+    在这里吞掉：观察者是**旁路**，它失败的唯一正确后果是「少一条记录」，
     而不是「用户的消息没有得到回复」。
     """
     try:

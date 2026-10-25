@@ -86,7 +86,7 @@ def build_store(settings: Settings) -> tuple[HistoryStore, Database | None]:
     ``storage.history: database`` 时落库（重启可续），``memory`` 时只在进程内。
 
     **保留条数**由 ``storage.max_messages_per_thread`` 决定，它管的是库的增长；
-    送进模型的窗口由 ``context.max_input_tokens`` 决定 —— 两者刻意分开：
+    送进模型的窗口由 ``context.max_input_tokens`` 决定 —— 两者分开：
     压缩是有损的，原始历史要留得下、能回溯。
     """
     retention = settings.app.storage.max_messages_per_thread

@@ -60,7 +60,7 @@ class ServerStatus:
 class ServerOverview:
     """一个 server 的完整快照，给 CLI / API / JSON 共用。
 
-    刻意做成强类型而不是 ``dict[str, object]``：后者会让每个消费方
+    做成强类型而不是 ``dict[str, object]``：后者会让每个消费方
     都在 ``object`` 上做类型断言，既难看又容易出错。
     """
 

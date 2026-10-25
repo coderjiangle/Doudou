@@ -138,7 +138,7 @@ class BufferedUsageStore(UsageStore):
         预算检查 —— 它每次运行后都会调用，落盘就等于把攒批的收益全抹掉，
         因此它传 ``include_pending=True``：把缓冲区里的量算进结果，但不落盘。
 
-        这里刻意不用「调用方记得先调 by_thread」这种约定：读方法之间的顺序依赖
+        这里不用「调用方记得先调 by_thread」这种约定：读方法之间的顺序依赖
         是典型的静默陷阱 —— 顺序一变，总数就变成 0，而且没有任何报错。
         """
         if not include_pending:

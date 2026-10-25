@@ -14,7 +14,7 @@ BEARER_PREFIX = "bearer"
 class AuthenticationError(Exception):
     """鉴权失败。
 
-    刻意不依赖 FastAPI：``security`` 层只做判断，由 ``api.errors`` 决定映射成什么响应。
+    不依赖 FastAPI：``security`` 层只做判断，由 ``api.errors`` 决定映射成什么响应。
     """
 
 

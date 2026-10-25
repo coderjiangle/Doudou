@@ -52,7 +52,7 @@ def build_enabled_channels(
 async def start_channels(channels: Sequence[Channel]) -> list[Channel]:
     """逐个启动；单个通道失败只告警，不影响其它通道与 HTTP 服务。
 
-    这是刻意的：飞书连不上不应该让整个服务起不来 —— 运维仍然需要
+    飞书连不上不应该让整个服务起不来 —— 运维仍然需要
     ``/health`` 与 API 来排查问题。
     """
     started: list[Channel] = []

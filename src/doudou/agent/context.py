@@ -120,7 +120,7 @@ class HistorySummarizer:
     def _render(messages: Sequence[BaseMessage]) -> str:
         """把消息拍成可读文本。
 
-        刻意不做「角色名 + 内容」之外的花样：摘要的输入越简单，模型越不容易
+        不做「角色名 + 内容」之外的花样：摘要的输入越简单，模型越不容易
         被格式细节带偏。
         """
         from doudou.utils.text import content_to_text

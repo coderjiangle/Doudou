@@ -35,7 +35,7 @@ EventType = Literal[
 class RunEvent:
     """ReAct 循环产生的单条事件。
 
-    这是一个刻意扁平的结构：CLI 直接渲染它，飞书卡片与 SSE 各自决定怎么用。
+    这是一个扁平的结构：CLI 直接渲染它，飞书卡片与 SSE 各自决定怎么用。
     """
 
     type: EventType

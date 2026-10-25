@@ -223,7 +223,7 @@ class ContextConfig(_Section):
     #: 单条工具结果超过这个字节数就落盘，上下文里只留预览 + 路径。
     offload_threshold_bytes: int = 20000
     #: 送进模型的历史 token 预算。**这是最关键的一个数**：
-    #: 默认值刻意保守（成本可预期），大上下文模型应该调高。
+    #: 默认值保守（成本可预期），大上下文模型应该调高。
     max_input_tokens: int = 80000
     #: 用量超过预算的这个比例时触发压缩（0–1）。
     summarize_threshold_ratio: float = 0.7

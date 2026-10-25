@@ -3,10 +3,15 @@
 ## 1. 优先级
 
 ```
-代码内默认值  <  config/config.yaml  <  config/config.local.yaml  <  环境变量
+代码内默认值  <  config/config.yaml  <  config/config.local.yaml
+             <  厂商变量（OPENAI_BASE_URL / FEISHU_* 等）  <  DOUDOU_* 环境变量
 ```
 
-- 密钥（App Secret、API Key、Token）**只放 `.env`**，绝不进 `config.yaml`。
+- **环境变量始终高于配置文件**，无论它带不带 `DOUDOU_` 前缀。
+- 两族环境变量冲突时（很少见），显式的 `DOUDOU_*` 优先：
+  `DOUDOU_MODEL__BASE_URL` > `OPENAI_BASE_URL` > `config.yaml` 的 `model.base_url`。
+- 密钥（App Secret、API Key、Token）**只放 `.env`**，绝不进 `config.yaml`；
+  配置文件里即使写了同名字段，也会被环境变量覆盖。
 - 配置项用 `DOUDOU_` 前缀，嵌套用 `__` 分隔：`DOUDOU_SERVER__PORT=8080`。
 - 凭据**不加前缀**，沿用各家官方命名（`OPENAI_API_KEY`、`FEISHU_APP_SECRET` 等），
   由 `Secrets` 单独读取，只从 `.env` / 进程环境变量来。
@@ -91,8 +96,10 @@ OPENAI_API_KEY=<网关签发的 Key>
 ```
 
 `langchain-openai` 已随主依赖安装，无需额外 `--extra`。
-`base_url` 也可以改用 `OPENAI_BASE_URL` 环境变量提供，但显式写在配置文件里
-能让 `doudou config show` 直接看到实际生效的地址，排查时更省事。
+`base_url` 也可以改用 `OPENAI_BASE_URL` 环境变量提供 —— 它属于环境变量，
+**优先级高于** `config.yaml` 里的 `model.base_url`。想固定某个地址时，
+最稳的是写 `DOUDOU_MODEL__BASE_URL`（优先级最高）。
+`doudou config show` 显示的是合并后的实际生效值。
 
 #### 多模态（原生图片输入）
 
@@ -140,10 +147,10 @@ OPENAI_API_KEY=<网关签发的 Key>
 | `DOUDOU_CHANNELS__FEISHU__MODE` | `callback`（事件回调）或 `websocket`（长连接） |
 | `DOUDOU_CHANNELS__FEISHU__STREAM_REPLY` | 是否用卡片流式更新 |
 | `DOUDOU_CHANNELS__FEISHU__ALLOWED_CHATS` | 白名单，JSON 数组：`'["oc_xxx"]'` |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 应用凭证（无前缀，必填） |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 应用凭证（无前缀，必填；覆盖 YAML 里的同名字段） |
 | `FEISHU_VERIFICATION_TOKEN` | 事件订阅校验 Token |
 | `FEISHU_ENCRYPT_KEY` | 加密模式密钥；prod 必须配置 |
-| `FEISHU_BASE_URL` | 国内版 `https://open.feishu.cn`，国际版 `https://open.larksuite.com` |
+| `FEISHU_BASE_URL` | 国内版 `https://open.feishu.cn`，国际版 `https://open.larksuite.com`；覆盖 YAML 里的 `channels.feishu.base_url` |
 
 ### MCP
 

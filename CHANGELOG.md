@@ -34,6 +34,9 @@
 
 ### 修复
 
+- **环境变量优先级统一**：`OPENAI_BASE_URL` / `FEISHU_APP_ID` / `FEISHU_APP_SECRET` /
+  `FEISHU_BASE_URL` 等无前缀厂商变量现在会覆盖 `config.yaml` 里的同名字段，不再出现
+  「`.env` 改了、YAML 有值就不生效」。两族环境变量冲突时 `DOUDOU_*` 优先。
 - 飞书：`bot/v3/info` 的响应体只在 `raw.content` 里，字段是 `bot.open_id`；原来的解析路径
   读 `response.data`（恒为 `None`），导致「自动获取 `bot_open_id`」从未生效，而且没有任何日志。
   现在解析原始 JSON，成功但取不到 `open_id` 时打 warning。

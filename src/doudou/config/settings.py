@@ -233,7 +233,12 @@ class Secrets(BaseSettings):
     openai_api_key: str | None = None
     openai_base_url: str | None = None
     anthropic_api_key: str | None = None
+    anthropic_base_url: str | None = None
     deepseek_api_key: str | None = None
+    deepseek_api_base: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str | None = None
+    ollama_host: str | None = None
     tavily_api_key: str | None = None
 
     feishu_app_id: str | None = None

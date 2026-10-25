@@ -10,6 +10,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 
 from doudou.agent.testing import demo_model
+from doudou.config.providers import (
+    PROVIDER_BASE_URL_ENV,
+    PROVIDER_CREDENTIALS,
+    provider_of,
+)
 from doudou.config.schema import ModelConfig
 from doudou.config.settings import Secrets
 from doudou.observability.logging import get_logger
@@ -18,29 +23,6 @@ logger = get_logger(__name__)
 
 #: 离线模型前缀：``scripted:demo``。
 SCRIPTED_PREFIX = "scripted:"
-
-#: provider -> 该 provider 需要的环境变量（仅用于给出可操作的报错提示）。
-PROVIDER_CREDENTIALS: dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "azure_openai": "AZURE_OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "google_genai": "GOOGLE_API_KEY",
-    "google_vertexai": "GOOGLE_APPLICATION_CREDENTIALS",
-    "groq": "GROQ_API_KEY",
-    "mistralai": "MISTRAL_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "ollama": "",
-}
-
-#: provider -> 该 provider 读取 base_url 的官方环境变量名。
-PROVIDER_BASE_URL_ENV: dict[str, str] = {
-    "openai": "OPENAI_BASE_URL",
-    "deepseek": "DEEPSEEK_API_BASE",
-    "anthropic": "ANTHROPIC_BASE_URL",
-    "openrouter": "OPENROUTER_BASE_URL",
-    "ollama": "OLLAMA_HOST",
-}
 
 
 class ModelBuildError(RuntimeError):
@@ -70,11 +52,11 @@ def parse_spec(spec: str) -> ModelSpec:
     raw = spec.strip()
     if not raw:
         raise ModelBuildError("模型标识为空，请在 config 的 model.primary 或 --model 中指定")
-    provider, sep, model = raw.partition(":")
+    _, sep, model = raw.partition(":")
     if not sep:
         return ModelSpec(raw=raw, provider=None, model=raw)
     # ollama:llama3 这类没有冒号的 provider 前缀也要能识别
-    return ModelSpec(raw=raw, provider=provider.strip().lower(), model=model.strip())
+    return ModelSpec(raw=raw, provider=provider_of(raw), model=model.strip())
 
 
 def credential_hint(spec: ModelSpec) -> tuple[str, str] | None:
@@ -166,12 +148,18 @@ def _secret_api_key(resolved: ModelSpec, secrets: Secrets | None) -> str | None:
 
 
 def _secret_base_url(resolved: ModelSpec, secrets: Secrets | None) -> str | None:
-    """从凭据对象取该 provider 的 base_url（目前仅 OpenAI 兼容网关需要）。"""
+    """从凭据对象取该 provider 的 base_url。
+
+    只认官方命名的厂商变量（``OPENAI_BASE_URL``、``DEEPSEEK_API_BASE`` …）。
+    正常加载流程里这些值已经被合并进 ``config.base_url``，这里保留作为
+    直接调用 :func:`build_model` 时的兜底。
+    """
     if secrets is None or resolved.provider is None:
         return None
-    if resolved.provider == "openai":
-        return secrets.openai_base_url
-    return None
+    env_name = PROVIDER_BASE_URL_ENV.get(resolved.provider)
+    if not env_name:
+        return None
+    return cast("str | None", getattr(secrets, env_name.lower(), None))
 
 
 def has_credential(secrets: Secrets, spec: ModelSpec) -> bool:
@@ -198,6 +186,7 @@ def build_fallback_models(
 
 
 __all__ = [
+    "PROVIDER_BASE_URL_ENV",
     "PROVIDER_CREDENTIALS",
     "SCRIPTED_PREFIX",
     "ModelBuildError",

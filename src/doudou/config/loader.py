@@ -2,7 +2,10 @@
 
 优先级（右 > 左）::
 
-    代码内默认值  →  config/config.yaml  →  config/config.local.yaml  →  DOUDOU_* 环境变量
+    代码内默认值 → config/config.yaml → config/config.local.yaml
+                 → 厂商变量（OPENAI_BASE_URL / FEISHU_* 等） → DOUDOU_* 环境变量
+
+凭据（API Key）只从环境变量 / ``.env`` 读，配置文件里没有对应字段。
 """
 
 from __future__ import annotations
@@ -15,7 +18,8 @@ from typing import Any, cast
 import yaml
 from pydantic import BaseModel, ConfigDict
 
-from doudou.config.schema import AppConfig, FeishuChannelConfig
+from doudou.config.providers import PROVIDER_BASE_URL_ENV, provider_of
+from doudou.config.schema import AppConfig, ModelConfig
 from doudou.config.settings import EnvSettings, Secrets
 from doudou.observability.logging import get_logger
 
@@ -174,13 +178,16 @@ def load_settings(
         raw = deep_merge(raw, load_yaml(local_path))
         loaded.append(local_path)
 
-    if use_env:
-        raw = deep_merge(raw, _env_overrides(env))
+    env_overrides = _env_overrides(env) if use_env else {}
+    raw = deep_merge(raw, env_overrides)
+    # 厂商变量（OPENAI_BASE_URL / FEISHU_*）也是环境变量，同样高于配置文件；
+    # 但它们低于显式的 DOUDOU_* 覆盖，所以放在 env_overrides 之后、按缺失补齐。
+    raw = deep_merge(raw, _vendor_overrides(raw, secrets, env_overrides))
 
     app = AppConfig.model_validate(raw)
 
     return Settings(
-        app=_apply_secrets(app, secrets),
+        app=app,
         secrets=secrets,
         config_dir=resolved_config_dir,
         config_file=main_path if main_path.is_file() else None,
@@ -195,26 +202,62 @@ def _env_overrides(env: EnvSettings) -> dict[str, Any]:
     return {key: value for key, value in dumped.items() if value}
 
 
-def _apply_secrets(app: AppConfig, secrets: Secrets) -> AppConfig:
-    """把无前缀的凭据回填到对应配置段。
+def _vendor_overrides(
+    raw: dict[str, Any],
+    secrets: Secrets,
+    env_overrides: dict[str, Any],
+) -> dict[str, Any]:
+    """把无前缀的厂商环境变量合并到对应配置字段。
 
-    这样 ``FeishuChannelConfig`` 是自洽的（app_id/app_secret 都在里面），
-    消费方不必再去认识 ``Secrets``；``config show`` 又会把 ``*_secret`` 打码。
+    这些变量（``OPENAI_BASE_URL``、``FEISHU_APP_ID`` 等）同样属于环境变量，
+    因此**覆盖配置文件**；但优先级低于显式 ``DOUDOU_*`` —— 同一个字段两处都写时
+    以 ``DOUDOU_*`` 为准（``env_overrides`` 里已经有的路径不再覆盖）。
+
+    Args:
+        raw: 合并了 YAML 与 ``DOUDOU_*`` 之后的配置。
+        secrets: 从环境变量 / ``.env`` 读出的凭据与厂商变量。
+        env_overrides: ``DOUDOU_*`` 覆盖，用来判断某个路径是否已被显式指定。
     """
-    feishu = app.channels.feishu
-    updates: dict[str, Any] = {}
+    overrides: dict[str, Any] = {}
 
-    if secrets.feishu_base_url and feishu.base_url == FeishuChannelConfig().base_url:
-        updates["base_url"] = secrets.feishu_base_url
-    if not feishu.app_id and secrets.feishu_app_id:
-        updates["app_id"] = secrets.feishu_app_id
-    if not feishu.app_secret and secrets.feishu_app_secret:
-        updates["app_secret"] = secrets.feishu_app_secret
+    feishu: dict[str, Any] = {}
+    for field, value in (
+        ("app_id", secrets.feishu_app_id),
+        ("app_secret", secrets.feishu_app_secret),
+        ("base_url", secrets.feishu_base_url),
+    ):
+        if value and not _has_path(env_overrides, f"channels.feishu.{field}"):
+            feishu[field] = value
+    if feishu:
+        overrides["channels"] = {"feishu": feishu}
 
-    if not updates:
-        return app
-    channels = app.channels.model_copy(update={"feishu": feishu.model_copy(update=updates)})
-    return app.model_copy(update={"channels": channels})
+    primary = _get_path(raw, "model.primary") or ModelConfig().primary
+    env_name = PROVIDER_BASE_URL_ENV.get(provider_of(str(primary)) or "")
+    value = getattr(secrets, env_name.lower(), None) if env_name else None
+    if value and not _has_path(env_overrides, "model.base_url"):
+        overrides.setdefault("model", {})["base_url"] = value
+
+    return overrides
+
+
+def _has_path(data: dict[str, Any], path: str) -> bool:
+    """``data`` 里是否存在点号路径。"""
+    current: Any = data
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return False
+        current = current[part]
+    return True
+
+
+def _get_path(data: dict[str, Any], path: str) -> Any:
+    """取点号路径的值；不存在时返回 ``None``。"""
+    current: Any = data
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
 
 
 @lru_cache(maxsize=1)

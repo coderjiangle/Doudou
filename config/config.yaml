@@ -26,7 +26,7 @@ server:
 #   base_url 指向网关，provider 用 openai
 #   API Key 从 .env 的 OPENAI_API_KEY 读取（见 model.models._secret_api_key）
 model:
-  primary: openai:deepseek-flash-official
+  primary: openai:deepseek-v4.1-flash
   fallbacks: []
   temperature: 0.2
   # 该模型输出上限为 384000 token（上下文 1000000），但把 max_tokens 设成上限
@@ -36,7 +36,7 @@ model:
   # 长文生成会明显超过默认 120s，这里放宽；网关侧若有更短超时会以网关为准。
   timeout: 300
   max_retries: 2
-  base_url: https://api.himodels.ai/v1
+  base_url: https://ark.cn-beijing.volces.com/api/coding/v3
 
 # ---------------------------------------------------------------- Agent
 agent:
@@ -57,7 +57,7 @@ agent:
     delete: true
     shell_exec: true
   recursion_limit: 60          # 未使用（原为接入 deepagents 预留，计划已取消）
-  max_steps: 10                # ReAct 循环单次运行的最大步数（模型往返次数）
+  max_steps: 20                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
   # M8 落地文件系统工具后生效；顺序即匹配顺序，拒绝规则要写在前面
   # 文件系统路径权限。**首匹配生效**，所以拒绝规则必须写在放行规则前面。
@@ -176,11 +176,11 @@ channels:
     enabled: true
 
   feishu:                      # M4 已落地（websocket 长连接）
-    enabled: false
+    enabled: true
     mode: websocket            # websocket（推荐，无需公网）| callback（未实现）
     base_url: https://open.feishu.cn
-    bot_name: Doudou           # 群聊 @ 判定用，需与飞书里的显示名一致
-    # bot_open_id: ou_xxx      # 更可靠的 @ 判定；留空时启动会自动获取
+    bot_name: 豆豆助手           # 群聊 @ 判定用，需与飞书里的显示名一致
+    # bot_open_id:       # 更可靠的 @ 判定；留空时启动会自动获取
     # app_id / app_secret 从 .env 的 FEISHU_APP_ID / FEISHU_APP_SECRET 注入
     reply_mode: card           # card（流式卡片）| text
     stream_reply: true

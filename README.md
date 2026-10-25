@@ -53,6 +53,19 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
 调用 `now` 工具，因此**完整的 ReAct 循环（推理 → 工具调用 → 观察 → 收敛）无需联网即可验证**。
 接入真实模型只需在 `.env` 里配好 `DOUDOU_MODEL__PRIMARY` 与对应 API Key。
 
+## 1.2 效果预览（飞书）
+
+日常对话直接回一张卡片，工具调用过程留在卡片上；碰到有副作用的操作会单独弹一张确认卡片，
+点「同意执行」才真正执行 —— 确认按钮背后是 `ApprovalBroker`，超时按拒绝处理。
+
+<p align="center">
+  <img src="image/飞书对话1.png" alt="飞书对话：查看已装载的工具" width="820">
+</p>
+
+<p align="center">
+  <img src="image/飞书对话2.png" alt="飞书对话：执行命令前的人工确认" width="820">
+</p>
+
 ## 2. 架构总览
 
 ![Doudou 架构总览](docs/assets/architecture.png)
@@ -224,7 +237,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
 
 ### 4.4 接入飞书（可选）
 
-飞书通道用 **WebSocket 长连接**，不需要公网地址、不需要内网穿透：
+飞书通道用 **WebSocket 长连接**，不需要公网地址、不需要内网穿透；接入后的效果见 §1.2。
 
 ```dotenv
 # .env

@@ -22,20 +22,21 @@ server:
   workers: 1
 
 # ---------------------------------------------------------------- 模型
-# 供应商：DeepSeek 官方 API（OpenAI 兼容协议）
-#   base_url 指向官方地址，provider 用 openai
+# 供应商：火山方舟 Coding Plan（OpenAI 兼容协议）
+#   base_url 指向方舟 coding 端点，provider 用 openai
 #   API Key 从 .env 的 OPENAI_API_KEY 读取（见 agent/models._secret_api_key）
+#   模型名必须是 coding plan 支持的 ID；deepseek-v4.1-flash 已验证可用
 model:
-  primary: openai:deepseek-flash
+  primary: openai:deepseek-v4.1-flash
   fallbacks: []
   temperature: 0.2
-  # DeepSeek 允许的 max_tokens 范围是 [1, 393216]。这里只封顶单次生成，
-  # 设成上限既慢又贵；需要长文时用 DOUDOU_MODEL__MAX_TOKENS 临时调高。
+  # 只封顶单次生成，避免「允许生成几十万 token」既慢又贵；
+  # 需要长文时用 DOUDOU_MODEL__MAX_TOKENS 临时调高。
   max_tokens: 32768
   # 长文生成会明显超过默认 120s，这里放宽；网关侧若有更短超时会以网关为准。
   timeout: 300
   max_retries: 2
-  base_url: https://api.deepseek.com
+  base_url: https://ark.cn-beijing.volces.com/api/coding/v3
 
 # ---------------------------------------------------------------- Agent
 agent:

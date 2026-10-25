@@ -26,7 +26,7 @@ dependencies = [
     # 编排是自研的（src/doudou/agent/react.py）。这里只借 LangChain 的**基础件**：
     # ``langchain-core``（BaseTool / BaseMessage）与 ``langchain`` 的 ``init_chat_model``
     # （唯一的 provider 适配入口）。**不要**引入 deepagents / langgraph ——
-    # 曾经规划过，评估后取消，详见 docs/roadmap.md 修正记录 #3。
+    # 评估过，收益抵不上多一个必须跟随的框架。
     "langchain>=1.4,<2",
     "langchain-openai>=1.7,<2",
 
@@ -70,7 +70,7 @@ anthropic = ["langchain-anthropic>=1.7,<2"]
 deepseek = ["langchain-deepseek>=1.1,<2"]
 postgres = ["asyncpg>=0.30", "psycopg[binary]>=3.2"]
 otel = ["opentelemetry-sdk>=1.30", "opentelemetry-exporter-otlp>=1.30"]
-# LLM 级追踪（M9）。装不上或不配 key 时追踪整体降级为 no-op，
+# LLM 级追踪。装不上或不配 key 时追踪整体降级为 no-op，
 # 因此它是可选依赖而不是核心依赖。
 tracing = ["langfuse>=3,<4"]
 
@@ -83,7 +83,7 @@ dev = [
     "mypy>=2.4,<3",
     "types-pyyaml>=6.0.12",
     "pre-commit>=4.7,<5",
-    # 依赖漏洞扫描（M9）。只审运行时依赖：见 .github/workflows/ci.yml。
+    # 依赖漏洞扫描。只审运行时依赖：见 .github/workflows/ci.yml。
     "pip-audit>=2.9,<3",
 ]
 

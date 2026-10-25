@@ -210,7 +210,7 @@ def is_tool_message(message: BaseMessage) -> bool:
 def trim_history(messages: list[BaseMessage], limit: int) -> list[BaseMessage]:
     """从头部裁剪历史，且不把切入点落在工具调用组中间。
 
-    M7 会把它换成按 token 预算的裁剪；当前按条数，够用且可预测。
+    按条数裁剪；按 token 预算的裁剪在 ``agent.context`` 里做。
     """
     if limit <= 0 or len(messages) <= limit:
         return messages

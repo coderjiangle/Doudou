@@ -336,7 +336,7 @@ def test_tool_infos_shape(settings: Settings) -> None:
 
 
 def test_write_tools_are_marked_for_approval(settings: Settings) -> None:
-    """写文件默认要确认 —— 这是 M8「危险操作不静默执行」的基础。"""
+    """写文件默认要确认 —— 危险操作不能静默执行。"""
     infos = {info.name: info for info in tool_infos(settings)}
 
     for name in ("workspace_write", "workspace_edit", "workspace_delete"):

@@ -1,16 +1,10 @@
-"""最小可用的 ReAct 循环：推理 → 调用工具 → 观察 → 再推理，直到给出最终答复。
+"""ReAct 循环：推理 → 调用工具 → 观察 → 再推理，直到给出最终答复。
 
-设计要点
---------
-* **不依赖框架的 agent executor**：循环本身只有 ``推理`` 与 ``执行`` 两个动作，
-  事件以 :class:`~doudou.agent.events.RunEvent` 流式吐出，CLI / SSE / 飞书卡片
-  各自决定怎么渲染。这一层刻意不引入 LangGraph / deepagents：
-  编排逻辑（规划、委派、确认、上下文压缩）都由本仓库自己实现，
-  见 ``docs/roadmap.md`` 修正记录 #3。
-* **工具调用按 index 手工累积**：只依赖 ``tool_call_chunks`` 协议，
-  不假定 provider 的返回形态，因此对 OpenAI / Anthropic / 兼容网关都成立。
-* **单步失败不中断整个循环**：工具异常会转成错误 ``ToolMessage`` 回填给模型，
-  让它有机会换一种做法，而不是把异常抛到用户面前。
+循环只有「推理」和「执行」两个动作，过程以 ``RunEvent`` 流式吐出，由 CLI / SSE /
+飞书卡片各自渲染。工具调用按 index 手工累积（只依赖 ``tool_call_chunks`` 协议），
+不假定 provider 的返回形态，因此对 OpenAI / Anthropic / 兼容网关都成立。
+单步失败不会中断整个循环：工具异常会转成错误 ``ToolMessage`` 回填给模型，
+让它有机会换一种做法，而不是把异常抛到用户面前。
 """
 
 from __future__ import annotations

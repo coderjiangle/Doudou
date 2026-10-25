@@ -357,11 +357,11 @@ async def test_thread_delete(settings_for_api: Settings) -> None:
     assert missing.status_code == 404
 
 
-# --------------------------------------------------------------------------- 持久化（M2 验收标准）
+# --------------------------------------------------------------------------- 持久化
 
 
 async def test_history_survives_app_restart(tmp_path: Path) -> None:
-    """重启进程后仍能拿到历史并继续对话 —— 这是 M2 的验收标准。"""
+    """重启进程后仍能拿到历史并继续对话。"""
     settings = _write_config(tmp_path)
 
     async with api_client(settings) as client:
@@ -581,8 +581,7 @@ def _write_mcp_manifest(config_dir: Path) -> None:
 async def test_mcp_tools_reach_the_agent_through_the_api(tmp_path: Path) -> None:
     """端到端：清单 → 真实 stdio server → Agent 工具 → ``GET /tools``。
 
-    这是 M5 验收标准在 HTTP 层的版本：MCP 工具必须真的进到 Agent 的工具列表里，
-    而不只是「配置解析成功」。
+    MCP 工具必须真的进到 Agent 的工具列表里，而不只是「配置解析成功」。
     """
     settings = _write_config(tmp_path)
     _write_mcp_manifest(settings.config_dir)
@@ -791,7 +790,7 @@ async def _wait_for_pending(client: httpx.AsyncClient, *, budget: float = 3.0) -
 
 
 async def test_approvals_drive_the_waiter_and_survive_restart(tmp_path: Path) -> None:
-    """M8 验收：确认请求可被 HTTP 落决策，且**重启后仍查得到**。
+    """确认请求可被 HTTP 落决策，且**重启后仍查得到**。
 
     这里直接向 broker 注入一条待决请求（模型脚本里没法让它随便调工具），
     走的仍是端点 → broker → 落库的真实链路。
@@ -870,11 +869,11 @@ async def test_approvals_require_token_when_configured(tmp_path: Path) -> None:
     assert denied.status_code == 401
 
 
-# --------------------------------------------------------------------------- 审计 / 用量（M9）
+# --------------------------------------------------------------------------- 审计 / 用量
 
 
 async def test_run_is_audited_and_counted(tmp_path: Path) -> None:
-    """M9 验收：跑一轮 → 工具调用有审计记录、token 有归属。
+    """跑一轮 → 工具调用有审计记录、token 有归属。
 
     用 ``scripted:demo``（离线脚本模型）而不是真模型：这条链路要能在 CI 里跑，
     它验证的是**接线**（事件 → 观察者 → 库 → 接口），不是模型能力。

@@ -242,7 +242,7 @@ def test_patch_success(feishu_client: FeishuClient, fake_lark: FakeLarkClient) -
 
 
 def test_parse_action_value_accepts_dict_and_json_string() -> None:
-    """卡片按钮回传的 value 两种形态都要吃下（M8 的确认按钮依赖它）。"""
+    """卡片按钮回传的 value 两种形态都要吃下（人工确认的按钮依赖它）。"""
     assert parse_action_value({"action": "approve", "call_id": "c1"}).action == "approve"
     assert parse_action_value('{"action": "reject", "call_id": "c2"}').call_id == "c2"
     assert parse_action_value("不是 JSON").action == ""
@@ -570,7 +570,7 @@ def test_card_state_reports_patch_failures() -> None:
     assert "2 次卡片更新失败" in rendered
 
 
-# --------------------------------------------------------------------------- 人工确认（M8）
+# --------------------------------------------------------------------------- 人工确认
 
 
 def _make_channel(

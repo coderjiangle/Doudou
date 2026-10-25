@@ -1,7 +1,7 @@
 """Session and thread identity: mapping, locking, idle expiry.
 
-M1 为进程内实现：单进程部署够用。M9 多副本时需要把映射下沉到 ``storage``
-并换成分布式锁（见 docs/roadmap.md）。
+进程内实现：单进程部署够用。多副本部署时需要把映射下沉到 ``storage``
+并换成分布式锁。
 """
 
 from __future__ import annotations

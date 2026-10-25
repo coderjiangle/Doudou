@@ -1,20 +1,13 @@
-"""Feishu channel implementation: long connection in, streaming card out.
+"""飞书通道：长连接收事件，流式卡片回复。
 
-## 为什么需要独立线程
+lark 的 ``ws.Client`` 在模块导入时就创建一个模块级 event loop，``start()`` 会
+``run_until_complete(_select())`` 一直阻塞，等于自己霸占一个线程和一个事件循环。
+所以 ``start()`` 必须在专属线程里调用（否则会卡死 FastAPI）；在那个线程收到事件后，
+用 ``asyncio.run_coroutine_threadsafe`` 把活儿交回主事件循环（Agent 是异步的）；
+停止时向那个模块级 loop 投递 ``stop`` —— 这是唯一能打断 ``_select()`` 的方式。
+线程设为 daemon：即使优雅停止失败，进程也要能退出。
 
-lark 的 ``ws.Client`` 在**模块导入时**创建一个模块级 event loop，``start()`` 会
-``loop.run_until_complete(_select())`` 一直阻塞——也就是说它自己霸占一个线程和一个
-事件循环。所以：
-
-* ``start()`` 必须在**专属线程**里调用，不能占用主事件循环（会把 FastAPI 卡死）；
-* 反过来，我们在那个线程里收到事件后，必须用
-  ``asyncio.run_coroutine_threadsafe`` 把活儿交回**主**事件循环——Agent 是异步的；
-* 停止时向那个模块级 loop 投递 ``stop``（这是唯一能打断 ``_select()`` 的方式），
-  并且线程设为 daemon：**即使优雅停止失败，进程也必须能退出**。
-
-## 为什么用整卡 patch 而不是 cardkit 增量
-
-见 ``cards.py`` 的说明：API 面小、行为可预测，配合节流已经足够像流式。
+卡片用整卡 patch 而不是 cardkit 增量更新，理由见 ``cards.py``。
 """
 
 from __future__ import annotations

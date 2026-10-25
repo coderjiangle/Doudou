@@ -202,7 +202,7 @@ def parse_action_value(raw: Any) -> CardActionValue:
     """解析卡片按钮回传的 ``value``。
 
     飞书的 ``value`` 既可能是 dict 也可能是 JSON 字符串，两种都要吃下。
-    M8 的确认按钮依赖它，因此现在就把解析逻辑与测试放好。
+    人工确认的按钮依赖它来判断「点了哪个按钮、针对哪一次确认」。
     """
     if isinstance(raw, CardActionValue):
         return raw

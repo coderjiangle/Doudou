@@ -34,7 +34,7 @@ def test_index_contains_name_and_description() -> None:
 
 
 def test_index_does_not_leak_body() -> None:
-    """这是 M6 的核心：正文**不进**上下文预算。"""
+    """正文**不进**上下文预算。"""
     index = render_skill_index([make_skill("alpha", "描述", body="机密正文内容")])
 
     assert "机密正文内容" not in index
@@ -180,7 +180,7 @@ def test_skill_read_file(skills_settings) -> None:  # type: ignore[no-untyped-de
 
 
 async def test_agent_loads_skill_on_demand(skills_settings) -> None:  # type: ignore[no-untyped-def]
-    """验收标准的完整链路：模型从索引里看到技能 → 调 read_skill → 按内容作答。"""
+    """完整链路：模型从索引里看到技能 → 调 read_skill → 按内容作答。"""
     tools: list[BaseTool] = list(skills_tools.build_tools(skills_settings()))
     agent = ReactAgent(
         model=ScriptedChatModel(
@@ -209,7 +209,7 @@ async def test_agent_loads_skill_on_demand(skills_settings) -> None:  # type: ig
 
 
 def test_bundle_refresh_skills_updates_prompt(skills_settings) -> None:  # type: ignore[no-untyped-def]
-    """热重载：新加一个技能后，提示词必须跟着变（这是 M6 承诺的能力）。"""
+    """热重载：新加一个技能后，提示词必须跟着变。"""
     from doudou.agent.factory import build_agent
 
     settings = skills_settings()

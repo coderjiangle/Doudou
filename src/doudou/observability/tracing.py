@@ -1,24 +1,14 @@
 """Langfuse 追踪：把一次运行的结构化事件发成 trace。
 
-## 为什么用「运行结束时整批发出」而不是边跑边发
+Langfuse v3 的 SDK 是 OTEL 风格的：span 必须成对地 ``with`` 进入与退出。而观察者是
+回调式的（``on_run_start`` / ``on_event`` / ``on_run_end`` 在不同时刻），跨回调持有
+span 会带来两个问题：运行中途异常或超时时 span 永远悬着，并发会话交错时还需要额外
+的上下文管理。所以这里把事件攒起来，在 ``on_run_end`` 里一次发出。运行只有几秒到
+几十秒，追踪晚几秒出现完全可以接受；攒的同时有上限，长运行不会把内存撑爆。
 
-Langfuse v3 的 SDK 是 OTEL 风格的：span 必须成对地 ``with`` 进入与退出。
-而我们的观察者是**回调式**的（``on_run_start`` / ``on_event`` / ``on_run_end`` 各在
-不同时刻），跨回调持有 span 对象会带来两个问题：
-
-1. 运行中途异常/超时的话，那个 span 就永远悬着；
-2. 观察者之间可能交错（并发会话），持有一组 span 需要额外的上下文管理。
-
-因此这里把事件**攒起来**，在 :meth:`TracingObserver.on_run_end` 里一次发出。
-运行只有几秒到几十秒，追踪晚几秒出现完全可以接受；换来的是「不会漏 end、
-不会挂住并发」。攒的同时有上限，长运行也不会把内存撑爆。
-
-## 一个已知的表达力限制
-
-``RunEvent`` 里的 token 用量是**整轮累计**的（``run_end.usage``），
-没有按 step 拆分，因此 generation 的 ``usage_details`` 只挂在运行的根节点上。
-要按 step 拆就得改 ReAct 循环的事件粒度 —— 那属于「为追踪改产品代码」，
-暂不做。见 docs/observability.md。
+已知限制：``RunEvent`` 里的 token 用量是整轮累计的（``run_end.usage``），没有按
+step 拆分，因此 generation 的 ``usage_details`` 只挂在运行的根节点上。要按 step 拆
+就得改 ReAct 循环的事件粒度，暂不做。
 """
 
 from __future__ import annotations

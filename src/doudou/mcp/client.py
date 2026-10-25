@@ -1,25 +1,15 @@
-"""Wrap MultiServerMCPClient and adapt remote tools for LangChain.
+"""封装 MultiServerMCPClient，把远端工具适配成 LangChain 工具。
 
-## 一个必须知道的代价
+``langchain-mcp-adapters`` 的 ``get_tools()`` 返回的工具是无状态的：每次调用都会
+新建一个 MCP session。对 ``stdio`` server 来说，这等于每次工具调用都重新拉起一个
+子进程。所以 ``stdio`` 只适合本地轻量 server（自己写的 Python server 启动约百毫秒），
+``npx`` / ``uvx`` 这类每次都要解析包再启动 node/python 的 server 单次调用会慢到秒级，
+需要频繁调用的能力优先用 ``http`` transport。持久 session 需要管理生命周期、重连与
+并发安全，收益与复杂度都明显更高，暂不引入。
 
-``langchain-mcp-adapters`` 的 ``get_tools()`` 返回的工具是**无状态**的：
-每次调用都会新建一个 MCP session（见其 docstring 的 note）。对 ``stdio`` server
-而言，这等于**每次工具调用都重新拉起一个子进程**。
-
-因此：
-
-* ``stdio`` 适合本地轻量 server（自己写的 Python server 启动约百毫秒级）；
-* ``npx`` / ``uvx`` 这类每次都要解析包再启动 node/python 的 server，单次调用会慢到秒级；
-* 需要频繁调用的能力优先用 ``http`` transport（远端长驻进程，没有启动成本）。
-
-持久 session 是后续优化项：那需要管理会话生命周期、重连与并发安全，
-收益与复杂度都明显更高，M5 不引入。
-
-## 为什么逐个 server 拉取
-
-``get_tools()`` 不带参数时，任一 server 连不上都会整体失败。这里改成
-**逐个 server 拉取并各自记录状态**，所以一个坏掉的 server 只影响它自己 ——
-这正是 ``mcp.fail_fast: false`` 想要的降级行为。
+``get_tools()`` 不带参数时任一 server 连不上都会整体失败，这里改成逐个 server 拉取
+并各自记录状态，一个坏掉的 server 只影响它自己 —— 也就是 ``mcp.fail_fast: false``
+想要的降级行为。
 """
 
 from __future__ import annotations

@@ -67,7 +67,7 @@ def default_variables(settings: Settings) -> dict[str, Any]:
 def load_extra_instructions(path: Path | None) -> str | None:
     """读取 ``agents.yaml`` 中 ``main.extra_instructions``。
 
-    子 Agent（``subagents``）在 M8 落地，这里只消费主 Agent 的补充指令。
+    子 Agent 有自己的配置段，这里只消费主 Agent 的补充指令。
     """
     if path is None or not path.is_file():
         return None

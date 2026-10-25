@@ -101,7 +101,7 @@ def build_tools(
 
     Args:
         settings: 用于构造依赖配置的工具。
-        extra: 额外工具，例如 M5 中 MCP 拉取到的工具。
+        extra: 额外工具，例如 MCP 拉取到的工具。
         extra_source: ``extra`` 的来源标记，仅用于日志。
         skills_registry: 复用已有的 Skill 索引。**必须与系统提示词用同一份**，
             否则提示词里列出的技能和 ``read_skill`` 能读到的会对不上。

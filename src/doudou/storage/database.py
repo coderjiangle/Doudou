@@ -65,7 +65,7 @@ class Database:
         **外键**：SQLite 默认不强制外键，于是 ``ondelete="CASCADE"`` 形同虚设 ——
         删了 thread，messages 会留下成为孤儿行。
 
-        **并发**（M9 压测实测出来的，见 ``docs/performance.md``）：
+        **并发**（压测实测出来的，见 ``docs/performance.md``）：
 
         * ``journal_mode=WAL`` —— 默认的回滚日志会让**写操作阻塞所有读**，
           而我们是「每轮若干次读 + 若干次写」的混合负载，16 并发下实测吞吐
@@ -95,7 +95,7 @@ class Database:
     async def create_schema(self) -> None:
         """建表。
 
-        M2 用 ``create_all`` 就够：schema 还是全新的、没有线上数据要迁移。
+        用 ``create_all`` 就够：schema 还是全新的、没有线上数据要迁移。
         等第一次真正需要改表结构时再引入 Alembic（见 storage/migrations/README.md）。
         """
         async with self.engine.begin() as connection:

@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 CHANNEL_NAME = "feishu"
 
-#: 支持的消息类型。图片/文件要等 M8 之后与多模态一起做。
+#: 支持的消息类型。图片/文件暂不支持（需要多模态链路）。
 SUPPORTED_MESSAGE_TYPES = ("text", "post")
 
 #: 私聊对话类型。

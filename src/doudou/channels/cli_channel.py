@@ -49,7 +49,7 @@ class _RenderState:
 class CliChannel:
     """终端通道：读入用户输入，把 ReAct 事件渲染成人看的输出。
 
-    它实现了 ``Channel`` 协议（便于 M4 之后与其他通道并列启停），
+    它实现了 ``Channel`` 协议（与其他通道并列启停），
     同时直接被 ``doudou chat`` / ``doudou ask`` 使用。
     """
 

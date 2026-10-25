@@ -38,7 +38,7 @@ class CardActionValue(BaseModel):
     """卡片按钮的 ``value`` 字段。
 
     我们自己在按钮里塞的结构：``{"action": "approve", "approval_id": "ap-0001-…"}``。
-    M8 的人工确认靠它把「点了哪个按钮、针对哪一次确认」传回来。
+    人工确认靠它把「点了哪个按钮、针对哪一次确认」传回来。
 
     ``approval_id`` 而不是工具名：点头只授权**这一次**具体的调用 ——
     把「同意 write_file」当成一次性授权会让后续每次写文件都静默通过。
@@ -68,7 +68,7 @@ def parse_content(message_type: str, raw: str | None) -> ParsedContent:
 
     * ``text``  —— ``{"text": "..."}``
     * ``post``  —— ``{"title": "...", "content": [[{tag, text}, ...], ...]}``
-    * 其它（image / file / audio …）—— 本里程碑不处理，返回空文本。
+    * 其它（image / file / audio …）—— 暂不支持，返回空文本。
     """
     if not raw:
         return ParsedContent()

@@ -204,7 +204,7 @@ def _to_message(row: MessageModel) -> BaseMessage | None:
 def _flatten_content(content: str | list[Any] | None) -> str:
     """多模态内容目前只落文本部分。
 
-    M4 打通图片链路时，这里需要改成保留完整的 content blocks（参见
+    打通图片链路时，这里需要改成保留完整的 content blocks（参见
     docs/configuration.md 的「多模态」一节）。
     """
     if content is None:

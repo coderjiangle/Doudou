@@ -179,7 +179,7 @@ async def test_read_only_flag_controls_approval(tmp_path: Path, settings_factory
 
 
 async def test_failed_server_does_not_break_others(tmp_path: Path, settings_factory_local) -> None:  # type: ignore[no-untyped-def]
-    """验收标准：关掉其中一个 server，服务仍然可用。"""
+    """关掉其中一个 server，服务仍然可用。"""
     path = write_manifest(
         tmp_path,
         [
@@ -283,7 +283,7 @@ async def test_refresh_picks_up_manifest_changes(tmp_path: Path, settings_factor
 
 
 async def test_streamable_http_server(tmp_path: Path, settings_factory_local) -> None:  # type: ignore[no-untyped-def]
-    """验收标准里的「远程 http server」：真开一个本地端口跑 MCP。"""
+    """远程 http server：真开一个本地端口跑 MCP。"""
     import asyncio
 
     port = free_port()

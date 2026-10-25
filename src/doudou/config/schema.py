@@ -170,8 +170,8 @@ class AgentConfig(_Section):
     #: 系统提示词里最多列出几个技能。索引必须**有界**，
     #: 否则技能一多，光是索引就把上下文顶坏了。
     skill_index_limit: int = 40
-    #: 保留的多余步数上限。**未使用**：原为接入 deepagents/LangGraph 预留，
-    #: 该计划已取消（见 docs/roadmap.md 修正记录 #3），保留字段只为兼容既有配置文件。
+    #: 保留字段。**未使用**：原为接入 deepagents/LangGraph 预留，该方案已放弃，
+    #: 保留只为兼容既有配置文件。
     recursion_limit: int = 60
     #: ReAct 循环的单次运行最大步数（模型往返次数）
     max_steps: int = 8
@@ -189,10 +189,9 @@ class FilesystemRouteConfig(_Section):
 
 
 class FilesystemConfig(_Section):
-    # 下面三个字段**未被任何代码读取**：它们来自「接入 deepagents 的虚拟文件系统」
-    # 计划（后端选择 / 虚拟路径模式 / composite 路由），该计划已取消
-    # （见 docs/roadmap.md 修正记录 #3）。保留字段只是为了兼容既有配置文件 ——
-    # 真正生效的是 root_dir + 工具层的 resolve 校验。
+    # 下面三个字段**未被任何代码读取**：它们来自早期「虚拟文件系统后端」的设想
+    # （后端选择 / 虚拟路径模式 / composite 路由），该方案已放弃。保留字段
+    # 只是为了兼容既有配置文件 —— 真正生效的是 root_dir + 工具层的 resolve 校验。
     backend: FilesystemBackendName = "state"
     root_dir: str = "./data/workspace"
     virtual_mode: bool = True
@@ -247,9 +246,8 @@ class StorageConfig(_Section):
     #: 保留得多一些是有意的：压缩是有损的，原始历史要能回溯。
     max_messages_per_thread: int = 500
     # ``checkpointer`` / ``store`` 是 LangGraph 的概念，**两个字段都没有被使用**：
-    # 原本预留给「接入 deepagents 引擎」的计划，该计划已取消
-    # （见 docs/roadmap.md 修正记录 #3）。会话续跑与历史一致性由本仓库自己的
-    # ``gateway.session`` + ``storage`` 负责。保留字段以兼容既有配置文件。
+    # 原本预留给「接入 deepagents 引擎」的设想，该方案已放弃。会话续跑与历史一致性
+    # 由本仓库自己的 ``gateway.session`` + ``storage`` 负责，保留字段以兼容既有配置文件。
     checkpointer: CheckpointerName = "sqlite"
     store: CheckpointerName = "sqlite"
     echo_sql: bool = False

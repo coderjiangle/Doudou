@@ -43,13 +43,13 @@ agent:
   name: Doudou
   system_prompt_file: prompts/system.md
   memory_files:
-    - AGENTS.md                # M7 接入记忆后生效
+    - AGENTS.md                # 启动时读进系统提示词
   skills:
     - ../skills/               # 仓库根的 skills/ 目录
   # 提示词里最多列几个技能。索引必须**有界**，
   # 否则技能一多、光是索引就把提示词顶坏。
   skill_index_limit: 40
-  subagents_file: agents.yaml  # M8 接入子 Agent 后生效
+  subagents_file: agents.yaml  # 子 Agent 定义
   # 需要人工确认的工具：CLI 会先询问再执行（见 docs/security.md）
   interrupt_on:
     write_file: true
@@ -59,7 +59,7 @@ agent:
   recursion_limit: 60          # 未使用（原为接入 deepagents 预留，计划已取消）
   max_steps: 20                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
-  # M8 落地文件系统工具后生效；顺序即匹配顺序，拒绝规则要写在前面
+  # 文件系统路径权限；顺序即匹配顺序，拒绝规则要写在前面
   # 文件系统路径权限。**首匹配生效**，所以拒绝规则必须写在放行规则前面。
   # 匹配的是相对工作区的 POSIX 路径（以 / 开头）：
   #   /**          工作区里任何路径（含子目录）
@@ -139,7 +139,7 @@ context:
   keep_recent_messages: 12
   offload_large_results: true
   offload_threshold_bytes: 20000
-  # ---- 以下三项是 M7 新增的关键参数 ----
+  # ---- 上下文预算与卸载 ----
   # 送进模型的历史 token 预算。**这是最关键的一个数**：
   # 默认值刻意保守（成本可预期），大上下文模型应该调高。
   max_input_tokens: 80000
@@ -162,7 +162,7 @@ storage:
   store: sqlite
   echo_sql: false
 
-# ---------------------------------------------------------------- MCP（M5 落地）
+# ---------------------------------------------------------------- MCP
 mcp:
   enabled: true
   config_file: mcp.servers.yaml
@@ -175,7 +175,7 @@ channels:
   cli:
     enabled: true
 
-  feishu:                      # M4 已落地（websocket 长连接）
+  feishu:                      # WebSocket 长连接
     enabled: true
     mode: websocket            # websocket（推荐，无需公网）| callback（未实现）
     base_url: https://open.feishu.cn

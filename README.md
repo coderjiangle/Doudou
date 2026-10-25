@@ -230,7 +230,8 @@ uv run doudou serve --port 9000 --reload
 | `GET /docs` | OpenAPI 交互文档 |
 
 > 浏览器直接打开 `http://127.0.0.1:8000/` 就是内置聊天页：左侧是历史会话，顶部显示
-> 当前模型与工具数，回复走 `/chat/stream` 流式输出；需要确认的工具（写文件、`shell_exec`）
+> 当前模型与工具数，回复走 `/chat/stream` 流式输出并按 Markdown 渲染（标题、列表、表格、
+> 代码块）；工具调用显示成 chips，结果默认折叠。需要确认的工具（写文件、`shell_exec`）
 > 会在输入框上方弹出「同意 / 拒绝」卡片。`?thread=<id>` 可以直接打开某个会话。
 > 开启 `DOUDOU_API_TOKEN` 后，点右上角「设置」填入令牌即可；页面不依赖任何外部 CDN。
 

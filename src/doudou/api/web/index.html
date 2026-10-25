@@ -499,22 +499,16 @@
 
   /* ---------------------------------------------------------------- 输入区 */
   .composer-wrap {
-    /* 输入区固定占聊天区高度的一半，方便写长问题；消息区仍是独立滚动区。 */
-    flex: 0 0 50%;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
     padding: 10px 22px 16px;
     background: linear-gradient(180deg, rgba(242, 244, 247, 0), rgba(255, 255, 255, 0.88) 45%);
   }
   .composer {
-    flex: 1;
-    min-height: 0;
     display: flex;
-    align-items: stretch;
+    align-items: flex-end;
     gap: 8px;
-    max-width: 960px;
-    width: 100%;
+    /* 宽度跟随聊天区：占一半，避免宽屏上被固定 960px 卡得太短。 */
+    width: 50%;
+    min-width: 280px;
     margin: 0 auto;
     padding: 8px;
     background: #fff;
@@ -529,21 +523,19 @@
   }
   .composer textarea {
     flex: 1;
-    min-height: 0;
-    height: 100%;
     resize: none;
     border: 0;
     background: transparent;
     font: inherit;
     line-height: 1.5;
     padding: 8px 10px;
+    max-height: 180px;
+    min-height: 38px;
     color: var(--ink);
   }
   .composer textarea:focus { outline: none; }
   .composer textarea::placeholder { color: #9aa4b2; }
   .composer button[type="submit"] {
-    align-self: flex-end;
-    flex: none;
     border: 0;
     border-radius: 12px;
     height: 38px;
@@ -1323,6 +1315,12 @@
 
   // ------------------------------------------------------------------ 事件绑定
 
+  function autoGrow() {
+    const input = el("input");
+    input.style.height = "auto";
+    input.style.height = `${Math.min(180, input.scrollHeight)}px`;
+  }
+
   el("composer").addEventListener("submit", (event) => {
     event.preventDefault();
     if (state.busy) {
@@ -1333,9 +1331,11 @@
     const message = input.value.trim();
     if (!message) return;
     input.value = "";
+    autoGrow();
     send(message);
   });
 
+  el("input").addEventListener("input", autoGrow);
   el("input").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();

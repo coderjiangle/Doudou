@@ -110,7 +110,7 @@ tools:
   # （权限规则拦不住 `rm -rf /`），只有人工确认这一道。
   # 需要真正隔离请用容器/沙箱，而不是靠这个工具。
   shell:
-    enabled: false
+    enabled: true
     timeout: 60
     max_output_chars: 20000
 

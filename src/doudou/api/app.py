@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from doudou.api.errors import install_error_handlers
 from doudou.api.lifespan import make_lifespan
@@ -21,6 +21,8 @@ logger = get_logger(__name__)
 
 #: 内置的极简聊天页（无构建步骤，直接由服务托管）。
 WEB_INDEX = Path(__file__).with_name("web") / "index.html"
+#: 页面用的头像（由 image/icon2.jpg 缩放到 192×192）。
+WEB_AVATAR = Path(__file__).with_name("web") / "avatar.png"
 
 DESCRIPTION = """\
 Doudou 个人助手 Agent 的 HTTP 接口。
@@ -90,6 +92,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "__DOUDOU_BASE_PATH__", resolved.app.server.base_path
         )
         return HTMLResponse(html)
+
+    @app.get("/avatar.png", include_in_schema=False)
+    @app.get("/ui/avatar.png", include_in_schema=False)
+    async def web_avatar() -> FileResponse:
+        return FileResponse(WEB_AVATAR, media_type="image/png")
 
     logger.debug(
         "api.app_created",

@@ -4,118 +4,186 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Doudou</title>
+<link rel="icon" type="image/png" href="avatar.png">
 <style>
   :root {
-    --bg: #f7f7f8;
-    --panel: #ffffff;
-    --line: #e6e6ea;
-    --text: #1f2328;
-    --muted: #6b7280;
-    --accent: #0f766e;
-    --accent-soft: #e6f4f1;
-    --user: #0f766e;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: rgba(15, 23, 42, 0.08);
+    --brand: #0f766e;
+    --brand-2: #14b8a6;
     --danger: #b91c1c;
-    --radius: 12px;
+    --card: #ffffff;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --shadow-md: 0 14px 34px -18px rgba(15, 23, 42, 0.3);
+    --radius: 16px;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     margin: 0;
-    background: var(--bg);
-    color: var(--text);
+    color: var(--ink);
     font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    background:
+      radial-gradient(1100px 520px at -5% -10%, #d7f2ec 0%, rgba(215, 242, 236, 0) 60%),
+      radial-gradient(900px 480px at 105% -5%, #ffe9d2 0%, rgba(255, 233, 210, 0) 55%),
+      linear-gradient(180deg, #f8fafb 0%, #f2f4f7 100%);
     display: flex;
     flex-direction: column;
   }
   button { font: inherit; cursor: pointer; }
-  code { background: #f1f2f4; padding: 1px 5px; border-radius: 4px; }
+  code { background: rgba(15, 23, 42, 0.06); padding: 1px 5px; border-radius: 5px; }
 
+  /* ---------------------------------------------------------------- 顶栏 */
   header {
+    position: relative;
+    z-index: 5;
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 12px 18px;
-    background: var(--panel);
+    padding: 12px 22px;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--line);
   }
-  .brand { font-weight: 700; font-size: 16px; }
-  .brand .sub { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px; }
-  .status { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; }
-  .dot.ok { background: #16a34a; }
-  .dot.bad { background: var(--danger); }
-  header button {
-    border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 8px;
-    padding: 5px 10px;
-    color: var(--text);
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand img {
+    width: 36px; height: 36px;
+    border-radius: 12px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 6px 16px -6px rgba(15, 118, 110, 0.5);
   }
-  header button:hover { background: #f3f4f6; }
+  .brand .name { font-size: 17px; font-weight: 750; letter-spacing: 0.2px; }
+  .brand .tag { font-size: 12px; color: var(--muted); }
+  .status {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-sm);
+    color: var(--muted);
+    font-size: 12.5px;
+    max-width: 52vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; flex: none; }
+  .dot.ok { background: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14); }
+  .dot.bad { background: var(--danger); box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.12); }
+  .ghost {
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.78);
+    border-radius: 10px;
+    padding: 7px 12px;
+    color: var(--ink);
+    font-size: 13px;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .ghost:hover { background: #fff; border-color: rgba(15, 118, 110, 0.28); }
 
+  /* ---------------------------------------------------------------- 设置 */
   .settings {
     display: grid;
     grid-template-columns: 1fr 1fr auto;
     gap: 12px;
     align-items: end;
-    padding: 12px 18px;
-    background: #fffdf5;
-    border-bottom: 1px solid var(--line);
+    margin: 14px 22px 0;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow-md);
   }
   .settings.hidden { display: none; }
-  .settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .settings label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
   .settings input {
     font: inherit;
-    padding: 7px 9px;
+    padding: 8px 10px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 9px;
     background: #fff;
+    color: var(--ink);
   }
+  .settings input:focus { outline: 2px solid rgba(20, 184, 166, 0.25); border-color: var(--brand); }
   .settings button {
     border: 0;
-    border-radius: 8px;
-    padding: 8px 14px;
-    background: var(--accent);
+    border-radius: 9px;
+    padding: 9px 16px;
+    background: linear-gradient(135deg, var(--brand), #0d9488);
     color: #fff;
+    font-weight: 600;
+    box-shadow: 0 8px 18px -10px rgba(13, 148, 136, 0.8);
   }
   .settings .hint { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; }
 
+  /* ---------------------------------------------------------------- 主体 */
   main { flex: 1; display: flex; min-height: 0; }
   aside {
-    width: 268px;
+    width: 282px;
     flex: none;
-    background: var(--panel);
-    border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid var(--line);
   }
   .side-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--line);
-    font-weight: 600;
-    font-size: 13px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px 10px;
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
   }
   .side-head button {
     border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 8px;
-    padding: 4px 9px;
+    background: #fff;
+    border-radius: 999px;
+    padding: 5px 11px;
     font-size: 12px;
+    color: var(--brand);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s, box-shadow 0.15s;
   }
-  .side-head button:hover { background: #f3f4f6; }
-  #threads { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+  .side-head button:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  #threads {
+    list-style: none;
+    margin: 0;
+    padding: 4px 8px 12px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
   .thread {
     position: relative;
-    padding: 9px 30px 9px 10px;
-    border-radius: 9px;
+    padding: 10px 34px 10px 12px;
+    border-radius: 12px;
+    border: 1px solid transparent;
     cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
   }
-  .thread:hover { background: #f5f5f7; }
-  .thread.active { background: var(--accent-soft); }
+  .thread:hover { background: rgba(255, 255, 255, 0.85); border-color: var(--line); }
+  .thread.active {
+    background: #fff;
+    border-color: rgba(15, 118, 110, 0.18);
+    box-shadow: var(--shadow-sm);
+  }
+  .thread.active::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 12px; bottom: 12px;
+    width: 3px;
+    border-radius: 3px;
+    background: linear-gradient(var(--brand), var(--brand-2));
+  }
   .thread .t-title {
     font-size: 13px;
     white-space: nowrap;
@@ -125,62 +193,128 @@
   .thread .t-meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
   .thread .t-del {
     position: absolute;
-    right: 6px;
-    top: 8px;
+    right: 7px; top: 9px;
     border: 0;
     background: transparent;
     color: var(--muted);
     font-size: 15px;
     line-height: 1;
-    padding: 3px 5px;
-    border-radius: 6px;
+    padding: 3px 6px;
+    border-radius: 7px;
     display: none;
   }
   .thread:hover .t-del { display: block; }
   .thread .t-del:hover { background: #fee2e2; color: var(--danger); }
-  .empty { color: var(--muted); font-size: 12.5px; padding: 12px 16px; }
+  .empty { color: var(--muted); font-size: 12.5px; padding: 10px 18px; }
 
   .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .messages {
     flex: 1;
     overflow-y: auto;
-    padding: 26px 22px 12px;
+    padding: 28px 24px 14px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 18px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
   }
-  .welcome { margin: auto; text-align: center; color: var(--muted); max-width: 460px; }
-  .welcome h2 { color: var(--text); margin: 0 0 6px; font-size: 20px; }
-  .welcome p { margin: 4px 0; }
+  .messages::-webkit-scrollbar { width: 8px; }
+  .messages::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.3); border-radius: 8px; }
 
-  .msg { display: flex; gap: 10px; max-width: 860px; width: 100%; }
-  .msg .avatar {
-    width: 28px; height: 28px; border-radius: 50%; flex: none;
-    display: grid; place-items: center; font-size: 14px; background: #e5e7eb;
+  /* ---------------------------------------------------------------- 欢迎页 */
+  .welcome { margin: auto; text-align: center; max-width: 560px; padding: 12px 20px 40px; }
+  .welcome-avatar {
+    width: 88px; height: 88px;
+    border-radius: 28px;
+    object-fit: cover;
+    border: 3px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 20px 44px -20px rgba(15, 118, 110, 0.55);
+    margin-bottom: 18px;
   }
-  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
-  .msg.user .avatar { background: var(--user); }
-  .bubble {
-    background: var(--panel);
+  .welcome h2 {
+    margin: 0 0 6px;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(120deg, #0f766e, #0f172a);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .welcome p { margin: 0; color: var(--muted); }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 20px; }
+  .suggestion {
     border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 9px 13px;
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 13px;
+    color: #334155;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .suggestion:hover {
+    transform: translateY(-1px);
+    border-color: rgba(15, 118, 110, 0.35);
+    color: var(--brand);
+  }
+
+  /* ---------------------------------------------------------------- 消息 */
+  .msg {
+    display: flex;
+    gap: 11px;
+    max-width: 900px;
+    width: 100%;
+    animation: rise 0.18s ease-out;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .msg .avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    flex: none;
+    overflow: hidden;
+    border: 2px solid #fff;
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    place-items: center;
+    background: #e2e8f0;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .msg .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg.user .avatar { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; }
+  .bubble {
+    min-width: 0;
+    max-width: min(760px, 82vw);
+    padding: 11px 15px;
+    border-radius: 16px;
+    background: var(--card);
+    border: 1px solid #eef0f3;
+    box-shadow: var(--shadow-sm);
     white-space: pre-wrap;
     word-break: break-word;
-    min-width: 0;
+    font-size: 14.5px;
+    line-height: 1.65;
   }
-  .msg.user .bubble { background: var(--user); color: #fff; border-color: var(--user); }
+  .msg.assistant .bubble { border-bottom-left-radius: 6px; }
+  .msg.user .bubble {
+    background: linear-gradient(135deg, #0f766e, #0d9488);
+    border: 0;
+    color: #fff;
+    border-bottom-right-radius: 6px;
+    box-shadow: 0 12px 26px -16px rgba(13, 148, 136, 0.75);
+  }
   .msg.error .bubble { border-color: #fecaca; background: #fef2f2; color: var(--danger); }
-  .trace {
-    display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 7px;
-  }
+
+  .trace { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
   .chip {
     font-size: 12px;
     color: #374151;
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
     border-radius: 999px;
-    padding: 1px 9px;
+    padding: 2px 9px;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -189,41 +323,65 @@
   .chip.ok { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
   .chip.bad { background: #fef2f2; border-color: #fecaca; color: var(--danger); }
 
-  .composer {
-    display: flex; gap: 10px; align-items: flex-end;
-    padding: 12px 18px 16px;
-    background: var(--panel);
-    border-top: 1px solid var(--line);
+  .typing { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; }
+  .typing i {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #94a3b8;
+    animation: blink 1.2s infinite;
   }
-  .composer textarea {
-    flex: 1;
-    resize: none;
-    font: inherit;
-    line-height: 1.5;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
+  .typing i:nth-child(2) { animation-delay: 0.18s; }
+  .typing i:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+    40% { opacity: 1; transform: translateY(-2px); }
+  }
+
+  /* ---------------------------------------------------------------- 确认与错误 */
+  .approvals { display: grid; gap: 8px; padding: 0 24px 10px; }
+  .approvals[hidden] { display: none; }
+  .approval {
+    display: grid;
+    gap: 6px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid #fcd34d;
+    background: linear-gradient(180deg, #fffdf5, #fffbeb);
+    box-shadow: var(--shadow-sm);
+  }
+  .approval .a-title { font-size: 13px; font-weight: 700; color: #92400e; }
+  .approval pre {
+    margin: 0;
+    font-size: 12px;
+    color: #57534e;
+    max-height: 90px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 8px;
+    padding: 7px 9px;
+  }
+  .approval .a-actions { display: flex; gap: 8px; }
+  .approval button {
+    border: 1px solid #d6d3d1;
     background: #fff;
-    max-height: 180px;
-    min-height: 42px;
+    border-radius: 8px;
+    padding: 5px 14px;
+    font-size: 12.5px;
   }
-  .composer textarea:focus { outline: 2px solid #99f6e4; border-color: var(--accent); }
-  .composer button {
+  .approval button.primary {
+    background: linear-gradient(135deg, var(--brand), #0d9488);
     border: 0;
-    border-radius: 10px;
-    padding: 10px 18px;
-    background: var(--accent);
     color: #fff;
-    font-weight: 600;
-    height: 42px;
+    box-shadow: 0 6px 14px -8px rgba(13, 148, 136, 0.8);
   }
-  .composer button.stop { background: var(--danger); }
-  .composer button:disabled { opacity: .5; cursor: default; }
+  .approval button.danger { color: var(--danger); border-color: #fecaca; }
 
   .error-bar {
-    margin: 0 18px 10px;
-    padding: 8px 12px;
-    border-radius: 8px;
+    margin: 0 24px 10px;
+    padding: 9px 13px;
+    border-radius: 10px;
     background: #fef2f2;
     border: 1px solid #fecaca;
     color: var(--danger);
@@ -231,47 +389,94 @@
   }
   .error-bar.hidden { display: none; }
 
-  .approvals { display: grid; gap: 8px; padding: 0 18px 10px; }
-  .approvals[hidden] { display: none; }
-  .approval {
-    border: 1px solid #fcd34d;
-    background: #fffbeb;
-    border-radius: 10px;
-    padding: 9px 12px;
+  /* ---------------------------------------------------------------- 输入区 */
+  .composer-wrap {
+    padding: 10px 22px 16px;
+    background: linear-gradient(180deg, rgba(242, 244, 247, 0), rgba(255, 255, 255, 0.88) 45%);
   }
-  .approval .a-title { font-size: 13px; font-weight: 600; color: #92400e; }
-  .approval pre {
-    margin: 5px 0 8px;
-    font-size: 12px;
-    color: #57534e;
-    max-height: 90px;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-  .approval .a-actions { display: flex; gap: 8px; }
-  .approval button {
-    border: 1px solid #d6d3d1;
+  .composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 8px;
     background: #fff;
-    border-radius: 7px;
-    padding: 4px 12px;
-    font-size: 12.5px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow-md);
+    transition: box-shadow 0.15s, border-color 0.15s;
   }
-  .approval button.primary { background: var(--user); border-color: var(--user); color: #fff; }
-  .approval button.danger { color: var(--danger); border-color: #fecaca; }
+  .composer:focus-within {
+    border-color: rgba(15, 118, 110, 0.35);
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.12), var(--shadow-md);
+  }
+  .composer textarea {
+    flex: 1;
+    resize: none;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    line-height: 1.5;
+    padding: 8px 10px;
+    max-height: 180px;
+    min-height: 38px;
+    color: var(--ink);
+  }
+  .composer textarea:focus { outline: none; }
+  .composer textarea::placeholder { color: #9aa4b2; }
+  .composer button[type="submit"] {
+    border: 0;
+    border-radius: 12px;
+    height: 38px;
+    padding: 0 20px;
+    background: linear-gradient(135deg, var(--brand), #0d9488);
+    color: #fff;
+    font-weight: 650;
+    box-shadow: 0 10px 22px -12px rgba(13, 148, 136, 0.85);
+    transition: transform 0.12s, filter 0.12s;
+  }
+  .composer button[type="submit"]:hover { filter: brightness(1.05); transform: translateY(-1px); }
+  .composer button[type="submit"].stop {
+    background: linear-gradient(135deg, #dc2626, #ef4444);
+    box-shadow: 0 10px 22px -12px rgba(220, 38, 38, 0.8);
+  }
+  .composer-hint {
+    max-width: 960px;
+    margin: 7px auto 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 6px;
+    color: #94a3b8;
+    font-size: 11.5px;
+  }
 
-  @media (max-width: 760px) {
+  @media (max-width: 820px) {
     aside { display: none; }
     .settings { grid-template-columns: 1fr; }
     .settings button { width: 100%; }
+    .messages { padding: 20px 14px 10px; }
+    .composer-wrap { padding: 8px 12px 12px; }
+    .composer-hint { display: none; }
+    .status { max-width: 44vw; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">Doudou<span class="sub">个人助手</span></div>
+  <div class="brand">
+    <img src="avatar.png" alt="豆豆">
+    <div>
+      <div class="name">Doudou</div>
+      <div class="tag">你的个人助手</div>
+    </div>
+  </div>
   <div class="status"><span id="dot" class="dot"></span><span id="model">连接中…</span></div>
-  <button id="settingsBtn" type="button">设置</button>
+  <button id="settingsBtn" class="ghost" type="button">设置</button>
 </header>
 
 <div id="settings" class="settings hidden">
@@ -300,9 +505,13 @@
     <div id="approvals" class="approvals" hidden></div>
     <div id="errorBar" class="error-bar hidden"></div>
     <form id="composer" class="composer">
-      <textarea id="input" rows="1" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <textarea id="input" rows="1" placeholder="说点什么…"></textarea>
       <button id="send" type="submit">发送</button>
     </form>
+    <div class="composer-hint">
+      <span>Enter 发送 · Shift+Enter 换行</span>
+      <span id="modelHint"></span>
+    </div>
   </section>
 </main>
 
@@ -314,6 +523,7 @@
   const LS_TOKEN = "doudou.token";
   // 服务端渲染时替换成实际的 server.base_path。
   const BASE_PATH = "__DOUDOU_BASE_PATH__";
+  const SUGGESTIONS = ["现在几点了？", "帮我把今天的待办整理一下", "列一下工作区里的文件"];
 
   const el = (id) => document.getElementById(id);
   const state = { threadId: null, busy: false, controller: null };
@@ -368,11 +578,14 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const health = await response.json();
       const tools = Array.isArray(health.tools) ? health.tools.length : 0;
-      el("model").textContent = `${health.model} · ${tools} 个工具 · ${health.env}`;
+      el("model").textContent = health.model;
+      el("model").title = `${health.model} · ${tools} 个工具 · ${health.env}`;
+      el("modelHint").textContent = `${tools} 个工具 · ${health.env}`;
       dot.className = "dot ok";
       showError("");
     } catch (err) {
       el("model").textContent = "未连接";
+      el("modelHint").textContent = "";
       dot.className = "dot bad";
       showError(`连接服务失败：${err.message}`);
     }
@@ -503,6 +716,29 @@
 
   // ------------------------------------------------------------------ 消息渲染
 
+  function avatarNode(role) {
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    if (role === "user") {
+      avatar.textContent = "你";
+    } else if (role === "tool") {
+      avatar.textContent = "🛠";
+    } else {
+      const img = document.createElement("img");
+      img.src = "avatar.png";
+      img.alt = "豆豆";
+      avatar.append(img);
+    }
+    return avatar;
+  }
+
+  function typingNode() {
+    const span = document.createElement("span");
+    span.className = "typing";
+    for (let i = 0; i < 3; i += 1) span.append(document.createElement("i"));
+    return span;
+  }
+
   function clearMessages() {
     el("messages").replaceChildren();
   }
@@ -511,11 +747,32 @@
     clearMessages();
     const box = document.createElement("div");
     box.className = "welcome";
+
+    const avatar = document.createElement("img");
+    avatar.className = "welcome-avatar";
+    avatar.src = "avatar.png";
+    avatar.alt = "豆豆";
+
     const title = document.createElement("h2");
     title.textContent = "有什么可以帮你？";
+
     const hint = document.createElement("p");
     hint.textContent = "左侧是历史会话；新对话会直接开一个新会话。";
-    box.append(title, hint);
+
+    const suggestions = document.createElement("div");
+    suggestions.className = "suggestions";
+    for (const text of SUGGESTIONS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "suggestion";
+      button.textContent = text;
+      button.addEventListener("click", () => {
+        if (!state.busy) send(text);
+      });
+      suggestions.append(button);
+    }
+
+    box.append(avatar, title, hint, suggestions);
     el("messages").append(box);
   }
 
@@ -523,16 +780,10 @@
   function appendBubble(role, text) {
     const row = document.createElement("div");
     row.className = `msg ${role}`;
-
-    const avatar = document.createElement("div");
-    avatar.className = "avatar";
-    avatar.textContent = role === "user" ? "你" : "🐶";
-
     const bubble = document.createElement("div");
     bubble.className = "bubble";
     bubble.textContent = text;
-
-    row.append(avatar, bubble);
+    row.append(avatarNode(role), bubble);
     el("messages").append(row);
     el("messages").scrollTop = el("messages").scrollHeight;
     return { row, bubble };
@@ -553,14 +804,12 @@
       } else if (message.role === "tool") {
         const row = document.createElement("div");
         row.className = "msg assistant";
-        const avatar = document.createElement("div");
-        avatar.className = "avatar";
-        avatar.textContent = "🛠";
         const bubble = document.createElement("div");
         bubble.className = "bubble";
-        bubble.style.color = "#6b7280";
+        bubble.style.color = "#64748b";
+        bubble.style.fontSize = "13px";
         bubble.textContent = `工具返回：${(message.content || "").slice(0, 300)}`;
-        row.append(avatar, bubble);
+        row.append(avatarNode("tool"), bubble);
         el("messages").append(row);
       }
     }
@@ -575,10 +824,18 @@
       state.threadId = threadId;
       renderThread(body.messages || []);
       renderActive();
+      setUrlThread(threadId);
       showError("");
     } catch (err) {
       showError(`打开会话失败：${err.message}`);
     }
+  }
+
+  function setUrlThread(threadId) {
+    const url = new URL(location.href);
+    if (threadId) url.searchParams.set("thread", threadId);
+    else url.searchParams.delete("thread");
+    history.replaceState(null, "", url);
   }
 
   function renderActive() {
@@ -591,6 +848,7 @@
     state.threadId = null;
     renderWelcome();
     renderActive();
+    setUrlThread(null);
     showError("");
     el("input").focus();
   }
@@ -634,7 +892,7 @@
   async function send(message) {
     appendBubble("user", message);
     const assistant = appendBubble("assistant", "");
-    assistant.bubble.textContent = "…";
+    assistant.bubble.append(typingNode());
 
     const trace = document.createElement("div");
     trace.className = "trace";
@@ -659,6 +917,7 @@
       for await (const { event, payload } of readEvents(response)) {
         if (event === "start") {
           state.threadId = payload.thread_id;
+          setUrlThread(state.threadId);
           renderActive();
         } else if (event === "delta") {
           answer += payload.text || "";
@@ -709,7 +968,6 @@
     const button = el("send");
     button.textContent = state.busy ? "停止" : "发送";
     button.className = state.busy ? "stop" : "";
-    el("input").disabled = false;
   }
 
   // ------------------------------------------------------------------ 事件绑定
@@ -754,12 +1012,18 @@
     el("settings").classList.add("hidden");
     refreshHealth();
     refreshThreads();
+    loadApprovals();
   });
 
   // 启动
   el("baseUrl").value = localStorage.getItem(LS_BASE) || "";
   el("token").value = localStorage.getItem(LS_TOKEN) || "";
-  renderWelcome();
+  const initialThread = new URLSearchParams(location.search).get("thread");
+  if (initialThread) {
+    openThread(initialThread);
+  } else {
+    renderWelcome();
+  }
   refreshHealth();
   refreshThreads();
   loadApprovals();

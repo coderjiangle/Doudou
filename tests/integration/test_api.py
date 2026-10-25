@@ -113,6 +113,8 @@ async def test_web_ui_is_served(settings_for_api: Settings) -> None:
     async with api_client(settings_for_api) as client:
         page = await client.get("/")
         alias = await client.get("/ui")
+        avatar = await client.get("/avatar.png")
+        nested_avatar = await client.get("/ui/avatar.png")
 
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
@@ -122,7 +124,14 @@ async def test_web_ui_is_served(settings_for_api: Settings) -> None:
     # base_path 在服务端注入，改配置不需要改前端
     assert "__DOUDOU_BASE_PATH__" not in page.text
     assert 'const BASE_PATH = "/api/v1"' in page.text
+    assert "avatar.png" in page.text
     assert alias.status_code == 200
+
+    for response in (avatar, nested_avatar):
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content.startswith(b"\x89PNG")
+    assert avatar.content.startswith(b"\x89PNG")
 
 
 async def test_request_id_is_echoed(settings_for_api: Settings) -> None:

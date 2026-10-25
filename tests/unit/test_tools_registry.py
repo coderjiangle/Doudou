@@ -29,6 +29,7 @@ DEFAULT_TOOLS = [
     "workspace_edit",
     "workspace_delete",
     "now",
+    "my",
 ]
 
 #: 需要人工确认的默认工具：所有写操作。
@@ -83,7 +84,8 @@ def test_extra_tools_are_appended(settings: Settings) -> None:
 
     tools = build_tools(settings, extra=[mcp_ping])
 
-    assert [item.name for item in tools] == [*DEFAULT_TOOLS, "mcp_ping"]
+    expected = [name for name in DEFAULT_TOOLS if name != "my"] + ["mcp_ping", "my"]
+    assert [item.name for item in tools] == expected
 
 
 def test_duplicate_tool_name_keeps_first(settings: Settings) -> None:
@@ -113,6 +115,7 @@ def test_all_groups_declared() -> None:
         "memory",
         "clock",
         "delegation",
+        "meta",
     )
 
 

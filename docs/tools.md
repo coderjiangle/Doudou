@@ -4,7 +4,7 @@
 
 | 来源 | 位置 | 状态 |
 | --- | --- | --- |
-| 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `notes` / `http` / `web_search` / `shell` / `skills` / `memory` / `delegation` |
+| 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `http` / `web_search` / `shell` / `skills` / `memory` / `delegation` / `self_config` |
 | MCP 工具 | `config/mcp.servers.yaml` | ✅ 通过 `build_tools(extra=...)` 注入 |
 | deepagents / LangGraph 内置工具 | 框架提供 | ❌ 不采用：自研循环已覆盖 Skill / 上下文 / 子 Agent / 确认 |
 | 沙箱执行 | 容器 / 沙箱后端 | ⏳ 待评估；当前 `shell_exec` 自带，默认禁用 |
@@ -74,6 +74,27 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 需要系统安装 bubblewrap（Debian/Ubuntu：`apt install bubblewrap`）。不满足时 `shell`
 分组整组不注册，`doudou tools list` 会说明原因。沙箱只隔离文件系统，不替代容器。
 
+### 2.5 my：只读的配置自检
+
+`meta` 分组只有一个工具 `my`，用来回答「你用的什么模型」「工作区在哪」「密钥配好了吗」
+这类关于**自身配置**的问题：
+
+| 参数 | 行为 |
+| --- | --- |
+| 省略 / `all` / `overview` | 关键配置概览（模型、步数、超时、服务地址、已装载工具名…） |
+| 段落名（`model`、`agent`、`tools`、`storage`…） | 展开该段 |
+| 点号路径（`agent.max_steps`） | 只给这一个值 |
+
+三条边界：
+
+- **只读**：没有 setter，签名里只有 `section` 一个参数，`side_effects=False`；
+  改配置只能由用户改 `config.yaml` / `.env` 后重启。
+- **密钥只报状态**：`credentials` 里是 `true/false`，不返回明文；其余字段命中
+  `api_key` / `secret` / `token` 名字的值统一打码，数据库 URL 里的密码也会遮掉。
+- **输出截断**：单次最多 8000 字符，避免「把全部配置贴一遍」撑爆上下文。
+
+它在 `registry` 里最后构造，因为要把**实际装载**的工具清单填进 `tools.loaded`。
+
 ## 3. 写一个内置工具
 
 1. 位于 `src/doudou/tools/builtin/<主题>.py`，导出 `build_tools(settings) -> Sequence[BaseTool]`。
@@ -99,6 +120,7 @@ annotate(my_tool, group="web", side_effects=False, timeout=None)
 | `read_skill` / `list_skill_files` / `skill_read_file` | 技能按需加载 |
 | `remember` | 往记忆文件里追加（有副作用） |
 | `task` | 委派给子 Agent |
+| `my` | 查询自身配置（只读） |
 
 `doudou tools list` 会按分组聚合并说明「为什么某个分组不在列表里」
 （`registry.describe_groups()`），因此排查「工具有没有生效」不必猜。

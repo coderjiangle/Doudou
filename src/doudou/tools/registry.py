@@ -19,6 +19,7 @@ from doudou.tools.builtin import (
     files,
     http,
     memory,
+    self_config,
     shell,
     skills,
     web_search,
@@ -42,6 +43,8 @@ BUILTIN_PROVIDERS: tuple[tuple[str, ToolProvider], ...] = (
     ("clock", clock.build_tools),
     #: 委派放最后：它需要「其它工具」的清单，见 build_tools。
     ("delegation", delegation.build_tools),
+    #: 配置自检也要工具清单，同样在循环之后单独构造。
+    ("meta", self_config.build_tools),
 )
 
 #: 全部内置分组，供 ``config check`` 与文档引用。
@@ -56,7 +59,8 @@ EXTRA_SOURCE = "mcp"
 SKILLS_GROUP = "skills"
 MEMORY_GROUP = "memory"
 DELEGATION_GROUP = "delegation"
-CONTEXT_GROUPS = frozenset({SKILLS_GROUP, MEMORY_GROUP, DELEGATION_GROUP})
+META_GROUP = "meta"
+CONTEXT_GROUPS = frozenset({SKILLS_GROUP, MEMORY_GROUP, DELEGATION_GROUP, META_GROUP})
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +150,15 @@ def build_tools(
             approval_policy=lambda tools: effective_interrupt_on(settings, tools),
         ):
             _add(collected, seen, item, source=f"builtin:{DELEGATION_GROUP}", settings=settings)
+
+    # 配置自检放最后：它要展示「实际装载」的工具清单（含 task）与分组状态。
+    if group_enabled(settings, META_GROUP):
+        for item in self_config.build_tools(
+            settings,
+            tools=collected,
+            groups=describe_groups(settings),
+        ):
+            _add(collected, seen, item, source=f"builtin:{META_GROUP}", settings=settings)
 
     return collected
 

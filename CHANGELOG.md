@@ -11,7 +11,10 @@
   `image/icon2.jpg`。支持 `DOUDOU_API_TOKEN` 与自定义服务地址，单文件、无构建步骤、
   不依赖外部 CDN。
 - 聊天页回复按 **Markdown** 渲染（标题 / 列表 / 表格 / 代码块 / 链接 / 引用），
-  工具调用改成紧凑的 chips，结果默认折叠，不再把整段搜索原文铺在对话里。- `shell_exec` 支持 Linux 沙箱：`tools.shell.sandbox: bwrap` 用 bubblewrap 把命令关进
+  工具调用改成紧凑的 chips，结果默认折叠，不再把整段搜索原文铺在对话里。
+- 新增只读工具 `my`（`meta` 分组）：按段落或点号路径查询当前配置（模型、步数、工具清单、
+  服务地址、密钥是否已配置等），密钥只报存在性、其余敏感值打码，不能修改任何配置。
+- `shell_exec` 支持 Linux 沙箱：`tools.shell.sandbox: bwrap` 用 bubblewrap 把命令关进
   「只有工作区可写」的文件系统视图（父目录 tmpfs 遮罩、系统路径只读、网络不隔离）；
   `bwrap` 不可用或工作区在根目录时，`shell` 分组整组不注册并说明原因。
 - `web_search` 支持 **DeepSeek 自研搜索**：`tools.web_search.provider: deepseek`，

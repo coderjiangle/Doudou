@@ -187,7 +187,7 @@ agent:
 
 ## 5. 校验与查看
 
-```powershell
+```bash
 uv run doudou config check     # 校验配置合法性
 uv run doudou config show      # 打印合并后的生效配置（脱敏）
 ```

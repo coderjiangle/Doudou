@@ -6,6 +6,9 @@
 
 ### 变更
 
+- 跨平台适配：CLI 在 Windows 上不再因 GBK 控制台编码崩掉（终端切 UTF-8，管道只替换
+  不可编码字符）；补齐 `scripts/*.sh`，文档命令同时给出 PowerShell 与 bash 版本；
+  CI 增加 Windows 单元测试 job。
 - 移除 `note_save` / `note_list` / `note_read` 三个工具。需要记东西时直接用工作区文件工具
   写 Markdown，模型能看到、人也能改。`tools.notes` 配置字段保留但不再生效，只为兼容旧配置文件。
 - 移除 `days_between` 工具（`clock` 分组只剩 `now`）。日期差属于低频操作，

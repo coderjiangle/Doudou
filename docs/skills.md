@@ -106,7 +106,7 @@ agent:
 
 ## 7. 调试
 
-```powershell
+```bash
 uv run doudou skills list              # 索引 + 正文大小 + 附件数
 uv run doudou skills show research     # 详情
 uv run doudou skills show research --body   # 连正文一起看

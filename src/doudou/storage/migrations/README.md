@@ -19,7 +19,7 @@ migrations/
 异步引擎需要 `env.py` 用 `connection.run_sync(context.run_migrations)`；
 可参考 SQLAlchemy 官方的 async 模板。
 
-```powershell
+```bash
 uv run alembic revision --autogenerate -m "init"
 uv run alembic upgrade head
 uv run alembic downgrade -1

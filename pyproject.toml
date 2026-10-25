@@ -88,7 +88,7 @@ dev = [
 ]
 
 [project.scripts]
-doudou = "doudou.cli.main:app"
+doudou = "doudou.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/doudou"]

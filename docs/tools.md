@@ -163,7 +163,7 @@ agent:
 
 ## 7. 清单
 
-```powershell
+```bash
 uv run doudou tools list           # 名称 + 分组 + 来源 + 副作用 + 需确认 + 说明
 uv run doudou tools list --args    # 附带参数列表
 uv run doudou tools show now       # 单个工具的完整信息（JSON）

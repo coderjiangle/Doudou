@@ -11,6 +11,7 @@ from doudou.api.middleware import AccessLogMiddleware, RequestIdMiddleware
 from doudou.api.routes import build_router
 from doudou.config.loader import Settings, get_settings
 from doudou.observability.logging import get_logger
+from doudou.utils.console import configure_stdio
 from doudou.version import __version__
 
 logger = get_logger(__name__)
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         模型与数据库连接都在 lifespan 里初始化，保证导入模块本身是廉价的。
     """
     resolved = settings or get_settings()
+    configure_stdio()
 
     app = FastAPI(
         title="Doudou",

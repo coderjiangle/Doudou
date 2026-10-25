@@ -120,7 +120,7 @@ MCP server 常常暴露几十个工具，全部交给模型会导致提示词膨
 
 ## 8. 排查
 
-```powershell
+```bash
 uv run doudou mcp list             # 每个 server 的状态、工具数、被过滤项
 uv run doudou mcp check github     # 单独探测一个 server，并打印服务端信息
 uv run doudou tools list           # Agent 实际装载的工具（含 MCP）

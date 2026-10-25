@@ -19,7 +19,7 @@
 
 用法：
 
-```powershell
+```bash
 uv run python scripts/check_secrets.py            # 扫被跟踪的文件
 uv run python scripts/check_secrets.py --staged   # 只扫暂存区（pre-commit 用）
 ```

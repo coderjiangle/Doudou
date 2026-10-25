@@ -53,6 +53,19 @@ jobs:
           name: coverage
           path: coverage.xml
 
+  test-windows:
+    name: test (windows, py3.12)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --group dev
+      # 这个 job 的作用就是钉住跨平台行为：路径、编码、子进程调用。
+      - run: uv run pytest tests/unit
+
   security:
     name: security (pip-audit)
     runs-on: ubuntu-latest

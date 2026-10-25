@@ -27,7 +27,7 @@
 启动时会用 `src/doudou/config/schema.py` 的 Pydantic 模型做严格校验，
 字段缺失或类型不符会直接启动失败（fail fast），并打印可读的错误定位。
 
-```powershell
+```bash
 uv run doudou config show    # 打印合并后的生效配置（密钥自动脱敏）
 uv run doudou config check   # 仅校验，不启动服务
 ```

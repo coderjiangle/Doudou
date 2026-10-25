@@ -4,7 +4,7 @@
 > 它测的是**编排层**开销（历史读写 + 上下文裁剪 + 工具执行 + 观察者写入），
 > 用的是确定性模型，**不含模型调用**——真实延迟由上游模型决定，换一天就变。
 
-```powershell
+```bash
 uv run python scripts/loadtest.py --concurrency 16 --turns 10                 # 内存
 uv run python scripts/loadtest.py --concurrency 16 --turns 10 --database      # SQLite
 uv run python scripts/loadtest.py --concurrency 16 --turns 10 --no-tool       # 不带工具

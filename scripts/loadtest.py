@@ -19,7 +19,7 @@
 
 ## 用法
 
-```powershell
+```bash
 uv run python scripts/loadtest.py --concurrency 16 --turns 20
 uv run python scripts/loadtest.py --concurrency 64 --turns 5 --database   # 带 SQLite 写入
 uv run python scripts/loadtest.py --concurrency 16 --turns 20 --no-tool

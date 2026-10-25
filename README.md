@@ -6,6 +6,8 @@
 并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`
+>
+> Windows / Linux / macOS 都支持；两个平台的启动脚本与命令示例见 §4。
 
 ---
 
@@ -34,7 +36,7 @@
 
 ## 1.1 立刻可跑（不需要任何 API Key）
 
-```powershell
+```bash
 uv run doudou config check                                       # 校验配置
 uv run doudou tools list                                         # 看已装载的工具
 uv run doudou ask "现在几点了？" --model scripted:demo            # 跑一轮带工具调用的对话
@@ -112,7 +114,7 @@ Doudou/
 
 ### 4.1 零配置先跑起来（离线，不需要 API Key）
 
-```powershell
+```bash
 uv sync
 
 uv run doudou tools list                                  # 已装载的工具
@@ -125,15 +127,30 @@ uv run doudou chat --model scripted:demo                   # 交互式多轮
 
 ### 4.2 接入真实模型
 
+先准备配置。两个平台各有一键脚本，做的是同一件事（复制模板、建目录、同步依赖）：
+
 ```powershell
-Copy-Item .env.example .env
-Copy-Item config/config.example.yaml config/config.yaml
-Copy-Item config/mcp.servers.example.yaml config/mcp.servers.yaml   # 需要 MCP 时
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
+```
 
-# 在 .env 里设置 DOUDOU_MODEL__PRIMARY 与对应的 API Key，例如：
-#   DOUDOU_MODEL__PRIMARY=openai:gpt-5.5
-#   OPENAI_API_KEY=sk-...
+```bash
+# Linux / macOS
+bash scripts/dev.sh
+```
 
+手工等价步骤：复制 `.env.example` → `.env`、`config/config.example.yaml` →
+`config/config.yaml`；需要 MCP 时再复制 `config/mcp.servers.example.yaml` →
+`config/mcp.servers.yaml`。
+
+然后在 `.env` 里设置 `DOUDOU_MODEL__PRIMARY` 与对应的 API Key，例如：
+
+```dotenv
+DOUDOU_MODEL__PRIMARY=openai:gpt-5.5
+OPENAI_API_KEY=sk-...
+```
+
+```bash
 uv run doudou config check          # 校验配置与凭据，输出可操作的问题清单
 uv run doudou chat
 ```
@@ -177,14 +194,14 @@ tools:
 | `workspace_read` / `workspace_list` | 始终可用，根目录 = `filesystem.root_dir` |
 | `now` | 始终可用 |
 
-```powershell
+```bash
 uv run doudou tools list          # 看哪些工具已装载、哪些分组未启用及原因
 uv run doudou config check        # 一次性检查配置、凭据、工具与 Skill
 ```
 
 ### 4.3 HTTP 服务
 
-```powershell
+```bash
 uv run doudou serve                 # 默认 127.0.0.1:8000，接口前缀 /api/v1
 uv run doudou serve --port 9000 --reload
 ```
@@ -207,9 +224,15 @@ uv run doudou serve --port 9000 --reload
 `Authorization: Bearer <token>`。
 
 ```powershell
-# 匿名单轮（响应里带回 thread_id，下次带上它即可续聊）
-curl -X POST http://127.0.0.1:8000/api/v1/chat -H "Content-Type: application/json" `
-     -d '{"message":"现在几点了？"}'
+# Windows PowerShell 里要写 curl.exe：curl 是 Invoke-WebRequest 的别名，没有 -X/-d。
+curl.exe -X POST http://127.0.0.1:8000/api/v1/chat -H "Content-Type: application/json" `
+  -d '{"message":"现在几点了？"}'
+```
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"现在几点了？"}'
 ```
 
 ### 4.4 接入飞书（可选）
@@ -240,8 +263,8 @@ FEISHU_APP_SECRET=xxxxxxxx
 
 MCP 让工具来源从「写死在代码里」变成「配置声明」：
 
-```powershell
-Copy-Item config/mcp.servers.example.yaml config/mcp.servers.yaml
+```bash
+cp config/mcp.servers.example.yaml config/mcp.servers.yaml   # Windows 用 Copy-Item
 uv run doudou mcp list          # 看每个 server 拉到了什么
 uv run doudou mcp check github  # 单独探测一个
 uv run doudou tools list        # Agent 实际装载的工具（含 MCP）
@@ -271,7 +294,7 @@ description: 做什么 + 什么时候用（这句决定它会不会被加载）
 **只有索引（name + description）会进系统提示词**；正文由模型判断需要时调
 `read_skill` 读取 —— 所以技能可以写得很长，不会一直占着上下文预算。
 
-```powershell
+```bash
 uv run doudou skills list                 # 索引 + 正文大小 + 附件数
 uv run doudou skills show research --body # 看详情与正文
 uv run doudou skills check                # 校验（有错则非零退出）
@@ -307,12 +330,12 @@ context:
 默认 80000 刻意保守；**100 万上下文的大模型应该调高**（例如 300000）。
 压缩**不会删除原文** —— 库里的完整历史始终可用：
 
-```powershell
+```bash
 curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
 ```
 
 ### 4.9 其他入口
-```powershell
+```bash
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```
 
@@ -321,7 +344,7 @@ Skill 编写见 [`docs/skills.md`](docs/skills.md)。
 
 ## 5. 常用命令
 
-```powershell
+```bash
 uv run doudou serve                        # 启动 HTTP 服务
 uv run doudou chat                         # 终端交互式对话
 uv run doudou ask "问题"                    # 单轮对话

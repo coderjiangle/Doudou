@@ -81,6 +81,12 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
             )
         except OSError as exc:
             raise ShellError(f"无法启动命令：{exc}") from exc
+        except NotImplementedError as exc:  # pragma: no cover - 平台相关
+            # Windows 的 Selector 事件循环不支持子进程；uvicorn 默认用 Proactor，
+            # 只有显式改过事件循环策略时才会走到这里。
+            raise ShellError(
+                "当前事件循环不支持子进程（Windows 上需要 Proactor 事件循环）。"
+            ) from exc
 
         try:
             stdout, _ = await asyncio.wait_for(process.communicate(), timeout=config.timeout)

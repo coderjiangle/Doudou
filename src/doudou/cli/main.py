@@ -25,6 +25,7 @@ from doudou.mcp.lifecycle import McpRuntime
 from doudou.observability.logging import configure_logging
 from doudou.skills.registry import SkillRegistry
 from doudou.tools.registry import build_tools, describe_groups, tool_infos
+from doudou.utils.console import configure_stdio
 from doudou.utils.text import truncate
 from doudou.version import __version__
 
@@ -723,7 +724,8 @@ def _main(
 
 
 def main() -> None:
-    """``python -m doudou`` 的入口。"""
+    """``python -m doudou`` 与 ``doudou`` 命令的入口。"""
+    configure_stdio()
     app()
 
 

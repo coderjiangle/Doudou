@@ -2,6 +2,9 @@
 PY := uv run
 PKG := src/doudou
 
+# 这些目标假定有 POSIX shell（Linux / macOS 自带；Windows 用 Git Bash 或 WSL）。
+# Windows 原生环境请用 scripts/*.ps1，等价命令见 scripts/README.md。
+
 .PHONY: help
 help: ## 显示所有可用目标
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'

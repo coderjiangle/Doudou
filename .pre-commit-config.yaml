@@ -1,5 +1,5 @@
-default_language_version:
-  python: python3.12
+# 不固定 default_language_version：Windows 上通常没有 `python3.12` 这个可执行文件名，
+# 让 pre-commit 复用当前解释器即可（CI 与 uv 已经把版本钉住了）。
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

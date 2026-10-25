@@ -8,7 +8,7 @@
 > 豆豆的名字来源于我家可爱的中华田园犬，我希望这个助手像我家豆豆一样陪伴大家。
 
 <p align="center">
-  <img src="image/icon.jpg" alt="豆豆的卡通形象" width="240">
+  <img src="docs/assets/doudou.png" alt="豆豆的卡通形象" width="240">
 </p>
 
 > 不需要 API Key 就能验证完整链路：`uv run doudou ask "现在几点了？" --model scripted:demo`

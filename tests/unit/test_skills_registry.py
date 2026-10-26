@@ -218,5 +218,5 @@ def test_repo_skills_are_indexed() -> None:
 
     registry = SkillRegistry([repo_skills])
 
-    assert {"example-echo", "research"} <= set(registry.names)
+    assert {"weather"} <= set(registry.names)
     assert registry.errors == []

@@ -150,4 +150,4 @@ def test_repo_skills_are_valid() -> None:
     skills, errors = discover_skills([repo_skills])
 
     assert errors == []
-    assert {info.name for info in skills} >= {"example-echo", "research"}
+    assert {info.name for info in skills} >= {"weather"}

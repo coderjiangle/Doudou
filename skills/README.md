@@ -5,9 +5,7 @@ Agent Skills 目录（[Agent Skills 标准](https://agentskills.io/)）。
 
 ```
 skills/
-├─ example-echo/     # 最小结构示例
-│  └─ SKILL.md
-├─ research/         # 调研工作流（被 config/agents.yaml 的 researcher 子 Agent 引用）
+├─ weather/          # 天气查询：wttr.in 为主、Open-Meteo 兜底（都免密钥）
 │  └─ SKILL.md
 └─ <your-skill>/
    ├─ SKILL.md

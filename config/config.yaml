@@ -22,10 +22,8 @@ server:
   workers: 1
 
 # ---------------------------------------------------------------- 模型
-# 供应商：火山方舟 Coding Plan（OpenAI 兼容协议）
-#   base_url 指向方舟 coding 端点，provider 用 openai
+#   OpenAI 兼容协议
 #   API Key 从 .env 的 DOUDOU_MODEL_API_KEY 读取（见 agent/models._secret_api_key）
-#   模型名必须是 coding plan 支持的 ID；deepseek-v4.1-flash 已验证可用
 model:
   primary: openai:deepseek-v4.1-flash
   fallbacks: []
@@ -36,8 +34,8 @@ model:
   # 长文生成会明显超过默认 120s，这里放宽；网关侧若有更短超时会以网关为准。
   timeout: 300
   max_retries: 2
-  base_url: https://ark.cn-beijing.volces.com/api/coding/v3
-  api_key: ""
+  base_url:
+  api_key:
 
 # ---------------------------------------------------------------- Agent
 agent:
@@ -57,7 +55,7 @@ agent:
     edit_file: true
     delete: true
     shell_exec: true
-  recursion_limit: 60          # 未使用（原为接入 deepagents 预留，计划已取消）
+  recursion_limit: 60
   max_steps: 20                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
   # 文件系统路径权限；顺序即匹配顺序，拒绝规则要写在前面

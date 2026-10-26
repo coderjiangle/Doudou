@@ -1,5 +1,7 @@
 # Doudou
 
+中文 | [English](README.en.md)
+
 **内核自研**的个人助手 Agent（`doudou.agent.react` 的 ReAct 循环）。
 
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），

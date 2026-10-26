@@ -37,6 +37,7 @@ model:
   timeout: 300
   max_retries: 2
   base_url: https://ark.cn-beijing.volces.com/api/coding/v3
+  api_key: ""
 
 # ---------------------------------------------------------------- Agent
 agent:
@@ -83,6 +84,7 @@ tools:
   # web_search（tavily | deepseek）：key 统一由 DOUDOU_TOOLS_WEB_SEARCH_API_KEY 提供
   web_search:
     provider: deepseek
+    api_key: ""
     max_results: 5
     search_depth: basic        # 仅 tavily：basic | advanced
     include_answer: true       # 仅 tavily：附带摘要答案
@@ -173,7 +175,7 @@ channels:
     enabled: true
 
   feishu:                      # WebSocket 长连接
-    enabled: true
+    enabled: false
     mode: websocket            # websocket（推荐，无需公网）| callback（未实现）
     base_url: https://open.feishu.cn
     bot_name: 豆豆助手           # 群聊 @ 判定用，需与飞书里的显示名一致

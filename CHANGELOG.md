@@ -2,24 +2,22 @@
 
 按日期记录功能变更，版本号见 `src/doudou/version.py`。
 
-## 未发布
+## 2026-10-25
 
 ### 新增
 
-- 内置聊天页（`GET /`，别名 `/ui`）：流式对话、会话列表与历史回放、模型与工具数展示、
-  需要确认的工具会弹出同意/拒绝卡片，`?thread=` 可深链到某个会话；头像取自
-  `image/icon2.jpg`。支持 `DOUDOU_API_TOKEN` 与自定义服务地址，单文件、无构建步骤、
-  不依赖外部 CDN。
-- 聊天页回复按 **Markdown** 渲染（标题 / 列表 / 表格 / 代码块 / 链接 / 引用），
-  工具调用改成紧凑的 chips，结果默认折叠，不再把整段搜索原文铺在对话里。
-- 新增只读工具 `my`（`meta` 分组）：按段落或点号路径查询当前配置（模型、步数、工具清单、
-  服务地址、密钥是否已配置等），密钥只报存在性、其余敏感值打码，不能修改任何配置。
+- **内置聊天页**（`GET /`，别名 `/ui`）：流式对话、会话列表与历史回放、模型与工具数展示、
+  `?thread=` 深链到某个会话；回复按 **Markdown** 渲染，工具调用折叠成紧凑 chips；
+  需要确认的工具弹出同意/拒绝卡片。单文件、无构建步骤、不依赖外部 CDN，
+  支持 `DOUDOU_API_TOKEN` 与自定义服务地址。
+- 只读工具 `my`（`meta` 分组）：按段落或点号路径查询当前配置（模型、步数、工具清单、
+  服务地址、密钥是否已配置），密钥只报存在性、其余敏感值打码，不能修改任何配置。
 - `shell_exec` 支持 Linux 沙箱：`tools.shell.sandbox: bwrap` 用 bubblewrap 把命令关进
   「只有工作区可写」的文件系统视图（父目录 tmpfs 遮罩、系统路径只读、网络不隔离）；
   `bwrap` 不可用或工作区在根目录时，`shell` 分组整组不注册并说明原因。
 - `web_search` 支持 **DeepSeek 自研搜索**：`tools.web_search.provider: deepseek`，
   使用 `DOUDOU_TOOLS_WEB_SEARCH_API_KEY` 调 `POST /v1/tools/search`；结果优先取官方的
-  `summary`（为模型准备的长摘要），可选 `need_content` 返回正文。
+  `summary`，可选 `need_content` 返回正文。
 
 ### 变更
 
@@ -31,26 +29,27 @@
 - 跨平台适配：CLI 在 Windows 上不再因 GBK 控制台编码崩掉（终端切 UTF-8，管道只替换
   不可编码字符）；补齐 `scripts/*.sh`，文档命令同时给出 PowerShell 与 bash 版本；
   CI 增加 Windows 单元测试 job。
-- 移除 `note_save` / `note_list` / `note_read` 三个工具。需要记东西时直接用工作区文件工具
-  写 Markdown，模型能看到、人也能改。`tools.notes` 配置字段保留但不再生效，只为兼容旧配置文件。
-- 移除 `days_between` 工具（`clock` 分组只剩 `now`）。日期差属于低频操作，
-  需要时让模型算或写个脚本即可；同时从 `config/agents.yaml` 的子 Agent 白名单里去掉。
+- 移除 `note_save` / `note_list` / `note_read` 三个工具（改用工作区文件工具写 Markdown）
+  与 `days_between`（`clock` 分组只剩 `now`）；`tools.notes` 配置字段保留但不再生效，
+  只为兼容旧配置文件。
 
 ### 修复
 
 - 飞书：`bot/v3/info` 的响应体只在 `raw.content` 里，字段是 `bot.open_id`；原来的解析路径
   读 `response.data`（恒为 `None`），导致「自动获取 `bot_open_id`」从未生效，而且没有任何日志。
   现在解析原始 JSON，成功但取不到 `open_id` 时打 warning。
-- 飞书：回复卡片不再回显用户原话（卡片就紧跟在那条消息下面，回显看起来像被重复推送）。
-  需要上下文的确认卡片仍然保留提问内容。
+- 飞书：回复卡片不再回显用户原话；需要上下文的确认卡片仍保留提问内容。
 - 飞书：卡片长度按飞书的真实限制处理 —— 硬上限 30 KB（错误码 `230025`），字符上限由 3000
   提到 8000，并以整卡序列化后的字节数（28 KB）为准收缩；截断提示只保留一处。
+- `tools.web_search.provider` 大小写不敏感。
 
 ### 文档
 
 - 修正飞书权限清单：私聊要 `im:message.p2p_msg:readonly`，群里 @ 要
-  `im:message.group_at_msg:readonly`。只开 `im:message` 会「长连接正常但收不到消息」。
-- 新增「收不到消息」的排查顺序，并说明控制台的「验证长连接」只验证通道、不验证推送过滤。
+  `im:message.group_at_msg:readonly`。只开 `im:message` 会「长连接正常但收不到消息」；
+  新增对应排查顺序，并说明控制台的「验证长连接」只验证通道、不验证推送过滤。
+- README：补豆豆的形象与取名由来、架构图换 PNG（附 SVG 源文件）、飞书对话与联网搜索效果图；
+  用 CHANGELOG 取代里程碑路线图。
 
 ## 2026-10-24
 

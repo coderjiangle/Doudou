@@ -31,6 +31,20 @@
   旧的按条数规则与预算无关，会让「内容很小、条数很多」的会话每轮都多出一次摘要模型往返
   （一次完整模型调用，且在关键路径上、对用户完全静默）。仍在配置里写它的需要删掉，
   否则会因为未知字段直接启动失败。
+- **移除未使用的 `observability.langsmith` 与 `observability.otel`**：schema 字段
+  （`LangSmithConfig` / `OtelConfig`）、`Secrets.langsmith_api_key`、`config*.yaml` 与
+  `.env.example` 里的配置项、`deploy/k8s/configmap.yaml` 的环境变量、以及 `--extra otel`
+  依赖组（连带 `uv.lock` 里只为它存在的 grpcio / exporter 包）全部删除。
+  两者从来没有被任何代码读取过，留着只会让人以为「配了就能用」。
+  **破坏性变更**：配置文件里仍写着 `langsmith:` / `otel:` 会因未知字段直接启动失败，删掉这两段即可。
+  （追踪继续用 Langfuse：`uv sync --extra tracing` + `observability.tracing`。）
+
+### 修复
+
+- **日志时间戳改用 `runtime.timezone`**（原先写死 UTC）：UTC+8 的机器上日志看起来
+  「比现实晚 8 小时」，排查时每次都要心算。现在输出带偏移量的 ISO
+  （`2026-10-27T16:01:00.357372+08:00`），与 `now` 工具、墙钟一致；时区名写错只告警并
+  回落到系统本地时区，不会让服务起不来。需要机器可读的统一时间时开 `runtime.log_json`。
 
 ## 2026-10-26
 

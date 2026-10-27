@@ -10,7 +10,8 @@
 
 * **子 Agent 不继承 ``task`` 工具** —— 否则一个子 Agent 又能派子 Agent，
   递归深度不可控；
-* **工具白名单优先**：``tools`` 非空时只有列出的工具可见。子 Agent 的职责越窄，
+* **工具白名单优先**：省略 ``tools`` 时继承，显式空列表时禁用，非空时只允许列出的工具。
+  子 Agent 的职责越窄，
   它跑偏的空间就越小。
 """
 
@@ -48,14 +49,14 @@ class SubAgentSpec(BaseModel):
     description: str
     #: 子 Agent 自己的系统提示词。**必须自洽** —— 它看不到主 Agent 的提示词。
     system_prompt: str = Field(default="", alias="prompt")
-    #: 工具白名单。空表示继承主 Agent 的全部工具（除 ``task``）。
-    tools: list[str] = Field(default_factory=list)
+    #: 省略时继承主 Agent 工具（除 task）；显式 [] 表示不使用任何工具。
+    tools: list[str] | None = None
     #: 子 Agent 专属技能目录。空表示不加载技能。
     skills: list[str] = Field(default_factory=list)
-    #: 覆盖模型（``provider:model``）。空表示继承主模型。
+    #: 覆盖模型（``provider:model``）。省略或 null 表示继承主模型。
     model: str | None = None
     #: 子 Agent 的步数上限。它常做多步检索，所以比主 Agent 宽松些也无妨。
-    max_steps: int = 6
+    max_steps: int = Field(default=6, ge=1)
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -90,7 +91,7 @@ class SubAgentRegistry:
             {
                 "name": spec.name,
                 "description": spec.description,
-                "tools": list(spec.tools),
+                "tools": list(spec.tools) if spec.tools is not None else None,
                 "skills": list(spec.skills),
                 "model": spec.model,
                 "max_steps": spec.max_steps,
@@ -158,11 +159,11 @@ def load_subagents(path: Path | None) -> SubAgentRegistry:
 def select_tools(spec: SubAgentSpec, available: Sequence[Any]) -> list[Any]:
     """按白名单挑出子 Agent 能用的工具。
 
-    两条规则：**永远排除 ``task``**（防无限嵌套），白名单为空时继承全部。
+    永远排除 ``task``（防无限嵌套）；省略白名单时继承，显式空列表时禁用工具。
     白名单里写了不存在的工具会告警 —— 静默忽略会让「我明明配了工具」变成谜。
     """
     candidate = [tool for tool in available if tool.name not in FORBIDDEN_TOOLS]
-    if not spec.tools:
+    if spec.tools is None:
         return candidate
 
     wanted = set(spec.tools)

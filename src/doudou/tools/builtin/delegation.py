@@ -13,15 +13,22 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import BaseTool, tool
 
-from doudou.agent.subagents import DelegationResult, SubAgentRegistry, select_tools
+from doudou.agent.models import ModelBuildError, build_model
+from doudou.agent.prompts import render_skill_index
+from doudou.agent.subagents import DelegationResult, SubAgentRegistry, SubAgentSpec, select_tools
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
-from doudou.tools.decorators import annotate
+from doudou.skills.registry import SkillRegistry
+from doudou.tools.builtin import skills as skill_tools
+from doudou.tools.decorators import annotate, annotations_of
 from doudou.utils.tokens import count_messages_tokens
 
 if TYPE_CHECKING:  # pragma: no cover - 只为类型检查
@@ -42,11 +49,12 @@ def build_tools(
     *,
     registry: SubAgentRegistry | None = None,
     available_tools: Sequence[BaseTool] = (),
-    model: object | None = None,
+    model: BaseChatModel | None = None,
+    fallback_models: Sequence[BaseChatModel] = (),
     approval_hook: ApprovalHook | None = None,
     approval_policy: Callable[[Sequence[BaseTool]], dict[str, bool]] | None = None,
 ) -> Sequence[BaseTool]:
-    """构造 ``task`` 工具；没有子 Agent 定义或没有工具时返回空列表。
+    """构造 ``task`` 工具；没有可用子 Agent 定义或主模型时返回空列表。
 
     Args:
         settings: 配置。
@@ -67,13 +75,36 @@ def build_tools(
     if not len(agents):
         logger.debug("tools.task_skipped", reason="没有配置子 Agent")
         return []
-    if model is None or not available_tools:
+    if model is None:
         logger.warning(
             "tools.task_skipped",
             reason="缺少模型或可用工具",
             has_model=model is not None,
             tools=len(available_tools),
         )
+        return []
+
+    # 独立模型在装配时校验、复用客户端；依赖不满足的子 Agent 不暴露给模型。
+    child_models: dict[str, BaseChatModel] = {}
+    runnable_specs: list[SubAgentSpec] = []
+    for spec in agents.specs:
+        try:
+            child_models[spec.name] = (
+                build_model(settings.app.model, secrets=settings.secrets, spec=spec.model)
+                if spec.model is not None
+                else model
+            )
+        except ModelBuildError as exc:
+            logger.warning(
+                "delegation.model_unavailable",
+                subagent=spec.name,
+                model=spec.model,
+                error_type=type(exc).__name__,
+            )
+            continue
+        runnable_specs.append(spec)
+    agents = SubAgentRegistry(runnable_specs)
+    if not len(agents):
         return []
 
     @tool
@@ -96,16 +127,21 @@ def build_tools(
         if spec is None:
             return f"没有名为 {subagent_type!r} 的子 Agent。可用的有：{'、'.join(agents.names)}"
 
-        child_tools = select_tools(spec, available_tools)
+        # 技能只属于子 Agent：替换主 Agent 的技能工具，避免跨索引读取。
+        # 扫描与文件读取下沉到线程，不阻塞其它会话的事件循环。
+        child_tools, child_prompt = await asyncio.to_thread(
+            _child_context, settings, spec, available_tools
+        )
         from doudou.agent.react import ReactAgent
 
         # 子 Agent 的工具集与主 Agent 不同，所以确认策略必须**按子 Agent 自己的
         # 工具清单**重新算一遍。抄主 Agent 的会让子 Agent 的写操作静默免确认。
         child_interrupt_on = approval_policy(child_tools) if approval_policy else {}
         child = ReactAgent(
-            model=model,  # type: ignore[arg-type]
+            model=child_models[spec.name],
+            fallback_models=fallback_models,
             tools=child_tools,
-            system_prompt=spec.system_prompt,
+            system_prompt=child_prompt,
             max_steps=spec.max_steps,
             # 按子 Agent 的工具清单算出来的确认策略；回调与主 Agent 共用。
             interrupt_on=child_interrupt_on,
@@ -116,6 +152,7 @@ def build_tools(
             "delegation.started",
             subagent=spec.name,
             tools=[item.name for item in child_tools],
+            model=spec.model or "inherited",
             task_chars=len(description),
         )
         result = await _run_child(child, spec_name=spec.name, description=description)
@@ -142,13 +179,48 @@ def build_tools(
     return [task]
 
 
-def _load(settings: Settings):  # type: ignore[no-untyped-def]
+def _child_context(
+    settings: Settings, spec: SubAgentSpec, available: Sequence[BaseTool]
+) -> tuple[list[BaseTool], str]:
+    """按 agents.yaml 的位置解析技能目录，并继续遵守工具白名单与全局禁用项。"""
+    base = settings.subagents_path.parent if settings.subagents_path else settings.config_dir
+    roots = [
+        path if path.is_absolute() else base / path
+        for directory in spec.skills
+        for path in [Path(directory).expanduser()]
+    ]
+    registry = SkillRegistry(roots)
+    enabled = settings.app.tools.enabled_groups
+    local_tools = (
+        skill_tools.build_tools(settings, registry=registry)
+        if not enabled or skill_tools.GROUP in enabled
+        else ()
+    )
+    # 即便主 Agent 有技能，子 Agent 也只能读自己的目录；空 skills 不继承主索引。
+    candidates = [item for item in available if annotations_of(item).group != skill_tools.GROUP]
+    candidates.extend(local_tools)
+    selected = select_tools(
+        spec, [item for item in candidates if item.name not in settings.app.tools.disabled]
+    )
+    index = ""
+    if any(item.name == "read_skill" for item in selected):
+        index = render_skill_index(registry.skills, limit=settings.app.agent.skill_index_limit)
+    elif registry.skills:
+        logger.warning(
+            "delegation.skills_unreachable",
+            subagent=spec.name,
+            hint="请在工具白名单中允许 read_skill，并启用 skills 分组",
+        )
+    return selected, "\n\n".join(part for part in (spec.system_prompt, index) if part)
+
+
+def _load(settings: Settings) -> SubAgentRegistry:
     from doudou.agent.subagents import load_subagents
 
     return load_subagents(settings.subagents_path)
 
 
-def _pick(registry: SubAgentRegistry, requested: str):  # type: ignore[no-untyped-def]
+def _pick(registry: SubAgentRegistry, requested: str) -> SubAgentSpec | None:
     """选子 Agent：指定了就用指定的，没指定就用第一个。
 
     没指定时用第一个而不是报错：模型经常省略 ``subagent_type``，

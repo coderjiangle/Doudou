@@ -11,7 +11,7 @@ from langchain_core.tools import BaseTool
 
 from doudou.agent.context import ContextManager, HistorySummarizer, ResultOffloader
 from doudou.agent.memory import MemoryStore
-from doudou.agent.models import build_model
+from doudou.agent.models import build_fallback_models, build_model
 from doudou.agent.prompts import load_system_prompt
 from doudou.agent.react import ApprovalHook, ReactAgent
 from doudou.config.loader import Settings, get_settings
@@ -116,8 +116,10 @@ def build_agent(
     """
     resolved = settings or get_settings()
 
+    fallback_models: list[BaseChatModel] = []
     if model is None:
         model = build_model(resolved.app.model, secrets=resolved.secrets, spec=model_spec)
+        fallback_models = build_fallback_models(resolved.app.model, secrets=resolved.secrets)
 
     # 记忆每轮都带进提示词，因此要能热更新（remember 工具写回后立刻生效）。
     memory = MemoryStore(resolved)
@@ -133,6 +135,7 @@ def build_agent(
             skills_registry=skills_registry,
             memory_store=memory,
             model=model,
+            fallback_models=fallback_models,
             approval_hook=approval_hook,
         )
 
@@ -141,12 +144,17 @@ def build_agent(
     # 大结果卸载：落在工作区内，模型能用 workspace_read 读回来。
     offloader = ResultOffloader(resolved)
     # 摘要压缩：用同一个模型来压，避免再引入一个「压缩专用模型」的配置面。
-    context = ContextManager(resolved, summarizer=HistorySummarizer(model), offloader=offloader)
+    context = ContextManager(
+        resolved,
+        summarizer=HistorySummarizer(model, fallback_models=fallback_models),
+        offloader=offloader,
+    )
 
     # 副作用工具在配置未显式说明时自动需要确认，见 tools.registry.requires_approval
     interrupt_on = effective_interrupt_on(resolved, tools)
     agent = ReactAgent(
         model=model,
+        fallback_models=fallback_models,
         tools=tools,
         system_prompt=system_prompt,
         max_steps=resolved.app.agent.max_steps,

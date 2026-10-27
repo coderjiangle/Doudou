@@ -4,6 +4,15 @@
 
 ## 2026-10-27
 
+### 配置与部署修复
+
+- 接入 `model.fallbacks`：主 Agent、摘要及子 Agent 按顺序尝试备用模型，已输出文本的
+  流式请求不切换模型，避免混合回答。
+- 子 Agent 的独立 `model` 与专属 `skills` 配置生效；技能读取继续遵守白名单与全局禁用项。
+  `tools: []` 现在禁用全部工具，省略 `tools` 才继承，修正规划 Agent 意外拿到工具的问题。
+- 生产启动统一单 worker，配置拒绝其它 worker 数；修正 K8s 的旧环境变量名。
+- 镜像包含 PostgreSQL 驱动；Compose 允许 `.env` 的数据库地址覆盖默认 SQLite 地址。
+
 ### 变更
 
 - **`context.max_input_tokens` 调到 `1000000`**（与 himodels 上 `deepseek-flash-official`

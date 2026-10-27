@@ -97,6 +97,7 @@ def build_tools(
     skills_registry: SkillRegistry | None = None,
     memory_store: MemoryStore | None = None,
     model: BaseChatModel | None = None,
+    fallback_models: Sequence[BaseChatModel] = (),
     approval_hook: Any | None = None,
 ) -> list[BaseTool]:
     """汇总所有工具，做分组开关、禁用名单与重名检测。
@@ -145,6 +146,7 @@ def build_tools(
             settings,
             available_tools=collected,
             model=model,
+            fallback_models=fallback_models,
             approval_hook=approval_hook,
             # 让子 Agent 按**自己的**工具清单重新算确认策略
             approval_policy=lambda tools: effective_interrupt_on(settings, tools),

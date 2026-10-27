@@ -38,7 +38,8 @@ class ServerConfig(_Section):
     host: str = "127.0.0.1"
     port: int = 8000
     base_path: str = "/api/v1"
-    workers: int = 1
+    #: 会话锁、消息队列和待确认请求在进程内，目前只支持单进程。
+    workers: int = Field(default=1, ge=1, le=1)
     cors_origins: list[str] = Field(default_factory=list)
 
 

@@ -43,6 +43,7 @@
 | `DOUDOU_RUNTIME_TIMEZONE` | `Asia/Shanghai` | `now` 工具的默认时区，也是日志时间戳所用时区 |
 | `DOUDOU_SERVER_HOST` / `DOUDOU_SERVER_PORT` | `127.0.0.1` / `8000` | 监听地址 |
 | `DOUDOU_SERVER_BASE_PATH` | `/api/v1` | API 前缀 |
+| `DOUDOU_SERVER_WORKERS` | `1` | 当前仅支持 1；其它值会在配置校验时拒绝 |
 | `DOUDOU_FILESYSTEM_ROOT_DIR` | `./data/workspace` | 工作区根目录 |
 | `DOUDOU_CONFIG_DIR` / `DOUDOU_CONFIG_FILE` | `./config` / `config.yaml` | 配置位置 |
 
@@ -51,6 +52,7 @@
 | 变量 | 说明 |
 | --- | --- |
 | `DOUDOU_MODEL_PRIMARY` | `provider:model`，如 `openai:gpt-5.5`、`anthropic:claude-sonnet-5`、`deepseek:deepseek-chat`；`scripted:demo` 为内置离线模型 |
+| `DOUDOU_MODEL_FALLBACKS` | 备用模型列表（JSON），按列表顺序尝试 |
 | `DOUDOU_MODEL_TEMPERATURE` / `_MAX_TOKENS` / `_TIMEOUT` / `_MAX_RETRIES` | 采样与限制 |
 | `DOUDOU_MODEL_BASE_URL` | 自建/兼容网关地址 |
 | `DOUDOU_MODEL_API_KEY` | 主 provider 的 API Key |
@@ -59,6 +61,12 @@
 
 `api_keys` / `base_urls` 优先于 `api_key` / `base_url`。非 OpenAI 厂商需要装对应包：
 `uv sync --extra anthropic` / `--extra deepseek`。
+
+`model.fallbacks` 用于主 Agent、摘要调用和子 Agent 的模型调用。每个 ReAct 步骤
+先调用该 Agent 的主模型，失败后按列表顺序尝试备用模型；所有模型绑定同一组工具。
+如果本步骤已经输出文本，则直接报告错误，不再切换，避免混合两份回答。
+备用模型构造失败会告警并跳过；跨 provider 时请补齐 `api_keys` / `base_urls` 与对应依赖。
+测试直接注入模型时不自动构造配置中的备用模型。
 
 #### 接入兼容 OpenAI 协议的网关
 

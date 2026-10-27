@@ -90,9 +90,16 @@ class ContextStats:
 class HistorySummarizer:
     """用模型把一批消息压成摘要。"""
 
-    def __init__(self, model: BaseChatModel, *, max_chars: int = SUMMARY_MAX_CHARS) -> None:
+    def __init__(
+        self,
+        model: BaseChatModel,
+        *,
+        max_chars: int = SUMMARY_MAX_CHARS,
+        fallback_models: Sequence[BaseChatModel] = (),
+    ) -> None:
         self.model = model
         self.max_chars = max_chars
+        self.fallback_models = list(fallback_models)
 
     async def __call__(self, messages: Sequence[BaseMessage]) -> str:
         """压缩。
@@ -107,14 +114,20 @@ class HistorySummarizer:
             SystemMessage(content=SUMMARY_INSTRUCTIONS),
             HumanMessage(content=transcript),
         ]
-        try:
-            response = await self.model.ainvoke(prompt)
-        except Exception as exc:
-            logger.warning("context.summarize_failed", error=str(exc), exc_info=True)
-            return ""
         from doudou.utils.text import content_to_text
 
-        return truncate(content_to_text(response.content).strip(), self.max_chars)
+        for index, model in enumerate([self.model, *self.fallback_models]):
+            try:
+                response = await model.ainvoke(prompt)
+            except Exception as exc:
+                logger.warning(
+                    "context.summarize_model_failed",
+                    model_index=index,
+                    error_type=type(exc).__name__,
+                )
+                continue
+            return truncate(content_to_text(response.content).strip(), self.max_chars)
+        return ""
 
     @staticmethod
     def _render(messages: Sequence[BaseMessage]) -> str:

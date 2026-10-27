@@ -80,6 +80,7 @@ class ReactAgent:
         self,
         *,
         model: BaseChatModel,
+        fallback_models: Sequence[BaseChatModel] = (),
         tools: Sequence[BaseTool] = (),
         system_prompt: str = "",
         max_steps: int = 8,
@@ -92,6 +93,7 @@ class ReactAgent:
         if max_steps < 1:
             raise ValueError("max_steps 必须 >= 1")
         self.model = model
+        self.fallback_models = list(fallback_models)
         self.tools = list(tools)
         self.system_prompt = system_prompt
         self.max_steps = max_steps
@@ -104,7 +106,10 @@ class ReactAgent:
         self.offloader = offloader
         self._tools_by_name = {tool.name: tool for tool in self.tools}
         #: 没有工具时不绑定，避免部分 provider 在空工具列表上报错。
-        self._runnable = model.bind_tools(self.tools) if self.tools else model
+        self._runnables = [
+            candidate.bind_tools(self.tools) if self.tools else candidate
+            for candidate in [model, *self.fallback_models]
+        ]
 
     # ---------------------------------------------------------------- 对外入口
 
@@ -271,6 +276,45 @@ class ReactAgent:
         thread_id: str | None,
         turn: _ModelTurn,
     ) -> AsyncIterator[RunEvent]:
+        """按配置顺序尝试模型；已经输出文本的请求不能透明重放。"""
+        for index in range(len(self._runnables)):
+            attempt = _ModelTurn()
+            emitted = False
+            try:
+                async for event in self._reason_once(
+                    history, step=step, thread_id=thread_id, turn=attempt, model_index=index
+                ):
+                    emitted = True
+                    yield event
+            except Exception as exc:
+                # 工具尚未执行，未对外输出的残片可丢弃；已输出则抛出原错误，
+                # 避免用户收到主模型半句 + 备用模型完整答案的混合内容。
+                if emitted or index == len(self._runnables) - 1:
+                    raise
+                logger.warning(
+                    "agent.model_fallback",
+                    step=step,
+                    thread_id=thread_id,
+                    failed_index=index,
+                    next_index=index + 1,
+                    error_type=type(exc).__name__,
+                )
+                continue
+            turn.text = attempt.text
+            turn.tool_calls = attempt.tool_calls
+            turn.arg_errors = attempt.arg_errors
+            turn.usage = attempt.usage
+            return
+
+    async def _reason_once(
+        self,
+        history: list[BaseMessage],
+        *,
+        step: int,
+        thread_id: str | None,
+        turn: _ModelTurn,
+        model_index: int,
+    ) -> AsyncIterator[RunEvent]:
         """跑一轮模型，把文本与工具调用累积进 ``turn``。"""
         pending: dict[int, dict[str, Any]] = {}
         saw_chunks = False
@@ -287,7 +331,7 @@ class ReactAgent:
             last_user=_log_safe(_last_user_preview(history)),
         )
 
-        async for chunk in self._runnable.astream(history):
+        async for chunk in self._runnables[model_index].astream(history):
             text = content_to_text(getattr(chunk, "content", None))
             if text:
                 turn.text += text

@@ -16,11 +16,11 @@ WORKDIR /app
 # 先只拷贝依赖描述，最大化利用层缓存
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --extra anthropic
+    uv sync --frozen --no-install-project --no-dev --extra anthropic --extra postgres
 
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra anthropic
+    uv sync --frozen --no-dev --extra anthropic --extra postgres
 
 # ---------------------------------------------------------------- runtime
 FROM python:${PYTHON_VERSION}-slim AS runtime
@@ -29,6 +29,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
     DOUDOU_RUNTIME_ENV=prod \
+    DOUDOU_RUNTIME_DEBUG=false \
+    DOUDOU_SERVER_WORKERS=1 \
     DOUDOU_SERVER_HOST=0.0.0.0 \
     DOUDOU_SERVER_PORT=8000 \
     DOUDOU_FILESYSTEM_ROOT_DIR=/data

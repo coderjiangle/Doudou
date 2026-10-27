@@ -1,11 +1,13 @@
 # 仅存放非敏感配置；密钥请使用 Secret（参考同目录说明）。
 # 生成方式：
-#   kubectl create configmap doudou-config --from-literal=DOUDOU_LOG_LEVEL=INFO ...
+#   kubectl create configmap doudou-config --from-literal=DOUDOU_RUNTIME_LOG_LEVEL=INFO ...
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: doudou-config
 data:
+  DOUDOU_RUNTIME_DEBUG: "false"
+  DOUDOU_SERVER_WORKERS: "1"
   DOUDOU_RUNTIME_LOG_LEVEL: "INFO"
   DOUDOU_MCP_ENABLED: "true"
   DOUDOU_CHANNELS_FEISHU_ENABLED: "true"

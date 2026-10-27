@@ -29,7 +29,7 @@ chat: ## 启动终端交互式对话
 
 .PHONY: serve-prod
 serve-prod: ## 以生产参数启动 API
-	$(PY) uvicorn doudou.api.app:app --host 0.0.0.0 --port 8000 --workers 4
+	$(PY) doudou serve --host 0.0.0.0 --port 8000
 
 # ---------------------------------------------------------------- 质量
 .PHONY: fmt

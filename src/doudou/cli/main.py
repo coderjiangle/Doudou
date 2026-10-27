@@ -602,6 +602,7 @@ def serve(
         host=resolved_host,
         port=resolved_port,
         reload=reload,
+        workers=server.workers,
         log_config=None,
         access_log=False,
     )

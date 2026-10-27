@@ -36,13 +36,13 @@ spec:
             - secretRef:
                 name: doudou-secrets
           env:
-            - name: DOUDOU_ENV
+            - name: DOUDOU_RUNTIME_ENV
               value: prod
-            - name: DOUDOU_HOST
+            - name: DOUDOU_SERVER_HOST
               value: 0.0.0.0
-            - name: DOUDOU_ROOT_DIR
+            - name: DOUDOU_FILESYSTEM_ROOT_DIR
               value: /data
-            - name: DOUDOU_DATABASE_URL
+            - name: DOUDOU_STORAGE_DATABASE_URL
               value: sqlite+aiosqlite:////data/doudou.db
           readinessProbe:
             httpGet:

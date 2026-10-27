@@ -134,12 +134,25 @@ provider 只决定调哪家服务，换 provider 不必换字段名。
 三条刻意的约束：
 
 - **子 Agent 拿不到 `task`**（`FORBIDDEN_TOOLS`），否则递归深度不可控；
-- **白名单优先**：`tools` 非空时只有列出的工具可见。职责越窄，跑偏空间越小；
+- **白名单优先**：省略 `tools` 时继承主 Agent 工具；`tools: []` 禁用全部工具，
+  非空列表只允许列出的工具。职责越窄，跑偏空间越小；
 - **确认策略按子 Agent 自己的工具清单重算**（由 `registry` 以回调注入）。
   直接抄主 Agent 的 `interrupt_on` 会让子 Agent 的写操作静默免确认 —— 那是个真实的绕过。
 
 白名单里写了不存在的工具会打 `subagents.unknown_tools` 告警（不报错）——
 静默忽略会让「我明明配了工具」变成谜。工具名请用 `doudou tools list` 核对。
+
+`model` 可指定独立的 `provider:model`；省略或 `null` 时继承主模型。
+独立模型在装配时构造并复用，缺少依赖或模型配置不合法时，该子 Agent 会被跳过并告警。
+
+`skills` 是子 Agent 专属技能根目录列表，相对路径按 **agents.yaml 所在目录**解析。
+空列表不加载技能，也不继承主 Agent 的技能索引或技能读取工具。只把索引注入子 Agent
+提示词，正文由 `read_skill` 按需加载，附属文件仍走受限的 `skill_read_file`。
+显式工具白名单中需允许 `read_skill`（需要附件时再加 `list_skill_files` / `skill_read_file`）；
+全局 `tools.enabled_groups` 和 `tools.disabled` 仍然生效。
+
+迁移提醒：旧版本的 `tools: []` 等同于继承全部工具。需要保留这种行为时请删掉 `tools`
+字段；规划子 Agent 则保持 `tools: []`，确保只做规划。
 
 ## 4. 副作用与人工确认
 

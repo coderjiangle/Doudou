@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -18,6 +19,7 @@ from doudou.agent.react import (
     build_messages,
 )
 from doudou.agent.testing import ScriptedChatModel, summarize_last_tool_result, tool_call
+from doudou.tools.decorators import annotate
 
 
 @tool
@@ -172,22 +174,93 @@ async def test_max_steps_raises_error_event() -> None:
 
 
 async def test_tool_calls_truncated_per_step() -> None:
-    """单步工具调用数超过上限时只执行前 N 个。"""
+    """单步工具调用数超过上限时只执行前 N 个，且被丢弃的调用也要有应答。
+
+    必须跑到第二轮：AIMessage 带着全部 tool_calls，缺了 ToolMessage 的 id
+    会在下一次请求真实 provider 时 400，只跑一步测不到这个问题。
+    """
     many_calls = [
         {"name": "add", "args": {"a": index, "b": 1}, "id": f"c{index}", "type": "tool_call"}
         for index in range(5)
     ]
     agent = ReactAgent(
-        model=ScriptedChatModel(steps=[AIMessage(content="", tool_calls=many_calls)]),
+        model=ScriptedChatModel(
+            steps=[AIMessage(content="", tool_calls=many_calls), AIMessage(content="完成")]
+        ),
         tools=[add],
         system_prompt="",
-        max_steps=1,
+        max_steps=3,
         max_tool_calls_per_step=2,
     )
 
     result = await agent.ainvoke([HumanMessage(content="多调用")])
 
+    assert result.ok
     assert sum(1 for event in result.events if event.type == "tool_call") == 2
+
+    answered = {m.tool_call_id: m for m in result.messages if isinstance(m, ToolMessage)}
+    requested = {c["id"] for m in result.messages if isinstance(m, AIMessage) for c in m.tool_calls}
+    assert requested == answered.keys()
+    assert [answered[f"c{i}"].status for i in range(5)] == ["success"] * 2 + ["error"] * 3
+
+
+def _ordered_tools(log: list[str]) -> list[BaseTool]:
+    """一个只读、一个有副作用的异步工具，调用起止都记进 ``log``。"""
+
+    async def _run(kind: str, label: str) -> str:
+        log.append(f"start {label}")
+        await asyncio.sleep(0.02)
+        log.append(f"end {label}")
+        return f"{kind}:{label}"
+
+    @tool
+    async def read_item(label: str) -> str:
+        """只读工具。"""
+        return await _run("read", label)
+
+    @tool
+    async def write_item(label: str) -> str:
+        """有副作用的工具。"""
+        return await _run("write", label)
+
+    return [
+        annotate(read_item, group="test", side_effects=False),
+        annotate(write_item, group="test", side_effects=True),
+    ]
+
+
+async def test_side_effect_tools_run_serially_as_barriers() -> None:
+    """只读调用并发；有副作用的调用是栅栏，前后都不与其他调用重叠，结果仍按原顺序。"""
+    log: list[str] = []
+    calls = [
+        {"name": name, "args": {"label": label}, "id": label, "type": "tool_call"}
+        for name, label in [
+            ("read_item", "r1"),
+            ("read_item", "r2"),
+            ("write_item", "w1"),
+            ("write_item", "w2"),
+            ("read_item", "r3"),
+        ]
+    ]
+    agent = ReactAgent(
+        model=ScriptedChatModel(
+            steps=[AIMessage(content="", tool_calls=calls), AIMessage(content="完成")]
+        ),
+        tools=_ordered_tools(log),
+        system_prompt="",
+        max_steps=3,
+    )
+
+    result = await agent.ainvoke([HumanMessage(content="读写混合")])
+
+    assert result.ok
+    # 读 r1/r2 并发：两者都启动后才有任何一个结束。
+    assert sorted(log[:2]) == ["start r1", "start r2"]
+    # 写 w1、w2 严格串行，且都在前面的读结束之后、后面的读开始之前。
+    assert log[4:] == ["start w1", "end w1", "start w2", "end w2", "start r3", "end r3"]
+    # 回填给模型的 ToolMessage 与调用顺序一致。
+    tool_ids = [m.tool_call_id for m in result.messages if isinstance(m, ToolMessage)]
+    assert tool_ids == ["r1", "r2", "w1", "w2", "r3"]
 
 
 # --------------------------------------------------------------------------- 人工确认

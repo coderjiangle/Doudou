@@ -151,7 +151,8 @@ class ReactAgent:
                 return
 
             calls = turn.tool_calls[: self.max_tool_calls_per_step]
-            if len(turn.tool_calls) > self.max_tool_calls_per_step:
+            skipped = turn.tool_calls[self.max_tool_calls_per_step :]
+            if skipped:
                 logger.warning(
                     "agent.tool_calls_truncated",
                     requested=len(turn.tool_calls),
@@ -168,9 +169,7 @@ class ReactAgent:
                     thread_id=thread_id,
                 )
 
-            outcomes = await asyncio.gather(
-                *(self._execute_tool(call, step=step, turn=turn) for call in calls)
-            )
+            outcomes = await self._execute_calls(calls, step=step, turn=turn)
 
             for outcome in outcomes:
                 if outcome.approval is not None:
@@ -201,7 +200,23 @@ class ReactAgent:
                     elapsed=outcome.elapsed,
                     thread_id=thread_id,
                 )
-            self._mirror(history, messages_out, len(outcomes))
+
+            # 被截断的调用也必须有应答：上面的 AIMessage 带着全部 tool_calls，
+            # 缺了对应的 ToolMessage，OpenAI 兼容接口下一轮会直接 400。
+            # 这里只写进历史（让模型知道没执行、可以分批重发），不对外发事件。
+            for call in skipped:
+                history.append(
+                    ToolMessage(
+                        content=(
+                            f"错误：单步最多执行 {self.max_tool_calls_per_step} 个工具调用，"
+                            f"本次调用 {call['name']} 未执行，如仍需要请在下一步重新发起。"
+                        ),
+                        tool_call_id=call["id"],
+                        name=call["name"],
+                        status="error",
+                    )
+                )
+            self._mirror(history, messages_out, len(outcomes) + len(skipped))
 
         message = f"达到最大步数 {self.max_steps}，已停止执行。"
         logger.warning("agent.max_steps_reached", max_steps=self.max_steps, thread_id=thread_id)
@@ -308,6 +323,42 @@ class ReactAgent:
             )
 
     # ---------------------------------------------------------------- 执行
+
+    async def _execute_calls(
+        self, calls: Sequence[dict[str, Any]], *, step: int, turn: _ModelTurn
+    ) -> list[ToolOutcome]:
+        """执行一步内的所有工具调用，返回与 ``calls`` 同序的结果。
+
+        只读工具之间互不依赖，连续的只读调用并发执行以省时间；
+        有副作用的工具（含未注解、被保守视为有副作用的）是「栅栏」：
+        单独执行、前后都不与其他调用重叠，保证「先写后读」「连续两次编辑
+        同一文件」这类依赖模型给出顺序的场景结果确定。
+        """
+        outcomes: list[ToolOutcome] = []
+        batch: list[dict[str, Any]] = []
+
+        async def flush() -> None:
+            if batch:
+                outcomes.extend(
+                    await asyncio.gather(
+                        *(self._execute_tool(call, step=step, turn=turn) for call in batch)
+                    )
+                )
+                batch.clear()
+
+        for call in calls:
+            if self._has_side_effects(str(call.get("name") or "")):
+                await flush()
+                outcomes.append(await self._execute_tool(call, step=step, turn=turn))
+            else:
+                batch.append(call)
+        await flush()
+        return outcomes
+
+    def _has_side_effects(self, tool_name: str) -> bool:
+        # 不存在的工具会在 _execute_tool 里直接返回错误，没有副作用，可并发。
+        tool = self._tools_by_name.get(tool_name)
+        return tool is not None and annotations_of(tool).side_effects
 
     def _needs_approval(self, tool_name: str) -> bool:
         if self.interrupt_on.get(tool_name):

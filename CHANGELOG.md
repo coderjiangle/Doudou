@@ -6,6 +6,10 @@
 
 ### 变更
 
+- **`context.max_input_tokens` 调到 `1000000`**（与 himodels 上 `deepseek-flash-official`
+  的窗口对齐）：压缩阈值随之变成 70 万 token，实际几乎不再触发。代价是每轮输入 token（因而
+  耗时与费用）随会话线性增长；另外注意**超窗时上游返回的是一句固定婉拒文案而不是报错**，
+  所以预算必须与模型真实窗口对齐，否则表现为「助手忽然不肯回答」。
 - **MCP server 清单并入 `config/config.yaml`**（`mcp.servers`），删掉独立的
   `config/mcp.servers.example.yaml`，`.env` 的 `DOUDOU_MCP_CONFIG_FILE` 与
   `Settings.mcp_config_path` 一并移除。清单结构现在由 `config/schema.py` 的

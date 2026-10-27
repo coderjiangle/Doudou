@@ -134,8 +134,6 @@ filesystem:
 context:
   todo_list: true              # 未使用（原为 deepagents 的 write_todos 预留）
   summarization: true          # 早期历史超阈值时压成摘要（原文不删）
-  # 次要触发条件已移除：压缩**只看 token 预算**（见下面的 max_input_tokens）。
-  # 原 `summarize_after_messages` 按条数触发，与预算无关，代价是每轮多一次摘要模型往返。
   # 压缩时始终保留的最近消息条数（它们对当前对话最相关）
   keep_recent_messages: 12
   offload_large_results: true
@@ -143,7 +141,7 @@ context:
   # ---- 上下文预算与卸载 ----
   # 送进模型的历史 token 预算。**这是最关键的一个数**：
   # 默认值刻意保守（成本可预期），大上下文模型应该调高。
-  max_input_tokens: 80000
+  max_input_tokens: 1000000
   # 用量超过预算的这个比例时触发压缩（0–1）
   summarize_threshold_ratio: 0.7
   # 卸载目录。默认 <filesystem.root_dir>/.offload

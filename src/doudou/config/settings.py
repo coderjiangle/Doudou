@@ -6,7 +6,6 @@
 * ``tools.web_search.api_key``
 * ``channels.feishu.app_id`` / ``app_secret`` / ``verification_token`` / ``encrypt_key``
 * ``observability.tracing.public_key`` / ``secret_key``
-* ``observability.langsmith.api_key``
 
 环境变量统一为 ``DOUDOU_`` + 配置路径（见 :mod:`doudou.config.env`）。
 :class:`Secrets` 只是把这些字段整理成「按 provider 取值」的旧视图，
@@ -50,7 +49,6 @@ class Secrets(BaseModel):
     feishu_encrypt_key: str | None = None
     feishu_base_url: str | None = None
 
-    langsmith_api_key: str | None = None
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
 
@@ -96,7 +94,6 @@ class Secrets(BaseModel):
             feishu_verification_token=feishu.verification_token,
             feishu_encrypt_key=feishu.encrypt_key,
             feishu_base_url=feishu.base_url,
-            langsmith_api_key=app.observability.langsmith.api_key,
             langfuse_public_key=tracing.public_key,
             langfuse_secret_key=tracing.secret_key,
         )

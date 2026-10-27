@@ -269,10 +269,3 @@ observability:
     environment: null          # prod / staging，会打进 trace 标签
     release: null
     sample_rate: 1.0
-    # 下面两个**未使用**（早期预留的 LangSmith / OTel 开关），保留以兼容既有配置
-    langsmith:
-      enabled: false
-      project: doudou
-    otel:
-      enabled: false
-      endpoint: null

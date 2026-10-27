@@ -261,10 +261,3 @@ observability:
     enabled: false             # 需要 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY
     host: https://cloud.langfuse.com
     sample_rate: 1.0
-  # 以下两项未使用（早期预留），保留以兼容既有配置
-  langsmith:
-    enabled: false
-    project: doudou
-  otel:
-    enabled: false
-    endpoint: null

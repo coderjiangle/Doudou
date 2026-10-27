@@ -64,7 +64,6 @@ _CREDENTIAL_FIELDS = (
     "feishu_app_secret",
     "feishu_verification_token",
     "feishu_encrypt_key",
-    "langsmith_api_key",
     "langfuse_public_key",
     "langfuse_secret_key",
 )

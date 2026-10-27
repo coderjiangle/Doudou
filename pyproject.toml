@@ -69,7 +69,6 @@ dependencies = [
 anthropic = ["langchain-anthropic>=1.7,<2"]
 deepseek = ["langchain-deepseek>=1.1,<2"]
 postgres = ["asyncpg>=0.30", "psycopg[binary]>=3.2"]
-otel = ["opentelemetry-sdk>=1.30", "opentelemetry-exporter-otlp>=1.30"]
 # LLM 级追踪。装不上或不配 key 时追踪整体降级为 no-op，
 # 因此它是可选依赖而不是核心依赖。
 tracing = ["langfuse>=3,<4"]

@@ -460,23 +460,6 @@ class ChannelsConfig(_Section):
 # --------------------------------------------------------------------------- observability
 
 
-class LangSmithConfig(_Section):
-    """**未使用**：早期预留的 LangSmith 开关。追踪改用 Langfuse（见下）。
-    保留字段只为兼容既有配置文件。"""
-
-    enabled: bool = False
-    project: str = "doudou"
-    #: 环境变量：``DOUDOU_OBSERVABILITY_LANGSMITH_API_KEY``。
-    api_key: str | None = None
-
-
-class OtelConfig(_Section):
-    """**未使用**：早期预留的 OTel 导出配置。"""
-
-    enabled: bool = False
-    endpoint: str | None = None
-
-
 class MetricsConfig(_Section):
     enabled: bool = True
 
@@ -534,9 +517,6 @@ class ObservabilityConfig(_Section):
     audit: AuditConfig = Field(default_factory=AuditConfig)
     cost: CostConfig = Field(default_factory=CostConfig)
     tracing: TracingConfig = Field(default_factory=TracingConfig)
-    #: 下面两个**未使用**，保留以兼容既有配置（见各自的 docstring）。
-    langsmith: LangSmithConfig = Field(default_factory=LangSmithConfig)
-    otel: OtelConfig = Field(default_factory=OtelConfig)
 
 
 # --------------------------------------------------------------------------- root
@@ -572,13 +552,11 @@ __all__ = [
     "FilesystemConfig",
     "FilesystemRouteConfig",
     "HttpToolConfig",
-    "LangSmithConfig",
     "McpConfig",
     "MetricsConfig",
     "ModelConfig",
     "NotesToolConfig",
     "ObservabilityConfig",
-    "OtelConfig",
     "PermissionRule",
     "RuntimeConfig",
     "ServerConfig",

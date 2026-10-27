@@ -12,7 +12,6 @@ data:
   DOUDOU_CHANNELS_FEISHU_BASE_URL: "https://open.feishu.cn"
   DOUDOU_CHANNELS_FEISHU_BOT_NAME: "Doudou"
   DOUDOU_CHANNELS_FEISHU_STREAM_REPLY: "true"
-  DOUDOU_OBSERVABILITY_LANGSMITH_ENABLED: "false"
 ---
 apiVersion: v1
 kind: Secret

@@ -81,7 +81,7 @@ tools:
   # 分组：web / http / files / shell / skills / memory / clock / delegation
   enabled_groups: []
   # 逐个禁用的工具名，优先级高于 enabled_groups
-  disabled: []
+  disabled: ['task']
 
   # web_search（tavily | deepseek）：key 统一由 DOUDOU_TOOLS_WEB_SEARCH_API_KEY 提供
   web_search:

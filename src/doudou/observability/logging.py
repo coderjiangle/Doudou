@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import UTC, datetime, tzinfo
 from typing import Any, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 
@@ -59,10 +61,43 @@ def _install_noisy_filter(min_level: int) -> None:
         handler.addFilter(_NoisyLoggerFilter(_NOISY_PREFIXES, max(min_level, logging.WARNING)))
 
 
+def resolve_timezone(name: str | None) -> tzinfo:
+    """把 IANA 时区名解析成 ``tzinfo``；名字为空或无效时回落到**系统本地时区**。
+
+    日志时间戳是给人对着墙上的钟看的，所以默认跟随本机时区而不是 UTC ——
+    在 UTC+8 的机器上，UTC 时间戳看起来「比现实晚 8 小时」，每次排查都要心算一遍。
+    需要机器可读的统一时间时把 ``runtime.log_json`` 打开：JSON 里带完整偏移量。
+    """
+    candidate = (name or "").strip()
+    if candidate:
+        try:
+            return ZoneInfo(candidate)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            logging.getLogger(__name__).warning(
+                "无法识别的时区 %r（%s），日志时间戳回落到系统本地时区", candidate, exc
+            )
+    local = datetime.now().astimezone().tzinfo
+    return local or UTC
+
+
+def _timestamper(name: str | None) -> structlog.types.Processor:
+    """时间戳处理器：ISO 8601 + 显式偏移量（例如 ``2026-10-27T13:45:52.123456+08:00``）。"""
+    zone = resolve_timezone(name)
+
+    def processor(
+        _logger: Any, _method: str, event_dict: structlog.types.EventDict
+    ) -> structlog.types.EventDict:
+        event_dict["timestamp"] = datetime.now(zone).isoformat(timespec="microseconds")
+        return event_dict
+
+    return processor
+
+
 def configure_logging(
     *,
     level: str = "INFO",
     json_logs: bool = False,
+    timezone: str | None = None,
     stream: Any | None = None,
 ) -> None:
     """初始化 structlog 与标准库 logging。
@@ -72,6 +107,8 @@ def configure_logging(
     Args:
         level: 日志级别名（``DEBUG`` / ``INFO`` / ...），大小写不敏感。
         json_logs: ``True`` 输出 JSON（生产环境），``False`` 输出带颜色的可读格式。
+        timezone: 时间戳所用 IANA 时区名（一般是 ``runtime.timezone``）；
+            留空则跟随系统本地时区。
         stream: 覆盖输出流，测试时可传入 ``io.StringIO``。
     """
     global _configured
@@ -100,7 +137,7 @@ def configure_logging(
             # 走 stdlib logger factory，这样 add_logger_name 能取到模块名，
             # 第三方库（httpx / langchain）的日志也会汇到同一个出口。
             structlog.stdlib.add_logger_name,
-            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            _timestamper(timezone),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             renderer,
@@ -135,4 +172,4 @@ def reset_logging() -> None:
     _configured = False
 
 
-__all__ = ["configure_logging", "get_logger", "is_configured", "reset_logging"]
+__all__ = ["configure_logging", "get_logger", "is_configured", "reset_logging", "resolve_timezone"]

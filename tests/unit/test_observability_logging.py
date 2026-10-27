@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import io
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -50,6 +52,43 @@ def test_own_loggers_are_not_suppressed(captured: io.StringIO) -> None:
     get_logger("doudou.probe").info("业务日志应当可见")
 
     assert "业务日志应当可见" in captured.getvalue()
+
+
+# --------------------------------------------------------------------------- 时间戳时区
+
+
+def _timestamp_of(line: str) -> datetime:
+    """从日志行里取出 ISO 时间戳（行首到第一个空格）。"""
+    return datetime.fromisoformat(line.split(" ", 1)[0])
+
+
+@pytest.mark.parametrize("name", ["Asia/Shanghai", "UTC"])
+def test_timestamp_uses_the_configured_timezone(name: str) -> None:
+    """日志时间戳必须落在配置的时区里 —— 否则 UTC+8 的机器上看起来「晚 8 小时」。"""
+    stream = io.StringIO()
+    configure_logging(level="INFO", timezone=name, stream=stream)
+    try:
+        get_logger("doudou.probe").info("对表")
+        stamp = _timestamp_of(stream.getvalue().splitlines()[0])
+    finally:
+        reset_logging()
+
+    assert stamp.utcoffset() == datetime.now(ZoneInfo(name)).utcoffset()
+    # 与实际墙钟相差不超过几秒（允许跨秒边界）
+    assert abs((stamp - datetime.now(ZoneInfo(name))).total_seconds()) < 5
+
+
+def test_unknown_timezone_falls_back_instead_of_breaking() -> None:
+    stream = io.StringIO()
+    configure_logging(level="INFO", timezone="Mars/Olympus", stream=stream)
+    try:
+        get_logger("doudou.probe").info("还是得能打日志")
+    finally:
+        reset_logging()
+
+    output = stream.getvalue()
+    assert "还是得能打日志" in output
+    assert _timestamp_of(output.splitlines()[-1]).tzinfo is not None
 
 
 # --------------------------------------------------------------------------- 入参脱敏

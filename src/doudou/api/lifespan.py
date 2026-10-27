@@ -191,6 +191,7 @@ def make_lifespan(settings: Settings | None = None):  # type: ignore[no-untyped-
         configure_logging(
             level=resolved.app.runtime.log_level,
             json_logs=resolved.app.runtime.log_json,
+            timezone=resolved.app.runtime.timezone,
         )
         get_metrics().reset()
         app.state.doudou = await create_state(resolved)

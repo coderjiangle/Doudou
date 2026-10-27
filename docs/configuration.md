@@ -40,7 +40,7 @@
 | `DOUDOU_RUNTIME_DEBUG` | `true` | 调试模式，prod 应关闭 |
 | `DOUDOU_RUNTIME_LOG_LEVEL` | `INFO` | 日志级别 |
 | `DOUDOU_RUNTIME_LOG_JSON` | `false` | 输出 JSON 日志（prod 建议 true） |
-| `DOUDOU_RUNTIME_TIMEZONE` | `Asia/Shanghai` | `now` 工具的默认时区 |
+| `DOUDOU_RUNTIME_TIMEZONE` | `Asia/Shanghai` | `now` 工具的默认时区，也是日志时间戳所用时区 |
 | `DOUDOU_SERVER_HOST` / `DOUDOU_SERVER_PORT` | `127.0.0.1` / `8000` | 监听地址 |
 | `DOUDOU_SERVER_BASE_PATH` | `/api/v1` | API 前缀 |
 | `DOUDOU_FILESYSTEM_ROOT_DIR` | `./data/workspace` | 工作区根目录 |

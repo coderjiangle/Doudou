@@ -13,7 +13,7 @@ runtime:
   debug: true
   log_level: INFO
   log_json: false              # prod 建议 true
-  timezone: Asia/Shanghai      # now 工具的默认时区
+  timezone: Asia/Shanghai      # now 工具的默认时区，也是**日志时间戳**所用时区
 
 server:
   host: 127.0.0.1

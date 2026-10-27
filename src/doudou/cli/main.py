@@ -82,6 +82,7 @@ def _load(config_dir: Path | None, *, log_level: str | None = None) -> Settings:
     configure_logging(
         level=log_level or settings.app.runtime.log_level,
         json_logs=settings.app.runtime.log_json,
+        timezone=settings.app.runtime.timezone,
     )
     return settings
 

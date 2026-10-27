@@ -125,6 +125,10 @@ async def test_web_ui_is_served(settings_for_api: Settings) -> None:
     assert "Doudou" in page.text
     assert "/chat/stream" in page.text  # 前端确实接的是流式接口
     assert "/approvals" in page.text  # 人工确认也在页面里处理
+    # 工具调用折成一个可折叠的块（收起只占一行），不再逐条占行把回复顶下去
+    assert "tool-fold" in page.text
+    assert "toolFoldLabel" in page.text
+    assert "trace-card" not in page.text
     # base_path 在服务端注入，改配置不需要改前端
     assert "__DOUDOU_BASE_PATH__" not in page.text
     assert 'const BASE_PATH = "/api/v1"' in page.text

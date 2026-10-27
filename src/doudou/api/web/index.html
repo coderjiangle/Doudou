@@ -315,7 +315,50 @@
   }
   .msg.error .bubble { border-color: #fecaca; background: #fef2f2; color: var(--danger); }
 
-  .trace { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+  /* 工具调用：折叠成一行放在助手回复上方；展开才看 chips 与各工具结果 */
+  .tool-fold {
+    border: 1px dashed #dbe3ea;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.72);
+    font-size: 12.5px;
+    color: var(--muted);
+    overflow: hidden;
+  }
+  .tool-fold > summary {
+    cursor: pointer;
+    padding: 5px 11px;
+    color: var(--brand);
+    user-select: none;
+    list-style: none;
+    /* 收起时**必须只有一行**：工具再多也不该把回复顶下去 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tool-fold > summary::-webkit-details-marker { display: none; }
+  .tool-fold > summary::before { content: "▸ "; }
+  .tool-fold[open] > summary::before { content: "▾ "; }
+  .tool-fold[open] > summary { border-bottom: 1px dashed #e6ecf2; }
+  .tool-fold > summary:hover { text-decoration: underline; }
+  .tool-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 11px; }
+  .tool-results { padding: 0 11px 9px; }
+  .tool-results > details + details { margin-top: 6px; }
+  .tool-result { font-size: 12px; color: var(--muted); }
+  .tool-result > summary { cursor: pointer; color: var(--brand); user-select: none; }
+  .tool-result pre {
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #475569;
+  }
+
   .chip {
     font-size: 12px;
     color: #374151;
@@ -403,33 +446,6 @@
   .bubble.md th { background: #f8fafc; font-weight: 600; white-space: nowrap; }
   .bubble.md tbody tr:nth-child(even) { background: #fcfdff; }
   .bubble.md .stopped { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
-
-  .trace-card {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 9px 12px;
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px dashed #dbe3ea;
-    border-radius: 12px;
-    max-width: 100%;
-  }
-  .trace-card .chip { align-self: flex-start; }
-  .trace-card details { font-size: 12.5px; color: var(--muted); }
-  .trace-card summary { cursor: pointer; color: var(--brand); user-select: none; }
-  .trace-card pre {
-    margin: 6px 0 0;
-    padding: 8px 10px;
-    max-height: 240px;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 12px;
-    color: #475569;
-  }
 
   .typing { display: inline-flex; align-items: center; gap: 4px; padding: 4px 0; }
   .typing i {
@@ -1047,36 +1063,80 @@
     return result;
   }
 
-  /** 历史里的工具调用：一条紧凑的 chips 卡片，结果默认折叠。 */
-  function renderToolTrace(calls, resultsById) {
+  /** 折叠标题：「调用了 2 个工具 · web_search、now」。收起时只有这一行。 */
+  function toolFoldLabel(names, failedCount = 0) {
+    const unique = [...new Set(names)];
+    const shown = unique.slice(0, 4).join("、") + (unique.length > 4 ? " 等" : "");
+    const bad = failedCount ? `（${failedCount} 个失败）` : "";
+    return `调用了 ${names.length} 个工具${bad} · ${shown}`;
+  }
+
+  /** 未完成态的工具 chip（等 tool_result 回来再 paint）。 */
+  function toolChip(name, summary) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = `· ${name}${summary ? ` · ${summary}` : ""}`;
+    return chip;
+  }
+
+  /** 把 chip 画成最终态：✓/✗ + 工具名 + 参数摘要，悬停可看结果前 300 字。 */
+  function paintToolChip(chip, name, summary, ok, preview) {
+    chip.className = `chip ${ok ? "ok" : "bad"}`;
+    chip.textContent = `${ok ? "✓" : "✗"} ${name}${summary ? ` · ${summary}` : ""}`;
+    if (preview) chip.title = truncateText(preview, 300);
+  }
+
+  function toolResultNode(name, content) {
+    const details = document.createElement("details");
+    details.className = "tool-result";
+    const label = document.createElement("summary");
+    label.textContent = `${name} 结果`;
+    const pre = document.createElement("pre");
+    pre.textContent = content;
+    details.append(label, pre);
+    return details;
+  }
+
+  /**
+   * 工具调用折叠块：**收起时只占一行**，放在这一轮助手回复的上方。
+   * 历史回放与实时流式共用它，避免两个路径长得不一样。
+   */
+  function buildToolFold(calls, resultsById) {
+    const fold = document.createElement("details");
+    fold.className = "tool-fold";
+    const label = document.createElement("summary");
+    const list = document.createElement("div");
+    list.className = "tool-list";
+    const results = document.createElement("div");
+    results.className = "tool-results";
+    fold.append(label, list, results);
+
+    const names = [];
+    let failed = 0;
+    for (const call of calls) {
+      const result = call.id ? resultsById.get(call.id) : undefined;
+      const ok = !(result && result.status === "error");
+      const summary = toolArgSummary(call.args);
+      names.push(call.name);
+      const chip = toolChip(call.name, summary);
+      if (result) {
+        if (!ok) failed += 1;
+        paintToolChip(chip, call.name, summary, ok, result.content);
+      }
+      list.append(chip);
+      if (result && result.content) results.append(toolResultNode(call.name, result.content));
+    }
+    label.textContent = toolFoldLabel(names, failed);
+    return fold;
+  }
+
+  /** 历史里没有对应助手气泡时的兜底：单独一行放折叠块。 */
+  function toolRow(fold) {
     const row = document.createElement("div");
     row.className = "msg assistant";
     const body = document.createElement("div");
     body.className = "msg-body";
-    const card = document.createElement("div");
-    card.className = "trace-card";
-
-    for (const call of calls) {
-      const result = call.id ? resultsById.get(call.id) : undefined;
-      const failed = Boolean(result && result.status === "error");
-      const summary = toolArgSummary(call.args);
-      const chip = document.createElement("span");
-      chip.className = `chip${result ? (failed ? " bad" : " ok") : ""}`;
-      chip.textContent = `${result ? (failed ? "✗" : "✓") : "·"} ${call.name}${summary ? ` · ${summary}` : ""}`;
-      card.append(chip);
-
-      if (result && result.content) {
-        const details = document.createElement("details");
-        const summaryNode = document.createElement("summary");
-        summaryNode.textContent = `${call.name} 结果`;
-        const pre = document.createElement("pre");
-        pre.textContent = result.content;
-        details.append(summaryNode, pre);
-        card.append(details);
-      }
-    }
-
-    body.append(card);
+    body.append(fold);
     row.append(avatarNode("tool"), body);
     return row;
   }
@@ -1091,36 +1151,61 @@
     }
 
     let shown = 0;
+    let pendingCalls = [];  // 还没落到助手气泡上的工具调用（跨连续 ai 消息累积）
     const referenced = new Set();
+
+    // 把攒下的工具调用折成一个块；返回 null 表示这轮没调工具
+    const flushPending = () => {
+      if (!pendingCalls.length) return null;
+      const fold = buildToolFold(pendingCalls, resultsById);
+      pendingCalls = [];
+      return fold;
+    };
+
     for (const message of messages) {
       if (message.role === "human") {
+        const leftover = flushPending();
+        if (leftover) el("messages").append(toolRow(leftover));
         appendBubble("user", message.content || "");
         shown += 1;
       } else if (message.role === "ai") {
-        if (message.content && message.content.trim()) {
-          appendMarkdown("assistant", message.content);
-          shown += 1;
-        }
         const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-        if (calls.length) {
-          el("messages").append(renderToolTrace(calls, resultsById));
-          calls.forEach((call) => {
-            if (call.id) referenced.add(call.id);
-          });
+        calls.forEach((call) => {
+          if (call.id) referenced.add(call.id);
+        });
+        pendingCalls.push(...calls);
+
+        if (message.content && message.content.trim()) {
+          const bubble = appendMarkdown("assistant", message.content);
+          // 工具折叠块放在这一轮回复的**上方**（收起时只占一行）
+          const fold = flushPending();
+          if (fold) bubble.body.prepend(fold);
+          shown += 1;
+        } else if (calls.length) {
           shown += 1;
         }
       } else if (
         message.role === "tool" &&
         (!message.tool_call_id || !referenced.has(message.tool_call_id))
       ) {
+        const leftover = flushPending();
+        if (leftover) el("messages").append(toolRow(leftover));
         el("messages").append(
-          renderToolTrace(
-            [{ name: message.name || "tool", args: {}, id: message.tool_call_id }],
-            new Map([[message.tool_call_id, message]]),
+          toolRow(
+            buildToolFold(
+              [{ name: message.name || "tool", args: {}, id: message.tool_call_id }],
+              new Map([[message.tool_call_id, message]]),
+            ),
           ),
         );
         shown += 1;
       }
+    }
+    // 收尾：只剩工具调用、没有最终回复的（例如被中断的运行）
+    const trailing = flushPending();
+    if (trailing) {
+      el("messages").append(toolRow(trailing));
+      shown += 1;
     }
     if (!shown) renderWelcome();
     el("messages").scrollTop = el("messages").scrollHeight;
@@ -1203,11 +1288,32 @@
     const assistant = appendBubble("assistant", "");
     assistant.bubble.append(typingNode());
 
-    const trace = document.createElement("div");
-    trace.className = "trace";
-    assistant.body.prepend(trace);
-
+    // 工具调用折叠块：**懒创建**（没调工具就不占位置），始终在回复上方、收起只占一行
+    let toolFold = null;
+    let toolList = null;
+    let toolResults = null;
+    let toolLabel = null;
+    const toolNames = [];
+    let toolFailed = 0;
     const chips = new Map();
+
+    const refreshToolLabel = () => {
+      if (toolLabel) toolLabel.textContent = toolFoldLabel(toolNames, toolFailed);
+    };
+
+    const ensureToolFold = () => {
+      if (toolFold) return;
+      toolFold = document.createElement("details");
+      toolFold.className = "tool-fold";
+      toolLabel = document.createElement("summary");
+      toolList = document.createElement("div");
+      toolList.className = "tool-list";
+      toolResults = document.createElement("div");
+      toolResults.className = "tool-results";
+      toolFold.append(toolLabel, toolList, toolResults);
+      assistant.body.prepend(toolFold);
+    };
+
     let answer = "";
     let sawText = false;
     let failed = false;
@@ -1249,19 +1355,22 @@
           sawText = true;
           scheduleAnswer();
         } else if (event === "tool_call") {
+          ensureToolFold();
           const summary = toolArgSummary(payload.args);
-          const chip = document.createElement("span");
-          chip.className = "chip";
-          chip.textContent = `调用 ${payload.name}${summary ? ` · ${summary}` : ""}`;
-          chips.set(payload.call_id, { chip, summary });
-          trace.append(chip);
+          const chip = toolChip(payload.name, summary);
+          chips.set(payload.call_id, { chip, summary, name: payload.name });
+          toolList.append(chip);
+          toolNames.push(payload.name);
+          refreshToolLabel();
         } else if (event === "tool_result") {
           const entry = chips.get(payload.call_id);
+          const preview = payload.result || "";
           if (entry) {
-            entry.chip.className = `chip ${payload.ok ? "ok" : "bad"}`;
-            entry.chip.textContent = `${payload.ok ? "✓" : "✗"} ${payload.name}${entry.summary ? ` · ${entry.summary}` : ""}`;
-            entry.chip.title = payload.result || "";
+            paintToolChip(entry.chip, entry.name, entry.summary, payload.ok, preview);
           }
+          if (!payload.ok) toolFailed += 1;
+          refreshToolLabel();
+          if (preview) toolResults.append(toolResultNode(payload.name, preview));
         } else if (event === "done") {
           answer = payload.text || answer;
           if (!sawText && payload.text) answer = payload.text;
@@ -1280,7 +1389,8 @@
       } else if (answer) {
         assistant.bubble.classList.add("md");
         assistant.bubble.innerHTML = renderMarkdown(answer);
-      } else if (trace.children.length) {
+      } else if (toolFold) {
+        // 只有工具调用没有最终回复：留折叠块，去掉空气泡
         assistant.bubble.remove();
       } else {
         assistant.bubble.textContent = "（没有输出）";

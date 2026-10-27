@@ -134,8 +134,8 @@ filesystem:
 context:
   todo_list: true              # 未使用（原为 deepagents 的 write_todos 预留）
   summarization: true          # 早期历史超阈值时压成摘要（原文不删）
-  # 次要触发条件：消息条数超过它时也考虑压缩
-  summarize_after_messages: 120
+  # 次要触发条件已移除：压缩**只看 token 预算**（见下面的 max_input_tokens）。
+  # 原 `summarize_after_messages` 按条数触发，与预算无关，代价是每轮多一次摘要模型往返。
   # 压缩时始终保留的最近消息条数（它们对当前对话最相关）
   keep_recent_messages: 12
   offload_large_results: true

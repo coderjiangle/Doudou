@@ -272,11 +272,16 @@ class ContextManager:
     async def prepare(
         self, thread_id: str, history: Sequence[BaseMessage]
     ) -> tuple[list[BaseMessage], ContextStats]:
-        """产出本轮要用的历史，并给出统计。"""
+        """产出本轮要用的历史，并给出统计。
+
+        触发压缩的**唯一**条件是 token 预算（``budget * summarize_threshold_ratio``）：
+        按条数触发的规则曾经存在，但它与预算无关 —— 内容很小、条数很多的会话会被它
+        拖进一次没必要的摘要调用（那是一次完整的模型往返，且在关键路径上）。
+        """
         messages = list(history)
         stats = ContextStats(budget=self.budget)
         total = count_messages_tokens(messages)
-        if total <= self.summarize_at and len(messages) <= self.config.summarize_after_messages:
+        if total <= self.summarize_at:
             stats.messages = len(messages)
             stats.tokens = total
             return messages, stats

@@ -137,7 +137,6 @@ filesystem:
 # ---------------------------------------------------------------- 上下文管理
 context:
   summarization: true        # 早期历史超阈值时压成摘要（**原文不删**）
-  summarize_after_messages: 40   # 次要触发条件：条数超过它时也考虑压缩
   keep_recent_messages: 12       # 压缩时始终保留的最近消息条数
   offload_large_results: true    # 超大工具结果落盘，上下文里只留预览 + 路径
   offload_threshold_bytes: 20000

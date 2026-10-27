@@ -240,8 +240,6 @@ class ContextConfig(_Section):
     #: **未使用**：原为 deepagents 的 ``write_todos`` 预留，计划已取消。
     todo_list: bool = True
     summarization: bool = True
-    #: 次要触发条件：消息条数超过它时也考虑压缩。
-    summarize_after_messages: int = 40
     #: 压缩时**始终保留**的最近消息条数（它们对当前对话最相关）。
     keep_recent_messages: int = 12
     offload_large_results: bool = True

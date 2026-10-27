@@ -45,7 +45,6 @@ def tight_settings(settings_factory, tmp_path: Path):  # type: ignore[no-untyped
                 "context:\n"
                 f"  max_input_tokens: {max_input_tokens}\n"
                 "  summarize_threshold_ratio: 0.5\n"
-                "  summarize_after_messages: 10\n"
                 "  keep_recent_messages: 4\n"
                 "storage:\n"
                 f"  max_messages_per_thread: {retention}\n"

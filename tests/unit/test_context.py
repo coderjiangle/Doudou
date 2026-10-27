@@ -186,7 +186,6 @@ def context_settings(settings_factory):  # type: ignore[no-untyped-def]
                 f"  max_input_tokens: {max_input_tokens}\n"
                 f"  keep_recent_messages: {keep_recent}\n"
                 "  summarize_threshold_ratio: 0.5\n"
-                "  summarize_after_messages: 8\n"
                 "  offload_large_results: false\n"
             )
         )

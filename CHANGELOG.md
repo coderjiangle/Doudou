@@ -14,6 +14,11 @@
   的 config 目录相对不同），且只有**第一个**文件可回写。
 - 移除 `.github/workflows/ci.yml` 与 `.vscode/*`：远端只有 Gitee，GitHub Actions 从来不会
   触发；lint / test 门禁继续走本地的 `make lint` / `make test`（见 `AGENTS.md` 的提交规范）。
+- **移除 `context.summarize_after_messages`**（含配置项、环境变量与代码分支）：压缩不再按
+  消息条数触发，**只看 token 预算**（`max_input_tokens × summarize_threshold_ratio`）。
+  旧的按条数规则与预算无关，会让「内容很小、条数很多」的会话每轮都多出一次摘要模型往返
+  （一次完整模型调用，且在关键路径上、对用户完全静默）。仍在配置里写它的需要删掉，
+  否则会因为未知字段直接启动失败。
 
 ## 2026-10-26
 

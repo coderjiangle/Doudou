@@ -93,7 +93,6 @@ DOUDOU_MODEL_API_KEY=<网关签发的 Key>
 | --- | --- | --- |
 | `DOUDOU_CONTEXT_MAX_INPUT_TOKENS` | `80000` | 送进模型的历史 token 预算 |
 | `DOUDOU_CONTEXT_SUMMARIZE_THRESHOLD_RATIO` | `0.7` | 超过预算多少比例开始压缩 |
-| `DOUDOU_CONTEXT_SUMMARIZE_AFTER_MESSAGES` | `40` | 消息数达到多少开始摘要 |
 | `DOUDOU_CONTEXT_KEEP_RECENT_MESSAGES` | `12` | 压缩时保留最近几条 |
 | `DOUDOU_CONTEXT_SUMMARIZATION` | `true` | 是否启用摘要压缩 |
 | `DOUDOU_CONTEXT_OFFLOAD_LARGE_RESULTS` | `true` | 超大工具结果落盘 |

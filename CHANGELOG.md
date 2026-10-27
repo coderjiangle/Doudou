@@ -2,6 +2,42 @@
 
 按日期记录功能变更，版本号见 `src/doudou/version.py`。
 
+## 2026-10-27
+
+### 变更
+
+- **助手记忆与项目约定拆成两个文件**：`remember` 的回写目标是新增的 `config/AGENTS.md`
+  （含 `## 助手记录` 小节）；仓库根的 `AGENTS.md` 是给编码工具（Claude Code / OpenCode 等）
+  的项目约定，**不再**注入助手提示词 —— 顺带省下每轮约 2 千字符的提示词开销。
+  原先两者共用一个文件：运行期攒出来的个人偏好会混进项目规范，注入截断时还互相挤占额度。
+  注意 `memory_files` 的路径按**进程工作目录**解析（与 `system_prompt_file`/`skills`
+  的 config 目录相对不同），且只有**第一个**文件可回写。
+- 移除 `.github/workflows/ci.yml` 与 `.vscode/*`：远端只有 Gitee，GitHub Actions 从来不会
+  触发；lint / test 门禁继续走本地的 `make lint` / `make test`（见 `AGENTS.md` 的提交规范）。
+
+## 2026-10-26
+
+### 新增
+
+- **英文版 README**（`README.en.md`）：中文版的结构 1:1 直译（29 个标题一一对应，表格 /
+  代码块 / 图片 / 文档链接全保留），两版顶部互加语言切换入口。示例提问改成英文，
+  `scripted:demo` 的关键词表含 `time` / `date` / `clock`，所以离线链路照样跑通。
+
+### 变更
+
+- **示例技能换成 `weather`**：删掉 `example-echo` 与 `research`，新增 `weather`
+  （wttr.in 为主、Open-Meteo 兜底，两个服务都不需要密钥）；`skills/README.md` 的目录树
+  同步更新，仓库自带技能的断言也跟着改（否则 `test_repo_skills_are_valid` /
+  `test_repo_skills_are_indexed` 必然失败）。
+- `config/config.yaml`：去掉火山方舟 Coding Plan 的过时注释，`model.base_url` 与
+  `model.api_key` 留空待填，`tools.web_search.api_key` 补上占位空字段，飞书通道默认改回关闭。
+
+### 文档
+
+- CHANGELOG 改为**按日期归档**：把原来的「未发布」段落整理成 `## 2026-10-25`，
+  与 10-24 / 10-23 两段保持一致；合并重叠条目，并补上当天漏记的一条修复
+  （`tools.web_search.provider` 大小写不敏感）。
+
 ## 2026-10-25
 
 ### 新增

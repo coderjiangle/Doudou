@@ -45,8 +45,10 @@ model:
 agent:
   name: Doudou
   system_prompt_file: prompts/system.md   # 相对 config/ 目录；留空则用内置默认提示词
+  # 助手自己的长期记忆：可列多个（都会注入提示词），但**只有第一个**是 remember 的回写目标。
+  # 路径按进程工作目录解析（不是 config/ 目录），所以写 config/AGENTS.md。
   memory_files:
-    - AGENTS.md                            # 启动时读进系统提示词；助手可用 remember 回写
+    - config/AGENTS.md                     # 助手记忆：remember 只写这里
   skills:
     - ../skills/                           # Agent Skills 根目录
   # 提示词里最多列出几个技能。索引必须**有界**：技能一多，

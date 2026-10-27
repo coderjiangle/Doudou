@@ -41,8 +41,12 @@ model:
 agent:
   name: Doudou
   system_prompt_file: prompts/system.md
+  # 助手自己的长期记忆。可以列多个文件（都会注入系统提示词），但**只有第一个**
+  # 是 remember 的回写目标；超出 context.max_memory_chars 时从**尾部**截断。
+  # 路径按**进程工作目录**解析（与 system_prompt_file / skills 的 config 目录相对不同）。
+  # 仓库根的 AGENTS.md 是给编码工具的项目约定，**不**注入助手提示词。
   memory_files:
-    - AGENTS.md                # 启动时读进系统提示词
+    - config/AGENTS.md         # 助手记忆：remember 只写这里
   skills:
     - ../skills/               # 仓库根的 skills/ 目录
   # 提示词里最多列几个技能。索引必须**有界**，
@@ -86,7 +90,7 @@ tools:
     max_results: 5
     search_depth: basic        # 仅 tavily：basic | advanced
     include_answer: true       # 仅 tavily：附带摘要答案
-    need_content: false        # 仅 deepseek：返回网页正文
+    need_content: true        # 仅 deepseek：返回网页正文
     timeout: 20
 
   # http_request：**默认拒绝一切出站请求**，allowed_domains 为空时工具不注册。
@@ -131,7 +135,7 @@ context:
   todo_list: true              # 未使用（原为 deepagents 的 write_todos 预留）
   summarization: true          # 早期历史超阈值时压成摘要（原文不删）
   # 次要触发条件：消息条数超过它时也考虑压缩
-  summarize_after_messages: 40
+  summarize_after_messages: 120
   # 压缩时始终保留的最近消息条数（它们对当前对话最相关）
   keep_recent_messages: 12
   offload_large_results: true

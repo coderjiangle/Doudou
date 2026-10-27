@@ -12,6 +12,7 @@ from doudou.config.loader import (
     deep_merge,
     get_settings,
     load_settings,
+    load_yaml,
     reset_settings_cache,
 )
 from doudou.config.schema import AppConfig
@@ -303,3 +304,18 @@ def test_app_config_defaults_are_complete() -> None:
     assert config.mcp.enabled is True
     assert config.storage.checkpointer == "sqlite"
     assert config.agent.skills == ["../skills/"]
+
+
+def test_repo_config_keeps_assistant_memory_separate() -> None:
+    """仓库配置里，助手记忆只有 ``config/AGENTS.md``。
+
+    仓库根的 ``AGENTS.md`` 是给编码工具的项目约定：它每轮都会占提示词预算，而且会被
+    ``remember`` 攒出来的个人偏好污染。这条断言把「不进助手提示词」钉住。
+    """
+    repo = Path(__file__).resolve().parents[2]
+    raw = load_yaml(repo / "config" / "config.yaml")
+
+    memory_files = raw["agent"]["memory_files"]
+
+    assert memory_files == ["config/AGENTS.md"]  # 也是 remember 的回写目标
+    assert (repo / "config" / "AGENTS.md").is_file()

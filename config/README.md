@@ -11,6 +11,7 @@
 | `mcp.servers.yaml` | ❌ | 实际 MCP 清单（可能含 server 地址与 token 占位） |
 | `agents.yaml` | ✅ | 主 Agent 附加指令 + 子 Agent 定义 |
 | `prompts/` | ✅ | 提示词文件，被 `agent.system_prompt_file` 引用 |
+| `AGENTS.md` | 可选提交 | 助手长期记忆（`agent.memory_files` 注入）；`remember` 只回写这个文件。含个人偏好，不想公开就加进 `.gitignore` |
 
 ## 加载与合并顺序
 

@@ -90,7 +90,7 @@ run_start
 | `models` | 通过 `init_chat_model` 解析 `provider:model`，配置超时/重试/回退；含 `scripted:*` 离线模型。 |
 | `testing` | 确定性脚本模型，供单元测试、CI 与 `--model scripted:demo` 离线自检共用。 |
 | `prompts` | 系统提示词加载与模板变量渲染。 |
-| `memory` | `AGENTS.md` 等记忆文件的加载与回写。 |
+| `memory` | 助手记忆文件（`config/AGENTS.md`）的加载与回写。 |
 | `context` | 上下文工程（预算裁剪 / 摘要压缩 / 大结果卸载）。 |
 | `subagents` | 从 `agents.yaml` 生成子 Agent 定义。 |
 | `permissions` | 文件系统读写权限规则（首匹配生效 + containment 兜底）。 |
@@ -136,7 +136,7 @@ run_start
 | `security.secrets` / `security.auth` | 脱敏、Bearer 令牌校验。 |
 | `utils.tokens` | token 计数（tiktoken `cl100k_base`，离线回退字符启发式）。 |
 | `agent.context` | 上下文工程：预算裁剪、摘要压缩、大结果卸载。 |
-| `agent.memory` | 长期记忆：`memory_files` 的加载与回写。 |
+| `agent.memory` | 长期记忆：`memory_files` 的加载与回写（回写目标只有第一个文件）。 |
 | `storage/migrations` | Alembic 迁移。（暂缓，见该目录 README） |
 
 ## 2.6 上下文工程

@@ -1,4 +1,4 @@
-"""Long term memory: AGENTS.md discovery and updates.
+"""Long term memory: memory file discovery and updates.
 
 记忆是**每轮都带**进提示词的内容（不像 Skill 只带索引），因此它的价值与代价都很直接：
 
@@ -78,7 +78,7 @@ class MemoryStore:
 
     @property
     def target(self) -> Path | None:
-        """回写目标：第一个记忆文件（通常是 ``AGENTS.md``）。"""
+        """回写目标：第一个记忆文件（助手自己的那份，如 ``config/AGENTS.md``）。"""
         return self._paths[0] if self._paths else None
 
     # ---------------------------------------------------------------- 读取
@@ -141,7 +141,7 @@ class MemoryStore:
         if target is None:
             raise ValueError(
                 "没有配置记忆文件，无法记录。请先在 config.yaml 的 "
-                "agent.memory_files 里指定一个文件（如 AGENTS.md）。"
+                "agent.memory_files 里指定一个文件（如 config/AGENTS.md）。"
             )
         cleaned = " ".join(fact.split())
         if not cleaned:

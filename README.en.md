@@ -345,17 +345,24 @@ See [`docs/skills.md`](docs/skills.md).
 
 ### 4.8 Making it remember you (long-term memory)
 
-The files listed in `agent.memory_files` are injected into the system prompt **on every turn**:
+The files listed in `agent.memory_files` are injected into the system prompt **on every turn**;
+
+**only the first one** is the assistant's write target:
 
 ```yaml
 agent:
   memory_files:
-    - AGENTS.md          # default; point it at your own preferences file if you prefer
+    - config/AGENTS.md   # assistant memory: `remember` writes here only
 ```
 
 The assistant can also write to it itself — say "remember that I dislike huge pasted source dumps"
-and it calls the `remember` tool to append to that file, **refreshing the prompt immediately** (a
-write has side effects, so it asks for approval by default).
+and it calls the `remember` tool to append to the **first** file, **refreshing the prompt
+immediately** (a write has side effects, so it asks for approval by default).
+
+Do **not** list documents meant for humans (such as this repo's root `AGENTS.md`, which is
+conventions for coding agents): they occupy context on every turn and would get polluted by the
+assistant's own notes. If you want the assistant to know some conventions, write a separate
+preferences file and list that instead.
 
 ### 4.9 Long conversations and the context budget
 

@@ -1,8 +1,11 @@
-# AGENTS.md
+﻿# AGENTS.md
 
-本文件是 Doudou Agent 的**长期记忆**（由 `agent.memory_files` 声明的文件，
-启动时读进系统提示词；助手也能通过 `remember` 工具回写），
-同时也可作为 AI 编码助手（Claude Code / OpenCode / Cursor 等）在本仓库工作时的约定说明。
+本文件是**本仓库的项目约定**，面向 AI 编码助手（Claude Code / OpenCode / Cursor 等）。
+它由人维护，**不会**被 Doudou 读进系统提示词，也不会被 `remember` 回写。
+
+Doudou **自己**的长期记忆在 [`config/AGENTS.md`](config/AGENTS.md)：那是给个人助手的
+偏好与事实，由 `remember` 追加。两者的读者不同 —— 编码助手的规范不该占个人助手
+每轮的提示词预算。
 
 ---
 

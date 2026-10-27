@@ -8,7 +8,6 @@ metadata:
 data:
   DOUDOU_RUNTIME_LOG_LEVEL: "INFO"
   DOUDOU_MCP_ENABLED: "true"
-  DOUDOU_MCP_CONFIG_FILE: "/app/config/mcp.servers.yaml"
   DOUDOU_CHANNELS_FEISHU_ENABLED: "true"
   DOUDOU_CHANNELS_FEISHU_BASE_URL: "https://open.feishu.cn"
   DOUDOU_CHANNELS_FEISHU_BOT_NAME: "Doudou"

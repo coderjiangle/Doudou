@@ -6,8 +6,8 @@
 ## 1. 装配链路
 
 ```
-config/mcp.servers.yaml
-   │  mcp.config  ── ${ENV} 替换 + 严格校验（不碰网络）
+config/config.yaml 的 mcp.servers
+   │  mcp.config  ── ${ENV} 替换 + 组装清单（不碰网络）
    ▼
 mcp.loader  ── 声明 → 适配器的连接字典；工具命名空间 server__tool
    ▼
@@ -22,35 +22,40 @@ MCP 工具和内置工具在 Agent 眼里没有区别，都是普通 LangChain �
 
 ## 2. 清单格式
 
+清单就写在 `config/config.yaml` 的 `mcp` 段里（不再单独一个 `mcp.servers.yaml`）：
+
 ```yaml
-version: 1
-defaults:            # 可被各 server 继承；显式写在 server 上的值优先
+mcp:
   enabled: true
-  timeout: 60
-  retries: 1
-  read_only: false
+  fail_fast: false            # 连不上时是否让启动失败（默认只降级 + 告警）
+  tool_name_prefix: true      # 给工具加 server__ 前缀
+  defaults:                   # 可被各 server 继承；显式写在 server 上的值优先
+    enabled: true
+    timeout: 60
+    retries: 1
+    read_only: false
+  servers:
+    - name: filesystem            # 唯一名，会成为工具前缀（只允许字母数字下划线连字符）
+      transport: stdio            # stdio | http | sse
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"]
+      env:
+        NODE_NO_WARNINGS: "1"
+      include_tools: []           # 白名单：非空时只暴露这些
+      exclude_tools: [delete_path] # 黑名单：屏蔽危险工具
+      read_only: false            # 见 §5
+      description: 本地文件读写
 
-servers:
-  - name: filesystem            # 唯一名，会成为工具前缀（只允许字母数字下划线连字符）
-    transport: stdio            # stdio | http | sse
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"]
-    env:
-      NODE_NO_WARNINGS: "1"
-    include_tools: []           # 白名单：非空时只暴露这些
-    exclude_tools: [delete_path] # 黑名单：屏蔽危险工具
-    read_only: false            # 见 §4
-    description: 本地文件读写
-
-  - name: github
-    transport: http
-    url: https://api.githubcopilot.com/mcp/
-    headers:
-      Authorization: "Bearer ${GITHUB_TOKEN}"
-    include_tools: [search_repositories, get_file_contents]
+    - name: github
+      transport: http
+      url: https://api.githubcopilot.com/mcp/
+      headers:
+        Authorization: "Bearer ${GITHUB_TOKEN}"
+      include_tools: [search_repositories, get_file_contents]
 ```
 
-字段含义见 `config/mcp.servers.example.yaml`。
+字段含义都在 `config/config.example.yaml` 的 `mcp` 段注释里（含一份可直接抄的模板）。
+写错字段名 / transport 与必填字段对不上会在**启动前**报错，不会悄悄降级。
 
 ## 3. transport 选择
 

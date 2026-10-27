@@ -495,7 +495,9 @@ def config_path(config_dir: ConfigDir = None) -> None:
     console.print(f"root_dir      : {settings.root_dir}")
     console.print(f"system_prompt : {settings.system_prompt_path}")
     console.print(f"skills_dirs   : {[str(item) for item in settings.skills_dirs]}")
-    console.print(f"mcp_config    : {settings.mcp_config_path}")
+    console.print(
+        f"mcp_servers   : {len(settings.app.mcp.servers)} 个（config.yaml 的 mcp.servers）"
+    )
 
 
 @config_app.command("check")
@@ -641,8 +643,7 @@ def mcp_list(
     if not entries:
         console.print("[yellow]没有配置任何 MCP server。[/yellow]")
         console.print(
-            "[dim]清单路径："
-            f"{settings.mcp_config_path}（可从 config/mcp.servers.example.yaml 复制）[/dim]"
+            "[dim]在 config/config.yaml 的 mcp.servers 里加一项即可（那里有模板）。[/dim]"
         )
         return
 

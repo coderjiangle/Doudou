@@ -104,10 +104,6 @@ class Settings(BaseModel):
         return tuple(resolve_path(self.config_dir, item) for item in self.app.agent.skills)
 
     @property
-    def mcp_config_path(self) -> Path:
-        return resolve_path(self.config_dir, self.app.mcp.config_file)
-
-    @property
     def memory_paths(self) -> tuple[Path, ...]:
         return tuple(resolve_path(Path.cwd(), item) for item in self.app.agent.memory_files)
 

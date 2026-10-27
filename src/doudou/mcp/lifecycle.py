@@ -14,7 +14,7 @@ from langchain_core.tools import BaseTool
 
 from doudou.config.loader import Settings
 from doudou.mcp.client import FetchResult, McpClientManager, ServerOverview, ServerStatus
-from doudou.mcp.config import McpConfigError, McpManifest, load_manifest
+from doudou.mcp.config import McpConfigError, McpManifest, manifest_from_config
 from doudou.observability.logging import get_logger
 from doudou.observability.metrics import get_metrics
 
@@ -42,16 +42,17 @@ class McpRuntime:
         self._started = False
 
     def _load_manifest(self) -> McpManifest:
-        """读清单；清单本身不合法时**按没有 MCP** 处理并告警。
+        """把 config.yaml 的 ``mcp`` 段变成清单。
 
-        理由：清单是可选配置，一个 YAML 拼写错误不该让整个服务起不来。
-        但必须**显式告警**，否则用户会以为 MCP 生效了。
+        形状错误（transport 必填字段不符、重名…）在**配置校验阶段**就报错了，
+        这里只可能剩下 ``${ENV}`` 缺失这类运行期问题 —— 那种情况按「没有 MCP」
+        处理并**显式告警**，而不是让整个服务起不来（MCP 是可选能力）。
         """
         try:
-            return load_manifest(self.settings.mcp_config_path)
+            return manifest_from_config(self.config)
         except McpConfigError as exc:
             logger.error("mcp.manifest_invalid", error=str(exc))
-            return McpManifest()
+            return McpManifest(defaults=self.config.defaults)
 
     # ---------------------------------------------------------------- 属性
 

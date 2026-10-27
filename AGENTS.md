@@ -66,7 +66,8 @@ api ──────┼──▶ gateway ──▶ agent ──▶ (tools / mc
   且 `build_tools` 会打 `tools.missing_annotations` 告警让你立刻发现。
 - **依赖不满足就不注册**（缺 API Key、白名单为空），不要注册一个永远失败的工具。
 - **出网工具**必须支持注入 `httpx.AsyncClient`，这样单测能用 `httpx.MockTransport` 离线跑。
-- **MCP** 只通过 `config/mcp.servers.yaml` 声明；代码里不出现硬编码的 server 地址。
+- **MCP** 只在 `config/config.yaml` 的 `mcp.servers` 里声明（`McpServerSpec` 定义在
+  `config/schema.py`，`${ENV}` 替换在 `mcp/config.py`）；代码里不出现硬编码的 server 地址。
 - **Skill** 放仓库根 `skills/`，每个 Skill 一个目录 + `SKILL.md`（YAML frontmatter：`name`、`description`）。
 - 有副作用的工具必须声明 `side_effects=True`；无确认回调时它们会被拒绝执行
   （见 `docs/tools.md` §4）。

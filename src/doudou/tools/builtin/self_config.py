@@ -200,7 +200,6 @@ def _snapshot(
             if settings.system_prompt_path
             else None,
             "skills_dirs": [str(item) for item in settings.skills_dirs],
-            "mcp_config": str(settings.mcp_config_path),
         },
         "credentials": credentials,
     }

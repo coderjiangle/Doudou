@@ -166,10 +166,56 @@ storage:
 # ---------------------------------------------------------------- MCP
 mcp:
   enabled: true
-  config_file: mcp.servers.yaml
   fail_fast: false
   tool_name_prefix: true
   call_timeout: 60
+  # 被各 server 继承；**server 里显式写过的值优先**。
+  defaults:
+    enabled: true
+    timeout: 60
+    retries: 1
+    read_only: false
+  # server 清单直接写在这里。transport 决定必填字段：
+  #   stdio  → command（+ args）
+  #   http   → url（Streamable HTTP）
+  #   sse    → url
+  # 支持 ${ENV_VAR} 占位，密钥留在 .env；**变量没设置会直接报错**。
+  # 第三方 server 默认按「有副作用」处理（每次调用都要人工确认）；
+  # 确认它确实只读后写 read_only: true 才免逐次确认。
+  #
+  # 一个必须知道的代价：适配器的 MCP 工具是**无状态**的，每次调用都会新建一个
+  # session —— 对 stdio 而言就是每次调用都重新拉起子进程（npx/uvx 那类到秒级）。
+  # 需要频繁调用的能力优先用 http。
+  servers: []
+  # 需要时按下面这份模板加项（把 enabled 改成 true）：
+  #
+  # servers:
+  #   - name: filesystem
+  #     enabled: true
+  #     transport: stdio
+  #     command: npx
+  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"]
+  #     env:
+  #       NODE_NO_WARNINGS: "1"
+  #     exclude_tools: [delete_path]
+  #     read_only: false
+  #     description: 本地文件读写
+  #
+  #   - name: github
+  #     enabled: true
+  #     transport: http
+  #     url: https://api.githubcopilot.com/mcp/
+  #     headers:
+  #       Authorization: "Bearer ${GITHUB_TOKEN}"
+  #     include_tools: [search_repositories, get_file_contents]
+  #     description: GitHub 只读查询
+  #
+  #   - name: fetch
+  #     enabled: true
+  #     transport: stdio
+  #     command: uvx
+  #     args: ["mcp-server-fetch"]
+  #     description: 网页抓取
 
 # ---------------------------------------------------------------- 通道
 channels:

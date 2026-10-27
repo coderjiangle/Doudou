@@ -202,7 +202,6 @@ def test_system_prompt_and_related_paths(settings: Settings) -> None:
     assert settings.system_prompt_path is not None
     assert settings.system_prompt_path.is_file()
     assert settings.subagents_path == settings.config_dir / "agents.yaml"
-    assert settings.mcp_config_path == settings.config_dir / "mcp.servers.yaml"
     assert settings.root_dir.is_absolute()
     assert ".." not in str(settings.root_dir)
 

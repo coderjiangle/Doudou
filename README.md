@@ -87,8 +87,7 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
 ```
 Doudou/
 ├─ config/                    # 声明式配置（可提交，密钥放 .env）
-│  ├─ config.example.yaml     # 主配置模板
-│  ├─ mcp.servers.example.yaml# MCP server 清单模板
+│  ├─ config.example.yaml     # 主配置模板（含 MCP server 清单）
 │  └─ agents.yaml             # 主 Agent 提示词 + 子 Agent 定义
 ├─ docs/                      # 设计文档
 ├─ skills/                    # Agent Skills（每个子目录一个 SKILL.md）
@@ -143,8 +142,7 @@ bash scripts/dev.sh
 ```
 
 手工等价步骤：复制 `.env.example` → `.env`、`config/config.example.yaml` →
-`config/config.yaml`；需要 MCP 时再复制 `config/mcp.servers.example.yaml` →
-`config/mcp.servers.yaml`。
+`config/config.yaml`（MCP server 清单也在这个文件里，见 §4.6）。
 
 然后在 `.env` 里设置 `DOUDOU_MODEL_PRIMARY` 与对应的 API Key，例如：
 
@@ -281,10 +279,10 @@ DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 
 ### 4.6 接入 MCP（可选）
 
-MCP 让工具来源从「写死在代码里」变成「配置声明」：
+MCP 让工具来源从「写死在代码里」变成「配置声明」：在 `config/config.yaml` 的
+`mcp.servers` 里加一项（那里有可抄的模板），然后：
 
 ```bash
-cp config/mcp.servers.example.yaml config/mcp.servers.yaml   # Windows 用 Copy-Item
 uv run doudou mcp list          # 看每个 server 拉到了什么
 uv run doudou mcp check github  # 单独探测一个
 uv run doudou tools list        # Agent 实际装载的工具（含 MCP）

@@ -1,26 +1,29 @@
-"""MCP 清单解析：``${ENV}`` 替换与严格校验。"""
+"""MCP 配置解析：``${ENV}`` 替换、defaults 继承与严格校验。
+
+清单写在 ``config.yaml`` 的 ``mcp.servers`` 里，结构由 :mod:`doudou.config.schema`
+定义；这里测的是「结构 → 运行期清单」这一段（占位替换 + 组装）。
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-import yaml
+from pydantic import ValidationError
 
+from doudou.config.loader import load_yaml
+from doudou.config.schema import McpConfig, McpServerSpec
 from doudou.mcp.config import (
     McpConfigError,
-    McpServerSpec,
-    build_manifest,
     build_spec,
-    load_manifest,
+    manifest_from_config,
     substitute_env,
 )
 
 
-def write_manifest(tmp_path: Path, payload: dict) -> Path:
-    path = tmp_path / "mcp.servers.yaml"
-    path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
-    return path
+def make_config(**payload: object) -> McpConfig:
+    """构造一个 ``mcp`` 段（等价于 config.yaml 里写的那块）。"""
+    return McpConfig.model_validate(payload)
 
 
 # --------------------------------------------------------------------------- 环境变量替换
@@ -104,25 +107,21 @@ def test_build_spec_returns_spec() -> None:
     assert spec.name == "svc"
 
 
-def test_unknown_field_rejected(tmp_path: Path) -> None:
-    """extra=forbid 挡拼错：``comand`` 这类错误必须立刻可见。"""
-    path = write_manifest(
-        tmp_path, {"servers": [{"name": "s", "transport": "stdio", "comand": "x"}]}
-    )
+def test_unknown_field_rejected() -> None:
+    """extra=forbid 挡拼错：``comand`` 这类错误必须在**配置校验**阶段就可见。"""
+    with pytest.raises(ValidationError) as excinfo:
+        make_config(servers=[{"name": "s", "transport": "stdio", "comand": "x"}])
 
-    with pytest.raises(McpConfigError):
-        load_manifest(path, env={})
+    assert "comand" in str(excinfo.value)
 
 
 def test_duplicate_server_names_rejected() -> None:
-    with pytest.raises(McpConfigError, match="重复"):
-        build_manifest(
-            {
-                "servers": [
-                    {"name": "dup", "transport": "stdio", "command": "x"},
-                    {"name": "dup", "transport": "stdio", "command": "y"},
-                ]
-            }
+    with pytest.raises(ValidationError, match="重复"):
+        make_config(
+            servers=[
+                {"name": "dup", "transport": "stdio", "command": "x"},
+                {"name": "dup", "transport": "stdio", "command": "y"},
+            ]
         )
 
 
@@ -158,36 +157,57 @@ def test_transport_name_mapping() -> None:
     stdio = McpServerSpec(name="s", transport="stdio", command="x")
     http = McpServerSpec(name="h", transport="http", url="https://x")
 
-    # 适配器里叫 streamable_http，YAML 里写 http
+    # 适配器里叫 streamable_http，配置里写 http
     assert stdio.mcp_transport_name == "stdio"
     assert http.mcp_transport_name == "streamable_http"
     assert http.source_label == "mcp:h"
 
 
-# --------------------------------------------------------------------------- 加载文件
+# --------------------------------------------------------------------------- defaults 继承
 
 
-def test_load_manifest_full(tmp_path: Path) -> None:
-    path = write_manifest(
-        tmp_path,
-        {
-            "version": 1,
-            "servers": [
-                {"name": "local", "transport": "stdio", "command": "python", "args": ["a"]},
-                {
-                    "name": "remote",
-                    "transport": "http",
-                    "url": "https://api.test/${TENANT}/mcp",
-                    "headers": {"Authorization": "Bearer ${TOKEN}"},
-                    "read_only": True,
-                    "include_tools": ["search"],
-                },
-                {"name": "off", "transport": "stdio", "command": "x", "enabled": False},
-            ],
-        },
+def test_defaults_are_inherited_unless_set() -> None:
+    """``mcp.defaults`` 只填没被显式写过的字段。"""
+    config = make_config(
+        defaults={"timeout": 5, "read_only": True, "retries": 3},
+        servers=[
+            {"name": "inherits", "transport": "stdio", "command": "x"},
+            {
+                "name": "explicit",
+                "transport": "stdio",
+                "command": "y",
+                "timeout": 60,
+                "read_only": False,
+            },
+        ],
     )
 
-    manifest = load_manifest(path, env={"TENANT": "acme", "TOKEN": "s3cret"})
+    inherits, explicit = config.servers
+    assert (inherits.timeout, inherits.read_only, inherits.retries) == (5, True, 3)
+    assert (explicit.timeout, explicit.read_only) == (60, False)
+    assert explicit.retries == 3  # 没写的字段仍然继承
+
+
+# --------------------------------------------------------------------------- 组装清单
+
+
+def test_manifest_from_config_substitutes_env() -> None:
+    config = make_config(
+        servers=[
+            {"name": "local", "transport": "stdio", "command": "python", "args": ["a"]},
+            {
+                "name": "remote",
+                "transport": "http",
+                "url": "https://api.test/${TENANT}/mcp",
+                "headers": {"Authorization": "Bearer ${TOKEN}"},
+                "read_only": True,
+                "include_tools": ["search"],
+            },
+            {"name": "off", "transport": "stdio", "command": "x", "enabled": False},
+        ]
+    )
+
+    manifest = manifest_from_config(config, env={"TENANT": "acme", "TOKEN": "s3cret"})
 
     assert [server.name for server in manifest.enabled_servers] == ["local", "remote"]
     remote = manifest.by_name("remote")
@@ -197,44 +217,40 @@ def test_load_manifest_full(tmp_path: Path) -> None:
     assert remote.read_only is True
 
 
-def test_load_manifest_missing_file_is_empty(tmp_path: Path) -> None:
-    """MCP 是可选项：没配清单不该阻止服务启动。"""
-    manifest = load_manifest(tmp_path / "nope.yaml", env={})
+def test_manifest_from_config_without_servers_is_empty() -> None:
+    """MCP 是可选项：没配 server 不该影响启动。"""
+    manifest = manifest_from_config(McpConfig())
 
     assert manifest.servers == []
+    assert manifest.enabled_servers == []
 
 
-def test_load_manifest_empty_file(tmp_path: Path) -> None:
-    path = tmp_path / "empty.yaml"
-    path.write_text("", encoding="utf-8")
+def test_manifest_from_config_missing_env_raises() -> None:
+    """占位符变量缺失必须报错，而不是把 ``Bearer ${TOKEN}`` 原样发出去换 401。"""
+    config = make_config(
+        servers=[
+            {
+                "name": "gh",
+                "transport": "http",
+                "url": "https://api.test/mcp",
+                "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"},
+            }
+        ]
+    )
 
-    assert load_manifest(path, env={}).servers == []
-
-
-def test_load_manifest_bad_yaml(tmp_path: Path) -> None:
-    path = tmp_path / "bad.yaml"
-    path.write_text("servers: [\n", encoding="utf-8")
-
-    with pytest.raises(McpConfigError, match="读取 MCP 清单失败"):
-        load_manifest(path, env={})
-
-
-def test_load_manifest_non_mapping(tmp_path: Path) -> None:
-    path = tmp_path / "list.yaml"
-    path.write_text("- a\n- b\n", encoding="utf-8")
-
-    with pytest.raises(McpConfigError, match="必须是映射"):
-        load_manifest(path, env={})
+    with pytest.raises(McpConfigError, match=r"\$\{GITHUB_TOKEN\}"):
+        manifest_from_config(config, env={})
 
 
-def test_repo_example_manifest_is_valid() -> None:
-    """仓库自带的示例清单必须能通过校验 —— 它是给用户抄的。"""
-    example = Path(__file__).resolve().parents[2] / "config" / "mcp.servers.example.yaml"
-    raw = yaml.safe_load(example.read_text(encoding="utf-8"))
+def test_repo_config_mcp_section_is_valid() -> None:
+    """仓库 config.yaml 的 mcp 段必须能通过校验 —— 它是给用户抄的样板。"""
+    repo = Path(__file__).resolve().parents[2]
+    raw = load_yaml(repo / "config" / "config.yaml")
 
-    # 示例里有 ${GITHUB_TOKEN} / ${DOUDOU_DATABASE_URL} 占位，用假值替换
-    manifest = load_manifest(example, env={"GITHUB_TOKEN": "x", "DOUDOU_DATABASE_URL": "sqlite://"})
+    mcp = McpConfig.model_validate(raw["mcp"])
 
-    assert manifest.servers, "示例清单不应该为空"
-    assert {server.name for server in manifest.servers} >= {"filesystem", "github"}
-    del raw
+    assert mcp.enabled is True
+    assert mcp.servers == []
+    # 独立清单文件已经合并进 config.yaml
+    assert not (repo / "config" / "mcp.servers.example.yaml").exists()
+    assert not (repo / "config" / "mcp.servers.yaml").exists()

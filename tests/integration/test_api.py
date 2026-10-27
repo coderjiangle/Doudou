@@ -13,6 +13,10 @@ import pytest
 
 from doudou.api.app import create_app
 from doudou.config.loader import Settings, load_settings
+from doudou.config.schema import McpServerSpec
+
+#: 本地演示 MCP server：真进程、真 stdio 往返，用来验证「配置 → 工具 → Agent」这条链路。
+DEMO_MCP_SERVER = Path(__file__).resolve().parents[1] / "fixtures" / "mcp" / "demo_server.py"
 
 CONFIG_TEMPLATE = """\
 version: 1
@@ -581,31 +585,39 @@ async def test_health_summary_includes_mcp(settings_for_api: Settings) -> None:
     assert body["checks"]["mcp"] == "none"
 
 
-def _write_mcp_manifest(config_dir: Path) -> None:
-    """在配置目录里放一份指向本地演示 server 的 MCP 清单。"""
-    import sys
+def _with_mcp_servers(settings: Settings, servers: list[dict]) -> Settings:
+    """返回一个把 MCP server 清单内联进 ``mcp.servers`` 的 Settings 副本。
 
-    server = Path(__file__).resolve().parents[1] / "fixtures" / "mcp" / "demo_server.py"
-    (config_dir / "mcp.servers.yaml").write_text(
-        "version: 1\n"
-        "servers:\n"
-        "  - name: demo\n"
-        "    transport: stdio\n"
-        f"    command: {sys.executable}\n"
-        f"    args: [{server.as_posix()!r}]\n"
-        "    read_only: true\n"
-        "    exclude_tools: [delete_everything]\n",
-        encoding="utf-8",
+    清单现在写在 ``config.yaml`` 的 ``mcp`` 段里，所以测试直接改配置对象，
+    不再往配置目录里塞 ``mcp.servers.yaml``。
+    """
+    mcp = settings.app.mcp.model_copy(
+        update={"servers": [McpServerSpec.model_validate(item) for item in servers]}
     )
+    app = settings.app.model_copy(update={"mcp": mcp})
+    return settings.model_copy(update={"app": app})
 
 
 async def test_mcp_tools_reach_the_agent_through_the_api(tmp_path: Path) -> None:
-    """端到端：清单 → 真实 stdio server → Agent 工具 → ``GET /tools``。
+    """端到端：配置里的清单 → 真实 stdio server → Agent 工具 → ``GET /tools``。
 
     MCP 工具必须真的进到 Agent 的工具列表里，而不只是「配置解析成功」。
     """
-    settings = _write_config(tmp_path)
-    _write_mcp_manifest(settings.config_dir)
+    import sys
+
+    settings = _with_mcp_servers(
+        _write_config(tmp_path),
+        [
+            {
+                "name": "demo",
+                "transport": "stdio",
+                "command": sys.executable,
+                "args": [DEMO_MCP_SERVER.as_posix()],
+                "read_only": True,
+                "exclude_tools": ["delete_everything"],
+            }
+        ],
+    )
 
     async with api_client(settings) as client:
         tools = {item["name"]: item for item in (await client.get("/api/v1/tools")).json()["tools"]}
@@ -619,26 +631,27 @@ async def test_mcp_tools_reach_the_agent_through_the_api(tmp_path: Path) -> None
     assert tools["demo__echo"]["requires_approval"] is False
     assert tools["demo__echo"]["group"] == "mcp:demo"
 
-    server = mcp["servers"][0]
-    assert server["ok"] is True
-    assert server["name"] == "demo"
-    assert "delete_everything" in server["filtered_out"]
-    assert server["elapsed"] is not None
+    server_entry = mcp["servers"][0]
+    assert server_entry["ok"] is True
+    assert server_entry["name"] == "demo"
+    assert "delete_everything" in server_entry["filtered_out"]
+    assert server_entry["elapsed"] is not None
 
 
 async def test_broken_mcp_server_degrades_but_service_works(tmp_path: Path) -> None:
     """一个 MCP server 挂掉，服务必须照常可用（``fail_fast: false``）。"""
     import sys
 
-    settings = _write_config(tmp_path)
-    (settings.config_dir / "mcp.servers.yaml").write_text(
-        "version: 1\n"
-        "servers:\n"
-        "  - name: broken\n"
-        "    transport: stdio\n"
-        f"    command: {sys.executable}\n"
-        "    args: ['-c', 'import sys; sys.exit(3)']\n",
-        encoding="utf-8",
+    settings = _with_mcp_servers(
+        _write_config(tmp_path),
+        [
+            {
+                "name": "broken",
+                "transport": "stdio",
+                "command": sys.executable,
+                "args": ["-c", "import sys; sys.exit(3)"],
+            }
+        ],
     )
 
     async with api_client(settings) as client:

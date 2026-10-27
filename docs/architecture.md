@@ -215,7 +215,7 @@ GET  /api/v1/health[/ready]  → 健康 / 就绪（免鉴权）
 | 想加什么 | 改哪里 |
 | --- | --- |
 | 新工具 | `src/doudou/tools/builtin/` 新增模块，`registry` 自动登记 |
-| 新 MCP server | `config/mcp.servers.yaml` 加一条，无需改代码 |
+| 新 MCP server | `config/config.yaml` 的 `mcp.servers` 加一条，无需改代码 |
 | 新 Skill | 根目录 `skills/<name>/SKILL.md` |
 | 新通道（如钉钉/微信） | `channels/` 新增子包并实现 `Channel` 协议，注册进 `channels.registry` |
 | 新模型厂商 | `doudou.agent.models` 注册 provider，或直接装 `langchain-<provider>` 并用 `provider:model` 写法 |

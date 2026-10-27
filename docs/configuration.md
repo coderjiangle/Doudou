@@ -107,8 +107,7 @@ DOUDOU_MODEL_API_KEY=<网关签发的 Key>
 | `DOUDOU_STORAGE_HISTORY` | `database` | `database`（重启可续）/ `memory` |
 | `DOUDOU_STORAGE_MAX_MESSAGES_PER_THREAD` | `500` | 单会话保留的消息条数 |
 | `DOUDOU_STORAGE_CHECKPOINTER` | `sqlite` | **未使用**（早期预留） |
-| `DOUDOU_MCP_ENABLED` | `true` | MCP 总开关 |
-| `DOUDOU_MCP_CONFIG_FILE` | `mcp.servers.yaml` | 清单路径（相对 `config/`） |
+| `DOUDOU_MCP_ENABLED` | `true` | MCP 总开关（server 清单在 `config.yaml` 的 `mcp.servers`） |
 
 > SQLite 文件所在目录不存在时会自动创建；生产建议换 Postgres：
 > `uv sync --extra postgres` 后把 URL 改成 `postgresql+asyncpg://...`。
@@ -212,11 +211,13 @@ agent:
 
 ## 4. MCP 清单
 
-见 `config/mcp.servers.example.yaml`。要点：
+清单写在 `config/config.yaml` 的 `mcp.servers` 里（不再单独一个 `mcp.servers.yaml`），
+格式与要点见 [`mcp.md`](mcp.md) §2。摘要：
 
-- 支持 `${ENV_VAR}` 占位，启动时从环境变量替换。
+- 支持 `${ENV_VAR}` 占位，启动时从环境变量替换；**变量缺失会报错**（而不是发出去换 401）。
 - `include_tools` / `exclude_tools` 用于收敛工具面（推荐显式收窄，减少模型误调用）。
 - `fail_fast: false` 时单个 server 连不上只告警，不影响整体启动。
+- 字段名写错、transport 与必填字段对不上属于**配置错误**：启动前就报错。
 
 ## 5. 校验与查看
 

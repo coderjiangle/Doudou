@@ -6,9 +6,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 FilesystemBackendName = Literal["state", "store", "filesystem", "composite"]
 CheckpointerName = Literal["memory", "sqlite", "postgres"]
@@ -278,13 +279,134 @@ class StorageConfig(_Section):
 
 # --------------------------------------------------------------------------- mcp
 
+#: MCP transport。``http`` 在适配器里叫 ``streamable_http``（映射见 ``mcp/loader``）。
+McpTransportName = Literal["stdio", "http", "sse"]
+
+#: server 名会成为工具名前缀，因此限制字符集。
+_MCP_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+class McpServerSpec(_Section):
+    """一个 MCP server 的声明（``mcp.servers[]``）。
+
+    transport 决定必填字段：``stdio`` 要 ``command``，``http`` / ``sse`` 要 ``url``；
+    两者都给或都不给都会在**启动时**报错，而不是连不上时才让人猜。
+    ``${ENV}`` 占位由 :mod:`doudou.mcp.config` 在构造连接前替换（密钥留在 ``.env``）。
+    """
+
+    name: str
+    enabled: bool = True
+    transport: McpTransportName = "stdio"
+    description: str = ""
+
+    # ---- stdio ----
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str | None = None
+
+    # ---- http / sse ----
+    url: str | None = None
+    headers: dict[str, str] = Field(default_factory=dict)
+
+    # ---- 工具面收敛 ----
+    #: 白名单：非空时只暴露这些工具。
+    include_tools: list[str] = Field(default_factory=list)
+    #: 黑名单：显式屏蔽危险工具（删除、DDL、支付…）。
+    exclude_tools: list[str] = Field(default_factory=list)
+    #: 声明该 server 的工具都是只读的（免逐次人工确认）。
+    #:
+    #: 默认 ``False`` = 不确定 → 按「有副作用」处理、每次调用都要确认。
+    #: 这是安全的默认：第三方 server 里既可能有查询也可能有删除，
+    #: 猜错的方向必须是「多问一次」而不是「默默删了」。
+    read_only: bool = False
+
+    #: 拉取工具与调用工具的超时（秒）。
+    timeout: float = 60.0
+    #: 拉取失败时的重试次数（``mcp.defaults`` 可统一设置）。
+    retries: int = 0
+
+    @model_validator(mode="after")
+    def _check(self) -> McpServerSpec:
+        if not _MCP_NAME_PATTERN.match(self.name):
+            raise ValueError(
+                f"server 名 {self.name!r} 不合法：只允许字母、数字、下划线、连字符，"
+                "且必须以字母或数字开头（它会成为工具名的前缀）。"
+            )
+        if self.transport == "stdio":
+            if not self.command:
+                raise ValueError(f"server {self.name!r} 使用 stdio 时必须提供 command。")
+            if self.url:
+                raise ValueError(f"server {self.name!r} 是 stdio，不应该有 url。")
+        else:
+            if not self.url:
+                raise ValueError(f"server {self.name!r} 使用 {self.transport} 时必须提供 url。")
+            if self.command:
+                raise ValueError(f"server {self.name!r} 是 {self.transport}，不应该有 command。")
+        overlap = set(self.include_tools) & set(self.exclude_tools)
+        if overlap:
+            raise ValueError(
+                f"server {self.name!r} 的 include_tools 与 exclude_tools 同时包含 "
+                f"{sorted(overlap)}；白名单优先，这样写只会造成困惑。"
+            )
+        return self
+
+    @property
+    def mcp_transport_name(self) -> str:
+        """映射到 langchain-mcp-adapters 的 transport 字面量。"""
+        return "streamable_http" if self.transport == "http" else self.transport
+
+    @property
+    def source_label(self) -> str:
+        """工具来源标记：``mcp:<server>``。"""
+        return f"mcp:{self.name}"
+
+    def tool_allowed(self, tool_name: str) -> bool:
+        """工具是否应当暴露。白名单优先于黑名单；两者都为空表示全部暴露。"""
+        if self.include_tools:
+            return tool_name in self.include_tools
+        return tool_name not in self.exclude_tools
+
+
+class McpDefaults(_Section):
+    """``mcp.defaults``：被各 server 继承，**显式指定者优先**。
+
+    只放「经常需要统一调整」的几个字段 —— 可继承字段越多，读配置时越难判断
+    某个值到底来自哪里。
+    """
+
+    enabled: bool = True
+    timeout: float = 60.0
+    retries: int = 0
+    read_only: bool = False
+
 
 class McpConfig(_Section):
+    """MCP 段：server 清单直接写在这里（不再单独一个 ``mcp.servers.yaml``）。"""
+
     enabled: bool = True
-    config_file: str = "mcp.servers.yaml"
+    #: 连不上某个 server 时是否让启动直接失败（默认只降级 + 告警）。
     fail_fast: bool = False
+    #: 是否给 MCP 工具名加 ``<server>__`` 前缀。
     tool_name_prefix: bool = True
     call_timeout: float = 60.0
+    defaults: McpDefaults = Field(default_factory=McpDefaults)
+    servers: list[McpServerSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check(self) -> McpConfig:
+        seen: set[str] = set()
+        for server in self.servers:
+            if server.name in seen:
+                raise ValueError(f"server 名重复：{server.name!r}")
+            seen.add(server.name)
+        # defaults 只填「没被显式写过」的字段（靠 model_fields_set 判断），
+        # 因此「全局默认 60s，某个 server 单独写 5s」符合直觉。
+        for server in self.servers:
+            for field_name in ("enabled", "timeout", "retries", "read_only"):
+                if field_name not in server.model_fields_set:
+                    setattr(server, field_name, getattr(self.defaults, field_name))
+        return self
 
 
 # --------------------------------------------------------------------------- channels

@@ -96,8 +96,7 @@ Design principles:
 ```
 Doudou/
 ├─ config/                    # Declarative config (committed; secrets go in .env)
-│  ├─ config.example.yaml     # Main config template
-│  ├─ mcp.servers.example.yaml# MCP server list template
+│  ├─ config.example.yaml     # Main config template (incl. the MCP server list)
 │  └─ agents.yaml             # Main agent prompt + subagent definitions
 ├─ docs/                      # Design documents
 ├─ skills/                    # Agent Skills (one SKILL.md per subdirectory)
@@ -154,8 +153,7 @@ bash scripts/dev.sh
 ```
 
 The equivalent manual steps: copy `.env.example` → `.env` and `config/config.example.yaml` →
-`config/config.yaml`; copy `config/mcp.servers.example.yaml` → `config/mcp.servers.yaml` if you need
-MCP.
+`config/config.yaml` (the MCP server list lives in that same file, see §4.6).
 
 Then set `DOUDOU_MODEL_PRIMARY` and the matching API key in `.env`, for example:
 
@@ -298,10 +296,10 @@ known limitations: [`docs/channels.md`](docs/channels.md).
 
 ### 4.6 Connecting MCP (optional)
 
-MCP turns the tool source from "hard-coded in the code" into "declared in configuration":
+MCP turns the tool source from "hard-coded in the code" into "declared in configuration": add an
+entry under `mcp.servers` in `config/config.yaml` (there is a copy-ready template right there), then:
 
 ```bash
-cp config/mcp.servers.example.yaml config/mcp.servers.yaml   # Copy-Item on Windows
 uv run doudou mcp list          # what each server actually exposed
 uv run doudou mcp check github  # probe a single server
 uv run doudou tools list        # tools the agent actually loaded (including MCP)

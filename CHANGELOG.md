@@ -6,6 +6,14 @@
 
 ### 变更
 
+- **MCP server 清单并入 `config/config.yaml`**（`mcp.servers`），删掉独立的
+  `config/mcp.servers.example.yaml`，`.env` 的 `DOUDOU_MCP_CONFIG_FILE` 与
+  `Settings.mcp_config_path` 一并移除。清单结构现在由 `config/schema.py` 的
+  `McpServerSpec` / `McpDefaults` 定义，**写错字段或 transport 与必填字段对不上会在启动前报错**
+  （原先写在独立文件里，拼错只会「告警 + 静默不加载 MCP」）。
+  `${ENV}` 占位仍在 `mcp/config.py` 里替换，变量缺失时依旧降级为「无 MCP」并告警。
+  > 迁移：把原来 `mcp.servers.yaml` 里的 `servers:` 列表原样搬到 `config.yaml` 的
+  > `mcp.servers` 下（`defaults:` 搬到 `mcp.defaults`），删掉 `version: 1` 那行即可。
 - **助手记忆与项目约定拆成两个文件**：`remember` 的回写目标是新增的 `config/AGENTS.md`
   （含 `## 助手记录` 小节）；仓库根的 `AGENTS.md` 是给编码工具（Claude Code / OpenCode 等）
   的项目约定，**不再**注入助手提示词 —— 顺带省下每轮约 2 千字符的提示词开销。

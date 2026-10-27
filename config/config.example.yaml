@@ -168,11 +168,39 @@ storage:
 # ---------------------------------------------------------------- MCP
 mcp:
   enabled: true
-  config_file: mcp.servers.yaml
   # 启动时拉取工具；失败是否阻塞启动
   fail_fast: false
   tool_name_prefix: true    # 给 MCP 工具加 server 前缀，避免重名
   call_timeout: 60
+  # 被各 server 继承；server 里显式写过的值优先。
+  defaults:
+    enabled: true
+    timeout: 60
+    retries: 1
+    read_only: false
+  # server 清单就写在这里（不再单独一个 mcp.servers.yaml）。
+  # transport 决定必填字段：stdio → command；http / sse → url。
+  # 支持 ${ENV_VAR} 占位（密钥留在 .env）；变量没设置会**直接报错**。
+  # 第三方 server 默认按「有副作用」处理（每次调用都要人工确认），
+  # 确认只读后写 read_only: true 才免逐次确认。
+  # 代价：适配器的 MCP 工具是无状态的，每次调用都新建 session（stdio 就是重新拉起
+  # 子进程，npx/uvx 那类到秒级）；需要频繁调用优先用 http。
+  servers: []
+  # 例：
+  #   - name: filesystem
+  #     transport: stdio
+  #     command: npx
+  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"]
+  #     exclude_tools: [delete_path]
+  #     read_only: false
+  #     description: 本地文件读写
+  #   - name: github
+  #     transport: http
+  #     url: https://api.githubcopilot.com/mcp/
+  #     headers:
+  #       Authorization: "Bearer ${GITHUB_TOKEN}"
+  #     include_tools: [search_repositories, get_file_contents]
+  #     description: GitHub 只读查询
 
 # ---------------------------------------------------------------- 通道
 channels:

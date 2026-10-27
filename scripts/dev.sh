@@ -15,7 +15,6 @@ copy_if_missing() {
 
 copy_if_missing .env.example .env
 copy_if_missing config/config.example.yaml config/config.yaml
-copy_if_missing config/mcp.servers.example.yaml config/mcp.servers.yaml
 
 mkdir -p data/workspace
 

@@ -11,7 +11,8 @@
 ## 生产部署要点
 
 1. **密钥**：`DOUDOU_CHANNELS_FEISHU_APP_SECRET`、`DOUDOU_API_TOKEN`、模型 API Key 通过 Secret 注入，不要写进 ConfigMap。
-2. **配置**：`config/config.yaml` 与 `config/mcp.servers.yaml` 用 ConfigMap 挂载到 `/app/config`（只读）。
+2. **配置**：`config/config.yaml` 用 ConfigMap 挂载到 `/app/config`（只读）；
+   MCP server 清单也在它里面（`mcp.servers`），不需要额外的清单文件。
 3. **Skill**：`skills/` 用 ConfigMap 或镜像内置挂载到 `/app/skills`。
 4. **持久化**：工作区与数据库挂 PVC 到 `/data`；数据库改用 Postgres 时把 `DOUDOU_STORAGE_DATABASE_URL` 换成 `asyncpg`。
 5. **探针**：readiness/liveness 用 `/api/v1/health`（应实现为不触发模型调用的轻量检查）。

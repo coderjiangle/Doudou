@@ -160,7 +160,7 @@ def test_config_path_lists_derived_paths(config_dir: Path) -> None:
 
     assert result.exit_code == 0  # type: ignore[attr-defined]
     assert "root_dir" in result.stdout  # type: ignore[attr-defined]
-    assert "mcp_config" in result.stdout  # type: ignore[attr-defined]
+    assert "mcp_servers" in result.stdout  # type: ignore[attr-defined]
 
 
 def test_serve_starts_uvicorn(config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

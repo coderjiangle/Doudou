@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from doudou.config.loader import Settings
-from doudou.mcp.config import load_manifest
+from doudou.mcp.config import manifest_from_config
 from doudou.mcp.lifecycle import McpRuntime
 from doudou.tools.decorators import annotations_of
 from doudou.utils.text import stringify_tool_result
@@ -41,25 +41,27 @@ def stdio_entry(name: str = "demo", **overrides: object) -> dict:
 
 
 def write_manifest(tmp_path: Path, servers: list[dict]) -> Path:
-    path = tmp_path / "mcp.servers.yaml"
-    path.write_text(
-        yaml.safe_dump({"version": 1, "servers": servers}, allow_unicode=True),
-        encoding="utf-8",
-    )
+    """把 server 清单写进一份临时 ``config.yaml``，返回它的路径。
+
+    清单现在直接写在 ``config.yaml`` 的 ``mcp.servers`` 里（不再有独立的
+    ``mcp.servers.yaml``），所以这里返回的是一份完整的配置文件。
+    """
+    path = tmp_path / "config.yaml"
+    payload = {"mcp": {"enabled": True, "servers": servers}}
+    path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return path
 
 
 @pytest.fixture
 def settings_factory_local(settings_factory):  # type: ignore[no-untyped-def]
-    """构造一个把 ``mcp.config_file`` 指向临时清单的 Settings。"""
+    """构造一个 ``mcp`` 段来自临时 config.yaml 的 Settings。"""
 
     def make(path: Path, *, enabled: bool = True, fail_fast: bool = False) -> Settings:
-        config_yaml = (
-            "mcp:\n"
-            f"  enabled: {'true' if enabled else 'false'}\n"
-            f"  fail_fast: {'true' if fail_fast else 'false'}\n"
-            f'  config_file: "{path.as_posix()}"\n'
-        )
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        mcp = raw.get("mcp") or {}
+        mcp["enabled"] = enabled
+        mcp["fail_fast"] = fail_fast
+        config_yaml = yaml.safe_dump({"mcp": mcp}, allow_unicode=True, sort_keys=False)
         return settings_factory(config_yaml=config_yaml)
 
     return make
@@ -236,10 +238,21 @@ async def test_disabled_mcp_does_nothing(tmp_path: Path, settings_factory_local)
 
 
 async def test_invalid_manifest_degrades_to_no_mcp(tmp_path: Path, settings_factory_local) -> None:  # type: ignore[no-untyped-def]
-    """清单拼错不该让服务起不来，但必须**显式告警**而不是静默失效。"""
-    path = tmp_path / "mcp.servers.yaml"
+    """运行期才可能失败的情况（``${ENV}`` 缺变量）不该让服务起不来，但要显式告警。
+
+    形状错误（transport 对不上、字段拼错）现在属于**配置校验**，启动前就会报错，
+    所以这里只剩占位变量这一种。
+    """
+    path = tmp_path / "config.yaml"
     path.write_text(
-        "servers:\n  - name: s\n    transport: stdio\n    comand: typo\n", encoding="utf-8"
+        "mcp:\n"
+        "  servers:\n"
+        "    - name: gh\n"
+        "      transport: http\n"
+        "      url: https://api.test/mcp\n"
+        "      headers:\n"
+        '        Authorization: "Bearer ${DOUDOU_TEST_MISSING_TOKEN}"\n',
+        encoding="utf-8",
     )
     runtime = McpRuntime(settings_factory_local(path))
 
@@ -272,7 +285,8 @@ async def test_refresh_picks_up_manifest_changes(tmp_path: Path, settings_factor
 
     # 放开白名单后刷新
     write_manifest(tmp_path, [stdio_entry()])
-    runtime.manager.manifest = load_manifest(path, env={})
+    refreshed = settings_factory_local(path)
+    runtime.manager.manifest = manifest_from_config(refreshed.app.mcp)
     tools = await runtime.refresh(reason="test")
 
     assert len(tools) == 3

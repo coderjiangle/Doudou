@@ -1,13 +1,17 @@
-"""Parse mcp servers config: stdio, sse, streamable http, auth.
+"""Build the runtime MCP manifest from ``config.yaml``'s ``mcp`` section.
 
-清单是**声明式**的：代码里不出现任何硬编码的 server 地址，新增一个 MCP server
-只需要改 YAML。三件事在这里完成：
+server 清单**写在 ``config/config.yaml`` 的 ``mcp`` 段里**（不再有单独的
+``mcp.servers.yaml``），本模块负责把它变成 :class:`McpManifest`：
 
-1. **``${ENV}`` 占位替换** —— 清单可以进仓库，密钥留在 ``.env``；
-2. **严格校验** —— transport 与必填字段必须匹配（``extra="forbid"`` 挡住拼错）；
-3. **名称与工具面校验** —— 重名、空白名单写法等低级错误在启动时就报出来。
+1. **``${ENV}`` 占位替换** —— config.yaml 可以进仓库，密钥留在 ``.env``；
+   变量缺失时**直接报错**，而不是把占位符原样发出去换来一个 401；
+2. **工具面与名称校验** —— 重名、白名单/黑名单冲突等在启动时就报出来
+   （结构校验在 :mod:`doudou.config.schema` 已完成，这里只处理替换后的值）。
 
-不做的事：这里只负责「把 YAML 变成结构化声明」，不碰 MCP 协议。
+``McpServerSpec`` / ``McpDefaults`` 是配置结构的一部分，定义在
+``config/schema.py``；这里再导出一次，让 MCP 内部只 import 本模块。
+
+不做的事：这里只负责「把配置变成结构化声明」，不碰 MCP 协议。
 连接构造在 :mod:`doudou.mcp.loader`，拉取在 :mod:`doudou.mcp.client`。
 """
 
@@ -16,29 +20,29 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
-from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from doudou.config.loader import Settings
+from doudou.config.schema import (
+    McpConfig,
+    McpDefaults,
+    McpServerSpec,
+    McpTransportName,
+)
 from doudou.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: 允许的 transport。``http`` 在适配器里叫 ``streamable_http``，见 loader 的映射。
-TransportName = Literal["stdio", "http", "sse"]
-
-#: server 名会成为工具前缀，因此限制字符集。
-_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+#: 兼容旧名字：MCP 内部一直用 ``TransportName``。
+TransportName = McpTransportName
 
 #: ``${VAR}`` 占位。
 _PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 class McpConfigError(ValueError):
-    """清单不合法。消息会带上文件名与具体位置，避免「配置看起来没问题但连不上」。"""
+    """MCP 配置不合法。消息会带上具体位置，避免「配置看起来没问题但连不上」。"""
 
 
 # --------------------------------------------------------------------------- 环境变量替换
@@ -76,114 +80,11 @@ def _lookup(name: str, source: str, env: Mapping[str, str] | None) -> str:
     return raw
 
 
-# --------------------------------------------------------------------------- 模型
-
-
-class McpServerSpec(BaseModel):
-    """一个 MCP server 的声明。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    enabled: bool = True
-    transport: TransportName = "stdio"
-    description: str = ""
-
-    # ---- stdio ----
-    command: str | None = None
-    args: list[str] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
-    cwd: str | None = None
-
-    # ---- http / sse ----
-    url: str | None = None
-    headers: dict[str, str] = Field(default_factory=dict)
-
-    # ---- 工具面收敛 ----
-    #: 白名单：非空时只暴露这些工具。
-    include_tools: list[str] = Field(default_factory=list)
-    #: 黑名单：显式屏蔽危险工具（删除、DDL、支付…）。
-    exclude_tools: list[str] = Field(default_factory=list)
-    #: 声明该 server 的工具都是只读的。
-    #:
-    #: 默认 ``False`` = 不确定 → 按「有副作用」处理、每次调用都要人工确认。
-    #: 这是安全的默认：第三方 server 里既可能有查询也可能有删除，
-    #: 猜错的方向必须是「多问一次」而不是「默默删了」。
-    read_only: bool = False
-
-    #: 拉取工具与调用工具的超时（秒）。
-    timeout: float = 60.0
-    #: 拉取失败时的重试次数（``defaults`` 可统一设置）。
-    retries: int = 0
-
-    @model_validator(mode="after")
-    def _check(self) -> McpServerSpec:
-        if not _NAME_PATTERN.match(self.name):
-            raise McpConfigError(
-                f"server 名 {self.name!r} 不合法：只允许字母、数字、下划线、连字符，"
-                "且必须以字母或数字开头（它会成为工具名的前缀）。"
-            )
-        if self.transport == "stdio":
-            if not self.command:
-                raise McpConfigError(f"server {self.name!r} 使用 stdio 时必须提供 command。")
-            if self.url:
-                raise McpConfigError(f"server {self.name!r} 是 stdio，不应该有 url。")
-        else:
-            if not self.url:
-                raise McpConfigError(f"server {self.name!r} 使用 {self.transport} 时必须提供 url。")
-            if self.command:
-                raise McpConfigError(
-                    f"server {self.name!r} 是 {self.transport}，不应该有 command。"
-                )
-        overlap = set(self.include_tools) & set(self.exclude_tools)
-        if overlap:
-            raise McpConfigError(
-                f"server {self.name!r} 的 include_tools 与 exclude_tools 同时包含 "
-                f"{sorted(overlap)}；白名单优先，这样写只会造成困惑。"
-            )
-        return self
-
-    @property
-    def mcp_transport_name(self) -> str:
-        """映射到 langchain-mcp-adapters 的 transport 字面量。"""
-        return "streamable_http" if self.transport == "http" else self.transport
-
-    @property
-    def source_label(self) -> str:
-        """工具来源标记：``mcp:<server>``。"""
-        return f"mcp:{self.name}"
-
-    def tool_allowed(self, tool_name: str) -> bool:
-        """工具是否应当暴露。
-
-        白名单优先于黑名单；两者都为空表示全部暴露。
-        """
-        if self.include_tools:
-            return tool_name in self.include_tools
-        return tool_name not in self.exclude_tools
-
-
-class McpDefaults(BaseModel):
-    """``defaults`` 段：被各 server 继承，**显式指定者优先**。
-
-    只放「经常需要统一调整」的几个字段，而不是把所有字段都做成可继承 ——
-    可继承字段越多，读配置时越难判断某个值到底来自哪里。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = True
-    timeout: float = 60.0
-    retries: int = 0
-    read_only: bool = False
-
-
 class McpManifest(BaseModel):
-    """整份清单。"""
+    """运行期清单：配置里已经校验过的 server 列表 + 继承后的默认值。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 1
     defaults: McpDefaults = Field(default_factory=McpDefaults)
     servers: list[McpServerSpec] = Field(default_factory=list)
 
@@ -253,48 +154,40 @@ def _readable(exc: ValidationError) -> str:
     return "；".join(parts) or str(exc)
 
 
-def load_manifest(path: Path, *, env: Mapping[str, str] | None = None) -> McpManifest:
-    """读取并校验 MCP 清单。
+def manifest_from_config(config: McpConfig, *, env: Mapping[str, str] | None = None) -> McpManifest:
+    """把 ``config.yaml`` 的 ``mcp`` 段变成运行期清单。
+
+    只做两件事：替换 ``${ENV}`` 占位、把已经校验过的 spec 重新组装成清单
+    （重新组装是为了让替换后的值再走一遍校验，并统一抛出 ``McpConfigError``）。
 
     Args:
-        path: YAML 路径。**不存在时返回空清单**（MCP 是可选项，
-        没配清单不应该阻止服务启动）。
-        env: 覆盖环境变量来源（测试用）。
+        config: ``settings.app.mcp``。
+        env: 变量来源；默认读进程环境（测试可注入自己的映射）。
 
     Raises:
-        McpConfigError: 文件存在但内容不合法。
+        McpConfigError: 占位变量缺失，或替换后的值不合法。
+
+    Notes:
+        没有配任何 server 时返回空清单 —— MCP 是可选项，没配不该影响启动。
     """
-    if not path.is_file():
-        logger.debug("mcp.manifest_missing", path=str(path))
-        return McpManifest()
+    defaults = config.defaults
+    if not config.servers:
+        return McpManifest(defaults=defaults)
 
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        raise McpConfigError(f"读取 MCP 清单失败：{path}（{exc}）") from exc
-    if not isinstance(raw, dict):
-        raise McpConfigError(f"MCP 清单根节点必须是映射（mapping）：{path}")
-
-    substituted = substitute_env(raw, source=str(path), env=env)
-    try:
-        manifest = McpManifest.model_validate(substituted)
-    except McpConfigError:
-        raise
-    except Exception as exc:
-        raise McpConfigError(f"MCP 清单不合法（{path}）：{exc}") from exc
+    payload: dict[str, Any] = {
+        "defaults": defaults.model_dump(),
+        "servers": [server.model_dump() for server in config.servers],
+    }
+    substituted = substitute_env(payload, source="config.yaml 的 mcp.servers", env=env)
+    manifest = build_manifest(substituted)
 
     logger.info(
         "mcp.manifest_loaded",
-        path=str(path),
+        source="config.yaml: mcp.servers",
         servers=[server.name for server in manifest.enabled_servers],
         disabled=[server.name for server in manifest.servers if not server.enabled],
     )
     return manifest
-
-
-def default_manifest_path(settings: Settings) -> Path:
-    """从配置里取清单路径（``mcp.config_file`` 相对 ``config/`` 解析）。"""
-    return settings.mcp_config_path
 
 
 __all__ = [
@@ -305,7 +198,6 @@ __all__ = [
     "TransportName",
     "build_manifest",
     "build_spec",
-    "default_manifest_path",
-    "load_manifest",
+    "manifest_from_config",
     "substitute_env",
 ]

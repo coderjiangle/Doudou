@@ -14,7 +14,6 @@ function Copy-IfMissing($src, $dst) {
 
 Copy-IfMissing '.env.example' '.env'
 Copy-IfMissing 'config/config.example.yaml' 'config/config.yaml'
-Copy-IfMissing 'config/mcp.servers.example.yaml' 'config/mcp.servers.yaml'
 
 New-Item -ItemType Directory -Force -Path 'data/workspace' | Out-Null
 

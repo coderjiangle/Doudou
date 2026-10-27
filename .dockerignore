@@ -20,6 +20,5 @@ tmp
 .env.*
 !.env.example
 config/config.local.yaml
-config/mcp.servers.yaml
 docs
 tests

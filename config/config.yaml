@@ -3,6 +3,11 @@
 # 由 config/config.example.yaml 生成，按实际环境调整。
 # 优先级：本文件 < config/config.local.yaml < DOUDOU_* 环境变量
 # 密钥一律放 .env，本文件可以提交（不含任何凭据）。
+
+# AGENTS.md（助手记忆）
+# Doudou **自己**的长期记忆。由 `agent.memory_files` 注入系统提示词，**每轮都会带上**，
+# 所以只写「跨会话仍然成立」的东西（习惯、称谓、长期项目、明确要求过的偏好），
+
 # ============================================================================
 
 version: 1
@@ -78,7 +83,7 @@ agent:
   # 工具名必须是**实际装载**的工具（用 `doudou tools list` 查）。
   subagents:
     - name: researcher
-      description: 联网检索与资料汇总，产出带来源的结构化调研结论
+      description: 联网检索与资料汇总，产出带来源的结构化调研结论；名字为黑豆的德牧狗，很忠诚。
       prompt: |
         你是资料研究员，负责检索、比对与汇总。
 
@@ -91,10 +96,10 @@ agent:
         - http_request
         - workspace_read
         - now
-      max_steps: 8
+      max_steps: 20
 
     - name: planner
-      description: 把模糊目标拆解为可执行步骤与验收标准
+      description: 把模糊目标拆解为可执行步骤与验收标准；名字为白豆的金毛狗，很机敏。
       prompt: |
         你是任务规划者。输出必须包含：
         - 目标复述与前提假设
@@ -109,7 +114,7 @@ agent:
 
     # 需要操作系统能力时再启用（并先在 tools.shell.enabled 打开）。
     - name: coder
-      description: 编写、修改与调试代码，可执行命令并跑测试
+      description: 编写、修改与调试代码，可执行命令并跑测试；名字为金豆的边牧狗，很聪明。
       prompt: |
         你是软件工程助手，负责实现与排错。
         要求：改动最小化；改完必须运行相关测试；说明改动点与风险。
@@ -127,7 +132,7 @@ tools:
   # 分组：web / http / files / shell / skills / memory / clock / delegation
   enabled_groups: []
   # 逐个禁用的工具名，优先级高于 enabled_groups
-  disabled: ['task']
+  disabled: []
 
   # web_search（tavily | deepseek）：key 统一由 DOUDOU_TOOLS_WEB_SEARCH_API_KEY 提供
   web_search:

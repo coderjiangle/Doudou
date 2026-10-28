@@ -92,7 +92,7 @@ run_start
 | `prompts` | 系统提示词加载与模板变量渲染。 |
 | `memory` | 助手记忆文件（`config/AGENTS.md`）的加载与回写。 |
 | `context` | 上下文工程（预算裁剪 / 摘要压缩 / 大结果卸载）。 |
-| `subagents` | 从 `agents.yaml` 生成子 Agent 定义。 |
+| `subagents` | 从 `config.yaml` 的 `agent.subagents` 生成子 Agent 注册表与工具筛选。 |
 | `permissions` | 文件系统读写权限规则（首匹配生效 + containment 兜底）。 |
 | `approvals` | 人工确认中介（待决登记 / 超时按拒绝 / 决策复用）。 |
 

@@ -129,7 +129,7 @@ provider 只决定调哪家服务，换 provider 不必换字段名。
 ### 子 Agent（`task` 工具）
 
 子 Agent 的价值是**上下文隔离**：主 Agent 把检索/比对/试错丢出去，只取回一段结论。
-定义写在 `config/agents.yaml` 的 `subagents` 段（见该文件的注释）。
+定义写在 `config/config.yaml` 的 `agent.subagents` 段（见该文件的注释）。
 
 三条刻意的约束：
 
@@ -145,7 +145,7 @@ provider 只决定调哪家服务，换 provider 不必换字段名。
 `model` 可指定独立的 `provider:model`；省略或 `null` 时继承主模型。
 独立模型在装配时构造并复用，缺少依赖或模型配置不合法时，该子 Agent 会被跳过并告警。
 
-`skills` 是子 Agent 专属技能根目录列表，相对路径按 **agents.yaml 所在目录**解析。
+`skills` 是子 Agent 专属技能根目录列表，相对路径按 **config/ 目录**解析。
 空列表不加载技能，也不继承主 Agent 的技能索引或技能读取工具。只把索引注入子 Agent
 提示词，正文由 `read_skill` 按需加载，附属文件仍走受限的 `skill_read_file`。
 显式工具白名单中需允许 `read_skill`（需要附件时再加 `list_skill_files` / `skill_read_file`）；

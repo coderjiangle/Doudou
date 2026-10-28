@@ -92,13 +92,6 @@ class Settings(BaseModel):
         return resolve_path(self.config_dir, configured)
 
     @property
-    def subagents_path(self) -> Path | None:
-        configured = self.app.agent.subagents_file
-        if not configured:
-            return None
-        return resolve_path(self.config_dir, configured)
-
-    @property
     def skills_dirs(self) -> tuple[Path, ...]:
         """Skill 根目录，按配置顺序解析。"""
         return tuple(resolve_path(self.config_dir, item) for item in self.app.agent.skills)

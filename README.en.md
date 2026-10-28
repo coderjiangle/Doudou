@@ -96,8 +96,8 @@ Design principles:
 ```
 Doudou/
 ├─ config/                    # Declarative config (committed; secrets go in .env)
-│  ├─ config.example.yaml     # Main config template (incl. the MCP server list)
-│  └─ agents.yaml             # Main agent prompt + subagent definitions
+│  ├─ config.example.yaml     # Main config template (incl. subagents & MCP servers)
+│  └─ prompts/system.md       # Main agent system prompt template
 ├─ docs/                      # Design documents
 ├─ skills/                    # Agent Skills (one SKILL.md per subdirectory)
 ├─ deploy/                    # Deployment assets (Docker / K8s)

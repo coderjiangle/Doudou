@@ -5,10 +5,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
-
-import yaml
 
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
@@ -64,38 +61,19 @@ def default_variables(settings: Settings) -> dict[str, Any]:
     }
 
 
-def load_extra_instructions(path: Path | None) -> str | None:
-    """读取 ``agents.yaml`` 中 ``main.extra_instructions``。
-
-    子 Agent 有自己的配置段，这里只消费主 Agent 的补充指令。
-    """
-    if path is None or not path.is_file():
-        return None
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        logger.warning("prompt.agents_file_unreadable", path=str(path), error=str(exc))
-        return None
-    main = data.get("main") or {}
-    extra = main.get("extra_instructions")
-    return extra if isinstance(extra, str) and extra.strip() else None
-
-
 def load_system_prompt(
     settings: Settings,
     *,
     variables: dict[str, Any] | None = None,
-    extra_instructions: str | None = None,
     skills: Sequence[SkillInfo] = (),
     skill_index_limit: int | None = None,
     memory: str = "",
 ) -> str:
-    """组装系统提示词：模板 + 补充指令 + 长期记忆 + 技能索引。
+    """组装系统提示词：模板 + 长期记忆 + 技能索引。
 
     Args:
         settings: 已解析的配置。
         variables: 覆盖默认模板变量。
-        extra_instructions: 追加在结尾的补充约束；默认从 ``agents.yaml`` 读取。
         skills: 已发现的 Skill，**只注入索引**（name + description）。
         skill_index_limit: 索引里最多列几个；缺省取 ``agent.skill_index_limit``。
         memory: 长期记忆正文。它**每轮都会带**，因此调用方需要控制长度。
@@ -114,11 +92,6 @@ def load_system_prompt(
 
     if memory.strip():
         prompt = f"{prompt}\n\n{memory.strip()}"
-
-    if extra_instructions is None:
-        extra_instructions = load_extra_instructions(settings.subagents_path)
-    if extra_instructions:
-        prompt = f"{prompt}\n\n## 补充要求\n{extra_instructions.strip()}"
 
     limit = skill_index_limit or settings.app.agent.skill_index_limit
     index = render_skill_index(skills, limit=limit)
@@ -161,7 +134,6 @@ def render_skill_index(skills: Sequence[SkillInfo], *, limit: int = 40) -> str:
 __all__ = [
     "DEFAULT_SYSTEM_PROMPT",
     "default_variables",
-    "load_extra_instructions",
     "load_system_prompt",
     "render_skill_index",
     "render_template",

@@ -87,8 +87,8 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
 ```
 Doudou/
 ├─ config/                    # 声明式配置（可提交，密钥放 .env）
-│  ├─ config.example.yaml     # 主配置模板（含 MCP server 清单）
-│  └─ agents.yaml             # 主 Agent 提示词 + 子 Agent 定义
+│  ├─ config.example.yaml     # 主配置模板（含子 Agent 与 MCP server 清单）
+│  └─ prompts/system.md       # 主 Agent 系统提示词模板
 ├─ docs/                      # 设计文档
 ├─ skills/                    # Agent Skills（每个子目录一个 SKILL.md）
 ├─ deploy/                    # 部署相关（Docker / K8s）

@@ -58,7 +58,7 @@ def build_tools(
 
     Args:
         settings: 配置。
-        registry: 子 Agent 定义；缺省从 ``agents.yaml`` 读。
+        registry: 子 Agent 定义；缺省从 ``settings.app.agent.subagents`` 读。
         available_tools: 主 Agent 手里的工具，子 Agent 从中按白名单挑。
         model: 主模型（子 Agent 未指定自己的模型时继承它）。
         approval_hook: 主 Agent 的确认回调。**必须往下传** ——
@@ -175,15 +175,29 @@ def build_tools(
             body = f"{body[:MAX_REPORT_CHARS]}\n\n（结论过长已截断）"
         return f"{header}\n\n{body}"
 
+    # 把实际可用的子 Agent 清单补进工具描述，让主模型知道 subagent_type 有哪些可选项。
+    # 只能事后追加：docstring 里做字符串插值会让它不再是合法的 __doc__。
+    task.description = f"{task.description}\n\n{_render_subagent_options(agents)}"
+
     annotate(task, group=GROUP, side_effects=False)
     return [task]
+
+
+def _render_subagent_options(agents: SubAgentRegistry) -> str:
+    """生成 ``task`` 工具描述里的可用子 Agent 列表。"""
+    default_name = agents.specs[0].name
+    lines = [f"可用的 subagent_type（留空默认使用 `{default_name}`）："]
+    for spec in agents.specs:
+        description = " ".join(spec.description.split())
+        lines.append(f"- `{spec.name}`：{description}")
+    return "\n".join(lines)
 
 
 def _child_context(
     settings: Settings, spec: SubAgentSpec, available: Sequence[BaseTool]
 ) -> tuple[list[BaseTool], str]:
-    """按 agents.yaml 的位置解析技能目录，并继续遵守工具白名单与全局禁用项。"""
-    base = settings.subagents_path.parent if settings.subagents_path else settings.config_dir
+    """按 config_dir 解析技能目录，并继续遵守工具白名单与全局禁用项。"""
+    base = settings.config_dir
     roots = [
         path if path.is_absolute() else base / path
         for directory in spec.skills
@@ -215,9 +229,9 @@ def _child_context(
 
 
 def _load(settings: Settings) -> SubAgentRegistry:
-    from doudou.agent.subagents import load_subagents
+    from doudou.agent.subagents import subagents_from_config
 
-    return load_subagents(settings.subagents_path)
+    return subagents_from_config(settings.app.agent)
 
 
 def _pick(registry: SubAgentRegistry, requested: str) -> SubAgentSpec | None:

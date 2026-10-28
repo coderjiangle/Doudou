@@ -23,8 +23,8 @@ from doudou.agent.permissions import (
 from doudou.agent.subagents import (
     SubAgentRegistry,
     SubAgentSpec,
-    load_subagents,
     select_tools,
+    subagents_from_config,
 )
 from doudou.agent.testing import ScriptedChatModel, tool_call
 from doudou.config.loader import Settings
@@ -469,29 +469,19 @@ async def test_shell_does_not_inherit_secrets(shell_settings, monkeypatch) -> No
 # --------------------------------------------------------------------------- 子 Agent
 
 
-def write_agents_yaml(tmp_path: Path, payload: dict) -> Path:
-    path = tmp_path / "agents.yaml"
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    return path
-
-
-def test_load_subagents(tmp_path: Path) -> None:
-    path = write_agents_yaml(
-        tmp_path,
+def test_load_subagents_from_config(settings_factory) -> None:  # type: ignore[no-untyped-def]
+    subagents = [
         {
-            "subagents": [
-                {
-                    "name": "researcher",
-                    "description": "查资料",
-                    "prompt": "你是研究员",
-                    "tools": ["web_search"],
-                },
-                {"name": "planner", "description": "做规划", "prompt": "你是规划者"},
-            ]
+            "name": "researcher",
+            "description": "查资料",
+            "prompt": "你是研究员",
+            "tools": ["web_search"],
         },
-    )
+        {"name": "planner", "description": "做规划", "prompt": "你是规划者"},
+    ]
+    settings = settings_factory(config_yaml=f"agent:\n  subagents: {json.dumps(subagents)}\n")
 
-    registry = load_subagents(path)
+    registry = subagents_from_config(settings.app.agent)
 
     assert registry.names == ["researcher", "planner"]
     spec = registry.get("researcher")
@@ -501,37 +491,30 @@ def test_load_subagents(tmp_path: Path) -> None:
     assert spec.max_steps == 6
 
 
-def test_load_subagents_missing_file(tmp_path: Path) -> None:
-    assert len(load_subagents(tmp_path / "nope.yaml")) == 0
-    assert len(load_subagents(None)) == 0
+def test_subagents_default_empty(settings: Settings) -> None:
+    assert len(subagents_from_config(settings.app.agent)) == 0
 
 
-def test_load_subagents_skips_invalid_entries(tmp_path: Path) -> None:
-    """一条写坏不该让整个注册表为空，也不该静默通过。"""
-    path = write_agents_yaml(
-        tmp_path,
-        {
-            "subagents": [
-                {"name": "good", "description": "d", "prompt": "p"},
-                {"name": "BadName", "description": "d", "prompt": "p"},
-                {"name": "missing_prompt", "description": "d"},
-                {"name": "good", "description": "重复", "prompt": "p"},
-            ]
-        },
-    )
+@pytest.mark.parametrize(
+    "bad_subagents",
+    [
+        [{"name": "BadName", "description": "d", "prompt": "p"}],
+        [{"name": "missing_prompt", "description": "d"}],
+        [
+            {"name": "dup", "description": "d", "prompt": "p"},
+            {"name": "dup", "description": "重复", "prompt": "p"},
+        ],
+        [{"name": "a", "description": "d", "prompt": "p", "tols": ["x"]}],
+    ],
+)
+def test_subagents_reject_invalid_entries_at_startup(
+    settings_factory, bad_subagents: list[dict]
+) -> None:  # type: ignore[no-untyped-def]
+    """并入 config.yaml 后，写坏的子 Agent 定义应在配置加载时直接报错。"""
+    from pydantic import ValidationError
 
-    registry = load_subagents(path)
-
-    assert registry.names == ["good"]
-
-
-def test_load_subagents_rejects_unknown_field(tmp_path: Path) -> None:
-    path = write_agents_yaml(
-        tmp_path,
-        {"subagents": [{"name": "a", "description": "d", "prompt": "p", "tols": ["x"]}]},
-    )
-
-    assert len(load_subagents(path)) == 0
+    with pytest.raises(ValidationError):
+        settings_factory(config_yaml=f"agent:\n  subagents: {json.dumps(bad_subagents)}\n")
 
 
 def test_select_tools_always_excludes_task() -> None:
@@ -595,17 +578,11 @@ def test_registry_describe() -> None:
 @pytest.fixture
 def delegation_settings(settings_factory, tmp_path: Path):  # type: ignore[no-untyped-def]
     def make(*, subagents: list[dict] | None = None) -> Settings:
-        path = write_agents_yaml(
-            tmp_path,
-            {
-                "subagents": subagents
-                or [{"name": "helper", "description": "帮忙", "prompt": "你是帮手"}]
-            },
-        )
+        items = subagents or [{"name": "helper", "description": "帮忙", "prompt": "你是帮手"}]
         return settings_factory(
             config_yaml=(
                 "agent:\n"
-                f'  subagents_file: "{path.as_posix()}"\n'
+                f"  subagents: {json.dumps(items, ensure_ascii=False)}\n"
                 "filesystem:\n"
                 f'  root_dir: "{(tmp_path / "ws").as_posix()}"\n'
             )
@@ -636,12 +613,21 @@ def test_task_registered_with_everything(delegation_settings) -> None:  # type: 
         return q
 
     tools = delegation.build_tools(
-        delegation_settings(),
+        delegation_settings(
+            subagents=[
+                {"name": "researcher", "description": "查资料", "prompt": "你是研究员"},
+                {"name": "planner", "description": "做规划", "prompt": "你是规划者"},
+            ]
+        ),
         available_tools=[search],
         model=ScriptedChatModel(steps=[]),
     )
 
     assert [item.name for item in tools] == ["task"]
+    description = tools[0].description or ""
+    assert "留空默认使用 `researcher`" in description
+    assert "- `researcher`：查资料" in description
+    assert "- `planner`：做规划" in description
 
 
 async def test_task_returns_only_conclusion(delegation_settings) -> None:  # type: ignore[no-untyped-def]

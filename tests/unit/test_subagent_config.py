@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 
 from doudou.agent.subagents import SubAgentRegistry, SubAgentSpec, select_tools
@@ -20,15 +19,13 @@ from doudou.tools.builtin import clock, delegation, skills
 
 @pytest.fixture
 def child_settings(
-    settings_factory: Callable[..., Settings], tmp_path: Path
+    settings_factory: Callable[..., Settings],
 ) -> Callable[..., Settings]:
     def make(spec: dict[str, Any], *, tools_config: str = "") -> Settings:
-        directory = tmp_path / "agents"
-        directory.mkdir(exist_ok=True)
-        path = directory / "agents.yaml"
-        path.write_text(yaml.safe_dump({"subagents": [spec]}), encoding="utf-8")
         return settings_factory(
-            config_yaml=f"agent:\n  subagents_file: {json.dumps(path.as_posix())}\n{tools_config}",
+            config_yaml=(
+                f"agent:\n  subagents: {json.dumps([spec], ensure_ascii=False)}\n{tools_config}"
+            ),
             use_env=False,
         )
 

@@ -179,13 +179,41 @@ class PermissionRule(_Section):
     mode: PermissionMode = "allow"
 
 
+#: 子 Agent 名字会成为 ``task`` 工具的参数取值，限制字符集。
+_SUBAGENT_NAME_PATTERN = r"^[a-z0-9][a-z0-9_-]*$"
+
+
+class SubAgentSpec(_Section):
+    """一个子 Agent 的声明（``agent.subagents[]``）。"""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    name: str = Field(pattern=_SUBAGENT_NAME_PATTERN)
+    description: str
+    #: 子 Agent 自己的系统提示词。**必须自洽** —— 它看不到主 Agent 的提示词。
+    system_prompt: str = Field(default="", alias="prompt")
+    #: 省略时继承主 Agent 工具（除 task）；显式 [] 表示不使用任何工具。
+    tools: list[str] | None = None
+    #: 子 Agent 专属技能目录（相对 ``config/`` 解析）。空表示不加载技能。
+    skills: list[str] = Field(default_factory=list)
+    #: 覆盖模型（``provider:model``）。省略或 null 表示继承主模型。
+    model: str | None = None
+    #: 子 Agent 的步数上限。它常做多步检索，所以比主 Agent 宽松些也无妨。
+    max_steps: int = Field(default=6, ge=1)
+
+    @property
+    def label(self) -> str:
+        return f"subagent:{self.name}"
+
+
 class AgentConfig(_Section):
     name: str = "Doudou"
     system_prompt_file: str | None = "prompts/system.md"
     memory_files: list[str] = Field(default_factory=list)
     #: Skill 根目录；默认指向仓库根的 ``skills/``（相对 ``config/`` 解析）。
     skills: list[str] = Field(default_factory=lambda: ["../skills/"])
-    subagents_file: str | None = "agents.yaml"
+    #: 子 Agent 清单（不再单独一个 ``agents.yaml``）。
+    subagents: list[SubAgentSpec] = Field(default_factory=list)
     #: 需要人工确认的工具：``{工具名: true}``。
     #: 只写需要**额外**确认的；声明了副作用的工具会被自动加进来（见下一项）。
     interrupt_on: dict[str, bool] = Field(default_factory=dict)
@@ -206,6 +234,17 @@ class AgentConfig(_Section):
     #: 单次模型返回中允许并发执行的工具调用数上限
     max_tool_calls_per_step: int = 8
     permissions: list[PermissionRule] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_subagents(self) -> AgentConfig:
+        seen: set[str] = set()
+        for spec in self.subagents:
+            if spec.name in seen:
+                raise ValueError(f"subagent 名重复：{spec.name!r}")
+            if not spec.system_prompt.strip():
+                raise ValueError(f"subagent {spec.name!r} 缺少 prompt（system_prompt 不能为空）")
+            seen.add(spec.name)
+        return self
 
 
 # --------------------------------------------------------------------------- filesystem
@@ -563,6 +602,7 @@ __all__ = [
     "ServerConfig",
     "ShellToolConfig",
     "StorageConfig",
+    "SubAgentSpec",
     "ToolsConfig",
     "TracingConfig",
     "WebSearchToolConfig",

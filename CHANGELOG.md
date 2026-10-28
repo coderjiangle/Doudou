@@ -50,6 +50,17 @@
 
 ### 修复
 
+- **Langfuse SDK 降到 2.x**（`langfuse>=2.60,<3`，原先 `>=3,<4`）：v3 SDK 走 OTEL 上报
+  （`POST /api/public/otel/v1/traces`），只有 **v3 服务端**收；自建实例常见的是 2.95.x，
+  那个端点不存在（404），表现为「key 配了、什么都没上传、也没有任何报错」——因为 SDK
+  内部吞掉了上报错误。2.x SDK 走旧版 ingestion 接口，v2 / v3 服务端都能对接。
+  `LangfuseTracer.emit` 随之从 v3 的 OTEL 风格（成对 `with`）改成 v2 的命令式
+  （`trace()` → `span()` / `generation()` → `end()`）：
+  - `release` / `environment` 改由 SDK 在构造客户端时注入（v2 的 `trace()` 不接受这两个参数）
+  - trace 的 `output` 现在真的写上了最终答复（原先只在文档里写了）
+  - 用量只能挂在 generation 上（v2 的 trace 没有 usage）→ 挂到**最后一个** generation，
+    trace 级合计仍正确
+  - 顺手修掉一个幽灵节点：`run_start` 的 `step=0` 以前会造出一个空的「step 0」span
 - **日志时间戳改用 `runtime.timezone`**（原先写死 UTC）：UTC+8 的机器上日志看起来
   「比现实晚 8 小时」，排查时每次都要心算。现在输出带偏移量的 ISO
   （`2026-10-27T16:01:00.357372+08:00`），与 `now` 工具、墙钟一致；时区名写错只告警并

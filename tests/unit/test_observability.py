@@ -689,47 +689,48 @@ async def test_tracing_needs_credentials(settings_factory) -> None:  # type: ign
 
 
 class FakeSpan:
-    """假的 Langfuse span：记录调用，不做任何 IO。"""
+    """假的 Langfuse v2 observation：记录调用，不做任何 IO。"""
 
-    def __init__(self, kind: str, name: str, recorder: list[dict[str, Any]], **kw: Any) -> None:
-        self.record = {"kind": kind, "name": name, **kw}
-        self.recorder = recorder
-        self.recorder.append(self.record)
+    def __init__(self, kind: str, name: str, **kw: Any) -> None:
+        self.record: dict[str, Any] = {"kind": kind, "name": name, **kw}
+        self.children: list[FakeSpan] = []
+        self.ended = False
 
-    def __enter__(self) -> FakeSpan:
+    def _child(self, kind: str, **kw: Any) -> FakeSpan:
+        child = FakeSpan(kind, kw.pop("name", ""), **kw)
+        self.children.append(child)
+        return child
+
+    def span(self, **kw: Any) -> FakeSpan:
+        return self._child("span", **kw)
+
+    def generation(self, **kw: Any) -> FakeSpan:
+        return self._child("generation", **kw)
+
+    def event(self, **kw: Any) -> FakeSpan:
+        return self._child("event", **kw)
+
+    def update(self, **kw: Any) -> FakeSpan:
+        self.record.setdefault("updates", []).append(kw)
         return self
 
-    def __exit__(self, *exc: Any) -> bool:
-        return False
-
-    def update(self, **kw: Any) -> None:
-        self.record.setdefault("updates", []).append(kw)
-
-    def update_trace(self, **kw: Any) -> None:
-        self.record.setdefault("traces", []).append(kw)
-
-    def start_as_current_span(self, **kw: Any) -> FakeSpan:
-        return FakeSpan("span", kw.pop("name"), self.recorder, **kw)
-
-    def start_as_current_generation(self, **kw: Any) -> FakeSpan:
-        return FakeSpan("generation", kw.pop("name"), self.recorder, **kw)
+    def end(self, **kw: Any) -> FakeSpan:
+        self.ended = True
+        return self
 
 
 class FakeLangfuse:
+    """假的 Langfuse v2 客户端：``trace()`` 起步，之后逐层 span/generation/event。"""
+
     def __init__(self) -> None:
-        self.spans: list[dict[str, Any]] = []
-        self.events: list[dict[str, Any]] = []
+        self.traces: list[FakeSpan] = []
         self.flushed = False
         self.shut = False
 
-    def start_as_current_span(self, **kw: Any) -> FakeSpan:
-        return FakeSpan("span", kw.pop("name"), self.spans, **kw)
-
-    def start_as_current_generation(self, **kw: Any) -> FakeSpan:
-        return FakeSpan("generation", kw.pop("name"), self.spans, **kw)
-
-    def create_event(self, **kw: Any) -> None:
-        self.events.append(kw)
+    def trace(self, **kw: Any) -> FakeSpan:
+        trace = FakeSpan("trace", kw.pop("name", ""), **kw)
+        self.traces.append(trace)
+        return trace
 
     def flush(self) -> None:
         self.flushed = True
@@ -739,6 +740,19 @@ class FakeLangfuse:
 
     def auth_check(self) -> bool:
         return True
+
+    def walk(self) -> list[FakeSpan]:
+        """摊平所有节点，方便断言。"""
+        found: list[FakeSpan] = []
+
+        def visit(node: FakeSpan) -> None:
+            found.append(node)
+            for child in node.children:
+                visit(child)
+
+        for trace in self.traces:
+            visit(trace)
+        return found
 
 
 def sample_events() -> list[RunEvent]:
@@ -762,14 +776,26 @@ def sample_events() -> list[RunEvent]:
     ]
 
 
-def test_tracer_emits_nested_spans() -> None:
+def test_tracer_emits_trace_with_steps_and_tools() -> None:
     client = FakeLangfuse()
     LangfuseTracer(client).emit(ctx(), RunSummary(ok=True, steps=2, tool_calls=2), sample_events())
 
-    root = client.spans[0]
-    assert root["name"] == "t1" or root["name"].startswith("run:")  # type: ignore[union-attr]
-    tool_spans = [item for item in client.spans if str(item["name"]).startswith("tool:")]
-    assert {item["name"] for item in tool_spans} == {"tool:web_search", "tool:workspace_write"}
+    trace = client.traces[0]
+    assert trace.record["name"] == "run:cli"
+    # 一次运行一条 trace，session 用 thread_id 串起来，输出是最终答复
+    assert trace.record["session_id"] == "t1"
+    assert trace.record["output"] == "好了"
+    assert {child.record["name"] for child in trace.children} == {"step 1", "step 2"}
+    tool_spans = [node for node in client.walk() if str(node.record["name"]).startswith("tool:")]
+    assert {node.record["name"] for node in tool_spans} == {
+        "tool:web_search",
+        "tool:workspace_write",
+    }
+    # span / generation 都必须 end()，否则界面里会一直显示「running」
+    # （trace 和 event 在 v2 里没有 end 的概念）
+    assert all(
+        node.ended for node in client.walk() if node.record["kind"] in {"span", "generation"}
+    )
 
 
 def test_tracer_marks_rejected_tool_as_warning() -> None:
@@ -777,13 +803,14 @@ def test_tracer_marks_rejected_tool_as_warning() -> None:
     client = FakeLangfuse()
     LangfuseTracer(client).emit(ctx(), RunSummary(ok=True), sample_events())
 
-    rejected = next(item for item in client.spans if item["name"] == "tool:workspace_write")
+    rejected = next(node for node in client.walk() if node.record["name"] == "tool:workspace_write")
 
-    assert rejected["level"] == "WARNING"
-    assert rejected["metadata"]["approved"] is False
+    assert rejected.record["level"] == "WARNING"
+    assert rejected.record["metadata"]["approved"] is False
 
 
-def test_tracer_attaches_usage_to_root() -> None:
+def test_tracer_attaches_usage_to_last_generation() -> None:
+    """v2 的用量只能挂在 generation 上；挂最后一个，trace 级合计才正确。"""
     client = FakeLangfuse()
     LangfuseTracer(client).emit(
         ctx(),
@@ -791,17 +818,20 @@ def test_tracer_attaches_usage_to_root() -> None:
         sample_events(),
     )
 
-    updates = client.spans[0]["updates"]
-
-    assert updates[0]["usage_details"] == {"input": 100, "output": 20}
+    generations = [node for node in client.walk() if node.record["kind"] == "generation"]
+    assert [node.record.get("usage_details") for node in generations] == [
+        None,
+        {"input": 100, "output": 20},
+    ]
 
 
 def test_tracer_emits_error_event_on_failure() -> None:
     client = FakeLangfuse()
     LangfuseTracer(client).emit(ctx(), RunSummary(ok=False, error="达到最大步数"), sample_events())
 
-    assert client.events[0]["level"] == "ERROR"
-    assert client.spans[0]["level"] == "ERROR"
+    errors = [node for node in client.walk() if node.record["kind"] == "event"]
+    assert errors[0].record["name"] == "error"
+    assert errors[0].record["level"] == "ERROR"
 
 
 def test_tracer_trims_long_payloads() -> None:
@@ -815,10 +845,10 @@ def test_tracer_trims_long_payloads() -> None:
     ]
     LangfuseTracer(client).emit(ctx(), RunSummary(ok=True), events)
 
-    tool = next(item for item in client.spans if item["name"] == "tool:workspace_read")
+    tool = next(node for node in client.walk() if node.record["name"] == "tool:workspace_read")
 
-    assert "截断" in str(tool["output"])
-    assert len(str(tool["input"])) < 1500
+    assert "截断" in str(tool.record["output"])
+    assert len(str(tool.record["input"])) < 1500
 
 
 async def test_tracing_observer_buffers_and_flushes() -> None:
@@ -831,7 +861,7 @@ async def test_tracing_observer_buffers_and_flushes() -> None:
         await observer.on_event(context, event)
     await observer.on_run_end(context, RunSummary(ok=True))
 
-    assert client.spans  # 攒到运行结束才发
+    assert client.traces  # 攒到运行结束才发
     await observer.aclose()
     assert client.shut is True
 

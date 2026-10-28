@@ -1,14 +1,20 @@
 """Langfuse 追踪：把一次运行的结构化事件发成 trace。
 
-Langfuse v3 的 SDK 是 OTEL 风格的：span 必须成对地 ``with`` 进入与退出。而观察者是
-回调式的（``on_run_start`` / ``on_event`` / ``on_run_end`` 在不同时刻），跨回调持有
-span 会带来两个问题：运行中途异常或超时时 span 永远悬着，并发会话交错时还需要额外
-的上下文管理。所以这里把事件攒起来，在 ``on_run_end`` 里一次发出。运行只有几秒到
-几十秒，追踪晚几秒出现完全可以接受；攒的同时有上限，长运行不会把内存撑爆。
+用的是 **Langfuse Python SDK 2.x**（``uv sync --extra tracing``）：v3 的 SDK 换成了 OTEL
+风格（span 成对 ``with``）且只往 v3 服务端的 ``/api/public/otel`` 上报，而自建实例常见的是
+2.95.x（没有那个端点）；2.x SDK 走旧的上报接口，v2 / v3 服务端都能对接，所以这里钉在
+``langfuse>=2.60,<3``。
 
-已知限制：``RunEvent`` 里的 token 用量是整轮累计的（``run_end.usage``），没有按
-step 拆分，因此 generation 的 ``usage_details`` 只挂在运行的根节点上。要按 step 拆
-就得改 ReAct 循环的事件粒度，暂不做。
+观察者是**回调式**的（``on_run_start`` / ``on_event`` / ``on_run_end`` 在不同时刻），跨回调持有
+span 会带来两个问题：运行中途异常或超时时 span 永远悬着，并发会话交错时还需要额外的上下文
+管理。所以这里把事件攒起来，在 ``on_run_end`` 里一次发出：先建 trace，再逐 step 挂
+generation 与 tool span，最后各自 ``end()``。运行只有几秒到几十秒，追踪晚几秒出现完全可以
+接受；攒的同时有上限，长运行不会把内存撑爆。
+
+已知限制：``RunEvent`` 里的 token 用量是**整轮累计**的（``run_end.usage``），没有按 step
+拆分，而测得的用量在 v2 里只能挂在 generation 上 —— 因此挂到**最后一个** generation，
+这样 Langfuse 里 trace 级的用量合计仍然正确，但看不出「哪一步贵」。要按 step 拆就得改
+ReAct 循环的事件粒度，暂不做。
 """
 
 from __future__ import annotations
@@ -43,16 +49,18 @@ class _StepBuffer:
 
 
 class LangfuseTracer:
-    """Langfuse 客户端的薄封装。
+    """Langfuse 客户端（v2 API）的薄封装。
 
-    ``client`` 是 duck-typed 的（只要求 ``start_as_current_span`` /
-    ``create_event`` / ``flush`` / ``shutdown``），因此测试可以注入假客户端，
-    **不需要网络也不需要真 key**。
+    ``client`` 是 duck-typed 的：只要 ``trace()`` / ``flush()`` / ``shutdown()`` /
+    ``auth_check()``，以及 trace 上的 ``span()`` / ``generation()`` / ``event()`` /
+    ``end()`` —— 测试可以注入假客户端，**不需要网络也不需要真 key**。
+
+    ``release`` / ``environment`` 由 SDK 在构造客户端时统一注入每条 trace
+    （v2 的 ``trace()`` 不接受这两个参数），所以这里不重复传。
     """
 
-    def __init__(self, client: Any, *, release: str | None = None) -> None:
+    def __init__(self, client: Any) -> None:
         self.client = client
-        self.release = release
 
     # ---------------------------------------------------------------- 对外
 
@@ -70,40 +78,39 @@ class LangfuseTracer:
             "elapsed": round(summary.elapsed, 3),
         }
 
-        with self.client.start_as_current_span(
+        trace = self.client.trace(
             name=f"run:{context.channel}",
             input=_clip(context.text),
+            output=_clip(_final_text(events, steps)) or None,
             metadata=metadata,
-            level="ERROR" if failed else "DEFAULT",
-            status_message=summary.error or None,
-            release=self.release,
-        ) as root:
-            root.update(usage_details=_usage_details(summary))
-            if hasattr(root, "update_trace"):
-                # session_id 用 thread_id：这样一条会话的所有轮次在 Langfuse 里
-                # 是一条可回溯的线，而不是一堆孤立的 trace。
-                root.update_trace(
-                    user_id=context.user_id,
-                    session_id=context.thread_id,
-                    tags=[context.channel],
-                )
+            # session_id 用 thread_id：一条会话的所有轮次在 Langfuse 里串成一条可回溯的线，
+            # 而不是一堆孤立的 trace。
+            user_id=context.user_id,
+            session_id=context.thread_id,
+            tags=[context.channel],
+        )
 
-            for step in steps:
-                with self.client.start_as_current_span(name=f"step {step.step}") as span:
-                    with self.client.start_as_current_generation(
-                        name="model",
-                        output=_clip(step.text) or None,
-                    ):
-                        pass  # 用量挂在根节点，见模块 docstring
-                    for tool in step.tools:
-                        self._emit_tool(span, tool)
+        usage = _usage_details(summary)
+        for index, step in enumerate(steps):
+            span = trace.span(name=f"step {step.step}")
+            # 用量挂在最后一个 generation 上（见模块 docstring 的「已知限制」）。
+            generation = span.generation(
+                name="model",
+                output=_clip(step.text) or None,
+                usage_details=usage if index == len(steps) - 1 else None,
+            )
+            generation.end()
+            for tool in step.tools:
+                self._emit_tool(span, tool)
+            span.end()
 
-            if failed:
-                self.client.create_event(
-                    name="error",
-                    level="ERROR",
-                    metadata={"error": _clip(summary.error or "未知错误")},
-                )
+        if failed:
+            # v2 的 trace 没有 level / status_message，失败靠一条 ERROR event 标出来。
+            trace.event(
+                name="error",
+                level="ERROR",
+                metadata={"error": _clip(summary.error or "未知错误")},
+            )
 
     def flush(self) -> None:
         self.client.flush()
@@ -134,7 +141,7 @@ class LangfuseTracer:
         """
         rejected = tool.get("approved") is False
         level = "WARNING" if rejected or not tool.get("ok", True) else "DEFAULT"
-        with self.client.start_as_current_span(
+        span = parent.span(
             name=f"tool:{tool.get('name', '?')}",
             input=_clip(tool.get("args")) or None,
             output=_clip(tool.get("result")) or None,
@@ -146,8 +153,16 @@ class LangfuseTracer:
                 "approved": tool.get("approved"),
                 "elapsed": tool.get("elapsed"),
             },
-        ):
-            pass
+        )
+        span.end()
+
+
+def _final_text(events: Sequence[RunEvent], steps: Sequence[_StepBuffer]) -> str:
+    """trace 的 ``output``：优先取 ``run_end`` 的最终答复，退回最后一步的文本。"""
+    for event in reversed(events):
+        if event.type == "run_end" and event.text:
+            return event.text
+    return steps[-1].text if steps else ""
 
 
 def _usage_details(summary: RunSummary) -> dict[str, int] | None:
@@ -174,6 +189,10 @@ def _group_steps(events: Sequence[RunEvent]) -> list[_StepBuffer]:
     pending: dict[str, dict[str, Any]] = {}
 
     for event in events:
+        if event.step < 1:
+            # ``run_start`` 的 step 是 0；它不属于任何一步，别为它造一个空 span。
+            continue
+
         step = steps.get(event.step)
         if step is None:
             step = _StepBuffer(step=event.step)

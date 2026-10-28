@@ -307,9 +307,10 @@ observability:
   # 追踪：Langfuse。默认关闭 —— 把对话内容发到第三方必须是明确的决定。
   # 打开还需 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY，以及装好 SDK
   # （uv sync --extra tracing）。缺任一条都会安静降级并告警。
+  # SDK 钉在 2.x：v3 走 OTEL 上报，只对 v3 服务端有效；自建常见的 2.95.x 得用 2.x SDK。
   tracing:
     enabled: false
-    host: https://cloud.langfuse.com
+    host: https://cloud.langfuse.com   # 自建填自己的地址（v2 自建默认 :3000）
     environment: null          # prod / staging，会打进 trace 标签
     release: null
     sample_rate: 1.0

@@ -90,7 +90,7 @@ observability:
 observability:
   tracing:
     enabled: true
-    host: https://cloud.langfuse.com   # 自建填自己的地址
+    host: https://cloud.langfuse.com   # 自建填自己的地址（v2 自建默认 :3000）
     environment: prod
     sample_rate: 1.0
 ```
@@ -98,28 +98,46 @@ observability:
 把对话内容发到第三方必须是一次**明确的决定**，所以宁可多一个开关，
 也不做「装了包就发」。
 
-发出的结构：
+### 4.1 SDK 版本：为什么钉在 2.x
+
+| | 依赖 | 上报方式 | 服务端要求 |
+| --- | --- | --- | --- |
+| **本仓库** | `langfuse>=2.60,<3` | 旧版 ingestion 接口 | v2 / v3 都能收 |
+| v3 SDK（未采用） | `langfuse>=3` | OTEL：`POST /api/public/otel/v1/traces` | **只对 v3 服务端有效** |
+
+自建实例常见的是 2.95.x，它**没有** `/api/public/otel` 端点（`GET` 它是 404）—— 用 v3 SDK
+会表现为「key 配了、什么都没有、也没有报错」（SDK 内部吞掉上报错误）。2.x SDK 两边都能对接，
+所以钉 2.x；以后服务端升到 v3 也可以继续用它。
+
+### 4.2 发出的结构
+
+v2 的 API 是命令式的：`client.trace()` 起步，之后逐层 `span()` / `generation()`，各自 `end()`。
+`release` / `environment` 由 SDK 在**构造客户端**时注入到每条 trace。
 
 ```
-run:feishu                    input=用户输入, output=最终答复, usage=input/output
+run:feishu                    input=用户输入, output=最终答复, session=thread_id, tags=[channel]
 ├── step 1
 │   ├── generation:model      output=这一步的文本
 │   └── tool:web_search       input=参数, output=结果摘要, level=WARNING(失败/被拒)
-└── step 2
+└── step 2                    ← 整轮累计的 usage 挂在这一步的 generation 上
     └── tool:workspace_write  approved=false → level=WARNING
 ```
 
 两个刻意的设计：
 
-* **运行结束时整批发出**，不是边跑边发。SDK 是 OTEL 风格（span 必须成对 `with`），
-  而我们的观察者是回调式的；跨回调持有 span 会带来悬挂 span 与并发交错的问题。
-  代价是 trace 晚几秒出现，换来的是「不会漏 end」。攒的事件有上限（500 条）。
+* **运行结束时整批发出**，不是边跑边发。观察者是回调式的（`on_run_*` 在不同时刻），
+  跨回调持有 span 会带来悬挂 span 与并发交错的问题；攒到最后一次性建完、`end()` 完更安全。
+  代价是 trace 晚几秒出现。攒的事件有上限（500 条）。
 * **被拒绝的工具调用标成 WARNING**：它是「模型想做、人没让做」，
   排查「为什么没写文件」时这条比任何日志都直接。
+* 失败在 v2 里没有 trace 级的 `level`/`status_message`，改用一条 `error`（ERROR）事件标出来。
 
-已知的表达力限制：`RunEvent` 里的 token 用量是**整轮累计**的，没有按 step 拆分，
-因此 `usage_details` 只挂在根节点上。要按 step 拆就得改事件粒度 ——
-那属于「为追踪改产品代码」，需要时再做（见 §6）。
+### 4.3 已知的表达力限制
+
+`RunEvent` 里的 token 用量是**整轮累计**的（`run_end.usage`），没有按 step 拆分；v2 的用量又
+只能挂在 generation 上。因此它被挂在**最后一个** generation 上 —— Langfuse 里 trace 级的用量
+合计仍然正确，但看不出「哪一步贵」。要按 step 拆就得改事件粒度，那属于「为追踪改产品代码」，
+需要时再做（见 §6）。
 
 ## 5. 攒批写的取舍
 

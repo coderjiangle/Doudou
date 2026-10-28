@@ -180,7 +180,7 @@ def _build_tracer(settings: Settings) -> LangfuseTracer | None:
         environment=config.environment,
         sample_rate=config.sample_rate,
     )
-    return LangfuseTracer(client, release=config.release)
+    return LangfuseTracer(client)
 
 
 def _clamp(value: float) -> float:

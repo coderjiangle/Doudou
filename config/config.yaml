@@ -309,6 +309,6 @@ observability:
     prices:
       default: {input: 0.0, output: 0.0}
   tracing:
-    enabled: false             # 需要 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY
-    host: https://cloud.langfuse.com
+    enabled: true             # 需要 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY
+    host: http://localhost:3000
     sample_rate: 1.0

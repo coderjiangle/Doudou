@@ -61,7 +61,17 @@ whether to call the `now` tool based on keywords, so **the whole ReAct loop (rea
 observe → converge) can be verified without any network access**. To hook up a real model, just set
 `DOUDOU_MODEL_PRIMARY` and the matching API key in `.env`.
 
-## 1.2 In action (Feishu)
+## 1.2 In action
+
+### Web Chat & Dog Subagent Team
+
+Primary agent "Doudou" can handle tasks directly or delegate complex subtasks to specialized subagents (Heidou / German Shepherd, Baidou / Golden Retriever, Jindou / Border Collie) via the `task` tool, each running with isolated context windows and scoped permissions. Open `http://127.0.0.1:8000/` to chat directly in the built-in web UI:
+
+<p align="center">
+  <img src="image/team.jpg" alt="Web chat: Doudou and the puppy team (subagents)" width="820">
+</p>
+
+### Feishu Channel & Human in the Loop
 
 A normal conversation is answered with a single card, and the tool calls stay visible on that card.
 Operations with side effects pop a separate confirmation card — nothing runs until you hit
@@ -243,7 +253,7 @@ Endpoints:
 | `GET /` | Built-in chat page (conversation list + streaming chat) |
 | `GET /docs` | OpenAPI interactive docs |
 
-> Opening `http://127.0.0.1:8000/` in a browser gives you the built-in chat page: past conversations
+> Opening `http://127.0.0.1:8000/` in a browser gives you the built-in chat page (see §1.2 for preview): past conversations
 > on the left, the current model and tool count at the top, replies streamed from `/chat/stream` and
 > rendered as Markdown (headings, lists, tables, code blocks). Tool calls show up as chips with
 > collapsed results. Tools that need approval (file writes, `shell_exec`) raise an

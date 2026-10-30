@@ -122,6 +122,7 @@ class TraceStore(Protocol):
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        before: tuple[datetime, str] | None = None,
     ) -> list[TraceRecord]: ...
 
     async def get(self, run_id: str) -> TraceRecord | None: ...
@@ -160,6 +161,7 @@ class MemoryTraceStore:
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        before: tuple[datetime, str] | None = None,
     ) -> list[TraceRecord]:
         items = [
             item
@@ -168,7 +170,11 @@ class MemoryTraceStore:
                 item, thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
             )
         ]
-        return list(reversed(items))[: max(1, limit)]
+        if before is not None:
+            ts, run_id = before
+            items = [item for item in items if (item.started_at, item.run_id) < (ts, run_id)]
+        items.sort(key=lambda item: (item.started_at, item.run_id), reverse=True)
+        return items[: max(1, limit)]
 
     async def get(self, run_id: str) -> TraceRecord | None:
         return self._records.get(run_id)

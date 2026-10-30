@@ -870,6 +870,29 @@ async def test_trace_args_are_redacted() -> None:
     assert args["url"] == "https://example.com"
 
 
+async def test_memory_trace_store_keyset_pagination() -> None:
+    """游标（keyset）分页：按 (started_at, run_id) 取更早的，不重不漏。"""
+    from datetime import UTC, datetime, timedelta
+
+    store = MemoryTraceStore()
+    base = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
+    for index in range(5):
+        await store.append(
+            TraceRecord(
+                run_id=f"r{index}", thread_id="t1", started_at=base + timedelta(minutes=index)
+            )
+        )
+
+    first = await store.list_recent(limit=2)
+    assert [item.run_id for item in first] == ["r4", "r3"]
+
+    second = await store.list_recent(limit=2, before=(first[-1].started_at, first[-1].run_id))
+    assert [item.run_id for item in second] == ["r2", "r1"]
+
+    third = await store.list_recent(limit=2, before=(second[-1].started_at, second[-1].run_id))
+    assert [item.run_id for item in third] == ["r0"]
+
+
 async def test_sql_trace_store_round_trip(database: Database) -> None:
     from doudou.storage.traces import SqlTraceStore
 

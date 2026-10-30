@@ -22,6 +22,7 @@ from doudou.api.schemas.traces import (
 from doudou.api.stats import RunSample, ToolSample, build_stats
 from doudou.observability.audit import AuditEntry
 from doudou.observability.logging import get_logger
+from doudou.observability.traces import TraceRecord
 
 logger = get_logger(__name__)
 
@@ -38,25 +39,44 @@ async def list_traces(
     channel: str | None = Query(default=None, description="只看某个渠道（cli / api / feishu）。"),
     days: int = Query(default=7, ge=1, le=90, description="统计最近多少天。"),
     only_failed: bool = Query(default=False, description="只看失败的运行。"),
-    limit: int = Query(default=50, ge=1, le=500),
+    limit: int = Query(default=50, ge=1, le=500, description="单页条数。"),
+    cursor: str | None = Query(
+        default=None, description="取更早一页：传上一页返回的 next_cursor。"
+    ),
 ) -> TraceListResponse:
-    """按时间倒序列出运行轨迹（不含步骤明细 —— 点进单条才展开）。"""
+    """按时间倒序列出运行轨迹（不含步骤明细 —— 点进单条才展开）。
+
+    用**游标（keyset）分页**而不是 ``offset``：按 ``(started_at, run_id)`` 取更早的记录，
+    翻页期间新产生的运行不会造成漏项或重复。``next_cursor`` 为 ``null`` 表示到底了。
+    """
     store = state.observability.trace_store
     if store is None:
         return TraceListResponse(
             count=0,
             backend="disabled",
             traces=[],
+            next_cursor=None,
             note="轨迹未启用（observability.traces.enabled 为 false）。",
         )
+    before = _decode_cursor(cursor) if cursor else None
     since = _since(days)
+    # 多取一条用来判断「还有没有下一页」，返回时再裁掉。
     records = await store.list_recent(
-        limit=limit, thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
+        limit=limit + 1,
+        thread_id=thread_id,
+        channel=channel,
+        since=since,
+        only_failed=only_failed,
+        before=before,
     )
+    has_more = len(records) > limit
+    page = records[:limit]
+    next_cursor = _encode_cursor(page[-1]) if has_more and page else None
     return TraceListResponse(
-        count=len(records),
+        count=len(page),
         backend=state.observability.trace_backend or "memory",
-        traces=[TraceSummaryOut.model_validate(item.as_summary()) for item in records],
+        traces=[TraceSummaryOut.model_validate(item.as_summary()) for item in page],
+        next_cursor=next_cursor,
         note="一次运行一条记录；点进单条可看逐步的推理文本与工具调用（/traces/{run_id}）。",
     )
 
@@ -158,6 +178,24 @@ def _in_window(entry: AuditEntry, since: datetime) -> bool:
 
 def _since(days: int) -> datetime:
     return datetime.now(UTC) - timedelta(days=max(1, days))
+
+
+def _encode_cursor(record: TraceRecord) -> str:
+    """游标 = 上一页最后一条的 ``(started_at, run_id)``，可读、可调试。"""
+    return f"{record.started_at.isoformat()}|{record.run_id}"
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, str]:
+    timestamp, sep, run_id = cursor.partition("|")
+    if not sep or not run_id:
+        raise ApiError(400, "bad_cursor", "游标格式不正确，请用上一页返回的 next_cursor。")
+    try:
+        moment = datetime.fromisoformat(timestamp)
+    except ValueError as exc:
+        raise ApiError(400, "bad_cursor", "游标格式不正确，请用上一页返回的 next_cursor。") from exc
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment, run_id
 
 
 __all__ = ["router"]

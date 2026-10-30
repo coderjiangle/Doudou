@@ -240,7 +240,7 @@ uv run doudou serve --port 9000 --reload
 | `DELETE /api/v1/threads/{id}` | 删除会话（连同其审计 / 用量 / 轨迹 / 确认与渠道绑定） |
 | `GET /api/v1/tools` | 工具清单 |
 | `GET /api/v1/audit` / `GET /api/v1/usage` | 审计记录 / token 与费用用量 |
-| `GET /api/v1/traces` / `GET /api/v1/traces/{run_id}` | 运行轨迹列表 / 单次运行的逐步回放（列表可 `?thread_id=`） |
+| `GET /api/v1/traces` / `GET /api/v1/traces/{run_id}` | 运行轨迹列表（游标分页 `limit`+`cursor`） / 单次运行的逐步回放（可 `?thread_id=`） |
 | `GET /api/v1/stats` | 运行量·成功率·工具分布·确认比例·token/费用趋势（可 `?thread_id=` 只看单会话） |
 | `GET /api/v1/scheduled` | 定时任务列表（只读；创建/取消在聊天里用 `schedule_*` 工具） |
 | `GET /api/v1/health` / `/health/ready` | 健康 / 就绪检查（**不需要鉴权**） |

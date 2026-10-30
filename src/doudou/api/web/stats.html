@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Doudou · 统计</title>
+<link rel="icon" type="image/png" href="avatar.png">
 <style>
   :root {
     --bg: #f5f6f8;
@@ -26,7 +27,17 @@
     border-bottom: 1px solid var(--border); padding: 12px 20px;
     display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  /* 品牌区与聊天页保持一致：头像 + 名称 + 副标题 */
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand img {
+    width: 36px; height: 36px;
+    border-radius: 12px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 6px 16px -6px rgba(15, 118, 110, 0.5);
+  }
+  .brand .name { font-size: 17px; font-weight: 750; letter-spacing: 0.2px; }
+  .brand .tag { font-size: 12px; color: var(--muted); }
   header .spacer { flex: 1; }
   button, select, input {
     font: inherit; padding: 6px 10px; border: 1px solid var(--border);
@@ -47,7 +58,7 @@
     background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
     padding: 16px;
   }
-  .panel h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  .panel h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .panel h2 .hint { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
@@ -113,7 +124,13 @@
 </head>
 <body>
 <header>
-  <h1>🐶 Doudou · 统计</h1>
+  <div class="brand">
+    <img src="avatar.png" alt="豆豆">
+    <div>
+      <div class="name">Doudou</div>
+      <div class="tag">统计</div>
+    </div>
+  </div>
   <select id="days">
     <option value="7">最近 7 天</option>
     <option value="30">最近 30 天</option>
@@ -167,8 +184,24 @@
   </div>
 
   <section class="panel">
-    <h2>运行列表 <span class="hint">点一行看逐步回放</span></h2>
+    <h2>
+      运行列表
+      <span class="hint">点一行看逐步回放</span>
+      <span class="spacer" style="flex:1"></span>
+      <label class="hint">每页
+        <select id="pageSize">
+          <option value="20">20</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+      </label>
+    </h2>
     <div class="run-list" id="runs"></div>
+    <div style="text-align:center;margin-top:10px">
+      <button id="loadMore" style="display:none">加载更多</button>
+      <span id="runsHint" class="muted" style="margin-left:8px"></span>
+    </div>
   </section>
 </main>
 
@@ -329,21 +362,71 @@
       <td class="num">${fmtInt(c.ok)}</td><td class="num">${fmtInt(c.failed)}</td></tr>`).join("")}</tbody></table>`;
   }
 
-  function renderRuns(traces) {
-    if (!traces.length) { el("runs").innerHTML = '<div class="empty">暂无运行记录</div>'; return; }
-    el("runs").innerHTML = traces.map((t) => `
-      <div class="run" data-run="${escapeHtml(t.run_id)}">
-        <span class="when">${escapeHtml((t.started_at || "").replace("T", " ").slice(5, 19))}</span>
-        <span class="ask">${escapeHtml(t.input_preview || "（无输入）")}
-          <span class="muted">· ${escapeHtml(t.channel)}</span></span>
+  /** 运行列表：游标分页（keyset）。append=true 时把新一页追加到末尾。 */
+  const runState = { cursor: null, hasMore: false, loaded: 0, busy: false };
+
+  function runRow(trace) {
+    return `
+      <div class="run" data-run="${escapeHtml(trace.run_id)}">
+        <span class="when">${escapeHtml((trace.started_at || "").replace("T", " ").slice(5, 19))}</span>
+        <span class="ask">${escapeHtml(trace.input_preview || "（无输入）")}
+          <span class="muted">· ${escapeHtml(trace.channel)}</span></span>
         <span class="meta">
-          <span class="pill ${t.ok ? "ok" : "fail"}">${t.ok ? "成功" : "失败"}</span>
-          ${fmtNum(t.elapsed)}s · ${fmtInt(t.tool_calls)} 工具
+          <span class="pill ${trace.ok ? "ok" : "fail"}">${trace.ok ? "成功" : "失败"}</span>
+          ${fmtNum(trace.elapsed)}s · ${fmtInt(trace.tool_calls)} 工具
         </span>
-      </div>`).join("");
-    el("runs").querySelectorAll(".run").forEach((node) => {
-      node.addEventListener("click", () => openDetail(node.dataset.run));
-    });
+      </div>`;
+  }
+
+  function appendRuns(traces, append) {
+    const container = el("runs");
+    if (!append && !traces.length) {
+      container.innerHTML = '<div class="empty">暂无运行记录</div>';
+      return;
+    }
+    const html = traces.map(runRow).join("");
+    if (append) {
+      container.insertAdjacentHTML("beforeend", html);
+    } else {
+      container.innerHTML = html;
+    }
+    // 事件绑定只针对新插入的节点，避免重复绑定。
+    const nodes = container.querySelectorAll(".run");
+    const from = append ? nodes.length - traces.length : 0;
+    for (let i = from; i < nodes.length; i += 1) {
+      nodes[i].addEventListener("click", () => openDetail(nodes[i].dataset.run));
+    }
+  }
+
+  function updateRunsFooter() {
+    el("loadMore").style.display = runState.hasMore ? "" : "none";
+    el("runsHint").textContent = runState.loaded
+      ? `已显示 ${runState.loaded} 条${runState.hasMore ? "" : "（到底了）"}`
+      : "";
+  }
+
+  async function loadRuns({ append = false } = {}) {
+    if (runState.busy) return;
+    runState.busy = true;
+    const query = new URLSearchParams({ days: el("days").value, limit: el("pageSize").value });
+    const threadId = el("session").value;
+    if (threadId) query.set("thread_id", threadId);
+    if (append && runState.cursor) query.set("cursor", runState.cursor);
+    el("loadMore").disabled = true;
+    try {
+      const data = await request(`/traces?${query.toString()}`);
+      const traces = data.traces || [];
+      runState.cursor = data.next_cursor || null;
+      runState.hasMore = Boolean(data.next_cursor);
+      runState.loaded = append ? runState.loaded + traces.length : traces.length;
+      appendRuns(traces, append);
+      updateRunsFooter();
+    } catch (error) {
+      el("runsHint").textContent = `加载失败：${error.message}`;
+    } finally {
+      runState.busy = false;
+      el("loadMore").disabled = false;
+    }
   }
 
   async function openDetail(runId) {
@@ -397,11 +480,11 @@
     if (threadId) query.set("thread_id", threadId);
     el("scope").textContent = threadId ? `范围：${threadId}` : "范围：全部会话";
     el("status").textContent = "加载中…";
+    // 换了筛选条件 → 运行列表从头开始（游标作废）。
+    runState.cursor = null;
+    runState.loaded = 0;
     try {
-      const [stats, traces] = await Promise.all([
-        request(`/stats?${query.toString()}`),
-        request(`/traces?${query.toString()}&limit=100`),
-      ]);
+      const stats = await request(`/stats?${query.toString()}`);
       renderOverview(stats.overview, stats.approvals);
       renderBars(
         el("runsChart"), el("runsAxis"),
@@ -414,7 +497,7 @@
       renderTools(stats.tools);
       renderApprovals(stats.approvals);
       renderChannels(stats.by_channel);
-      renderRuns(traces.traces || []);
+      await loadRuns({ append: false });
       el("status").textContent = `更新于 ${new Date().toLocaleTimeString()}`;
     } catch (error) {
       el("status").textContent = `加载失败：${error.message}`;
@@ -444,6 +527,13 @@
   el("refresh").addEventListener("click", () => refreshSessions().then(load));
   el("days").addEventListener("change", load);
   el("session").addEventListener("change", load);
+  // 换单页大小 → 运行列表从头开始
+  el("pageSize").addEventListener("change", () => {
+    runState.cursor = null;
+    runState.loaded = 0;
+    loadRuns({ append: false });
+  });
+  el("loadMore").addEventListener("click", () => loadRuns({ append: true }));
   el("toChat").addEventListener("click", () => { location.href = "./"; });
   el("detailClose").addEventListener("click", () => el("detail").close());
 

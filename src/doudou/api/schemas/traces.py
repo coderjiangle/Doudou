@@ -50,6 +50,8 @@ class TraceListResponse(BaseModel):
     count: int
     backend: str = Field(description="database | memory | disabled")
     traces: list[TraceSummaryOut] = Field(default_factory=list)
+    #: 游标分页：非空表示还有更早的记录，把它作为下次请求的 ``cursor`` 即可。
+    next_cursor: str | None = Field(default=None, description="取下一页的游标；null 表示没有更多。")
     note: str = ""
 
 

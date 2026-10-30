@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
@@ -81,16 +81,20 @@ class RunTraceRepository:
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        before: tuple[datetime, str] | None = None,
     ) -> list[RunTraceModel]:
         """列表 / 统计用：只加载标量列。
 
         ``steps_detail`` 可能很大，列表与统计都用不上它 —— 只有 ``get``（单次
         回放）才需要。少读这一列，90 天窗口下的查询才不会把几 MB 的 JSON 拉进内存。
+
+        ``before`` 是游标分页（keyset）：``(started_at, run_id)`` 严格小于它才返回，
+        这样翻页不会因为期间插入新记录而漏项或重复。
         """
         statement = (
             select(RunTraceModel)
             .options(load_only(*_STAT_COLUMNS))
-            .order_by(RunTraceModel.started_at.desc(), RunTraceModel.run_id)
+            .order_by(RunTraceModel.started_at.desc(), RunTraceModel.run_id.desc())
             .limit(limit)
         )
         if thread_id:
@@ -101,6 +105,14 @@ class RunTraceRepository:
             statement = statement.where(RunTraceModel.started_at >= since)
         if only_failed:
             statement = statement.where(RunTraceModel.ok.is_(False))
+        if before is not None:
+            ts, run_id = before
+            statement = statement.where(
+                or_(
+                    RunTraceModel.started_at < ts,
+                    and_(RunTraceModel.started_at == ts, RunTraceModel.run_id < run_id),
+                )
+            )
         return list((await self.session.execute(statement)).scalars().all())
 
     async def count(self) -> int:

@@ -60,6 +60,7 @@ class SqlTraceStore(TraceStore):
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        before: tuple[datetime, str] | None = None,
     ) -> list[TraceRecord]:
         async with self.database.session() as session:
             rows = await RunTraceRepository(session).list_recent(
@@ -68,6 +69,7 @@ class SqlTraceStore(TraceStore):
                 channel=channel,
                 since=since,
                 only_failed=only_failed,
+                before=before,
             )
             # 列表查询用了 load_only（不含 steps_detail），所以这里不能碰它。
             return [_to_summary(row) for row in rows]

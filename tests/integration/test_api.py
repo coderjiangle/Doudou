@@ -1125,6 +1125,34 @@ async def test_deleting_thread_purges_its_statistics(tmp_path: Path) -> None:
         assert (await client.get(f"/api/v1/threads/{thread_id}")).status_code == 404
 
 
+async def test_trace_list_is_cursor_paginated(tmp_path: Path) -> None:
+    """运行列表用游标分页：翻页不重不漏，游标非法时报 400。"""
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        for _ in range(3):
+            response = await client.post("/api/v1/chat", json={"message": "现在几点？"})
+            assert response.status_code == 200
+
+        first = (await client.get("/api/v1/traces", params={"limit": 2})).json()
+        assert first["count"] == 2
+        assert first["next_cursor"]
+
+        second = (
+            await client.get("/api/v1/traces", params={"limit": 2, "cursor": first["next_cursor"]})
+        ).json()
+        assert second["count"] == 1
+        assert second["next_cursor"] is None
+
+        ids = {item["run_id"] for item in first["traces"]} | {
+            item["run_id"] for item in second["traces"]
+        }
+        assert len(ids) == 3  # 两页合起来正好 3 条，无重复
+
+        bad = await client.get("/api/v1/traces", params={"cursor": "not-a-cursor"})
+        assert bad.status_code == 400
+
+
 async def test_stats_page_is_served(tmp_path: Path) -> None:
     settings = _write_config(tmp_path)
 

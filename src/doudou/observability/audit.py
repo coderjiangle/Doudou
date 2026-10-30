@@ -117,6 +117,10 @@ class AuditStore(Protocol):
 
     async def get(self, audit_id: str) -> AuditEntry | None: ...
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部审计记录，返回删除条数（删会话时调用）。"""
+        ...
+
 
 class MemoryAuditStore:
     """进程内审计（有容量上限的环形缓冲）。
@@ -148,6 +152,12 @@ class MemoryAuditStore:
 
     async def get(self, audit_id: str) -> AuditEntry | None:
         return self._entries.get(audit_id)
+
+    async def delete_for_thread(self, thread_id: str) -> int:
+        keys = [key for key, entry in self._entries.items() if entry.thread_id == thread_id]
+        for key in keys:
+            self._entries.pop(key, None)
+        return len(keys)
 
 
 def _matches(entry: AuditEntry, thread_id: str | None) -> bool:

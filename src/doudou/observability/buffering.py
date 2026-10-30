@@ -79,6 +79,14 @@ class BufferedAuditStore(AuditStore):
         await self.flush()
         return await self.inner.get(audit_id)
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        # 关键：先丢掉缓冲区里属于这条会话的待写项 ——
+        # 否则它们在下次 flush 时会把刚删掉的行又插回来。
+        dropped = [key for key, entry in self._pending.items() if entry.thread_id == thread_id]
+        for key in dropped:
+            self._pending.pop(key, None)
+        return await self.inner.delete_for_thread(thread_id)
+
     async def aclose(self) -> None:
         await self.flush()
 
@@ -157,6 +165,12 @@ class BufferedUsageStore(UsageStore):
             cost = _add_cost(cost, record.cost)
         return input_tokens, output_tokens, cost
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        dropped = [key for key in self._pending if key[1] == thread_id]
+        for key in dropped:
+            self._pending.pop(key, None)
+        return await self.inner.delete_for_thread(thread_id)
+
     async def aclose(self) -> None:
         await self.flush()
 
@@ -222,6 +236,12 @@ class BufferedTraceStore(TraceStore):
     async def get(self, run_id: str) -> TraceRecord | None:
         await self.flush()
         return await self.inner.get(run_id)
+
+    async def delete_for_thread(self, thread_id: str) -> int:
+        dropped = [key for key, record in self._pending.items() if record.thread_id == thread_id]
+        for key in dropped:
+            self._pending.pop(key, None)
+        return await self.inner.delete_for_thread(thread_id)
 
     async def aclose(self) -> None:
         await self.flush()

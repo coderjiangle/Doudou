@@ -729,6 +729,21 @@ async def _record_trace(**summary_kwargs: Any) -> TraceRecord:
     return record
 
 
+async def test_buffered_audit_delete_drops_pending() -> None:
+    """删会话时，缓冲区里属于它的待写项也要丢掉 —— 否则回写会把它复活。"""
+    inner = MemoryAuditStore()
+    store = BufferedAuditStore(inner, max_pending=100)
+
+    await store.append(AuditEntry(audit_id="a1", kind="tool", thread_id="t1"))
+    await store.append(AuditEntry(audit_id="a2", kind="tool", thread_id="t2"))
+
+    await store.delete_for_thread("t1")
+    assert pending_count(store) == 1
+
+    await store.flush()
+    assert [entry.audit_id for entry in await inner.list_recent(limit=10)] == ["a2"]
+
+
 def test_traces_wired_by_default(settings: Settings) -> None:
     """轨迹默认开（本地落库，不发第三方），且在默认栈上可见。"""
     stack = build_observability(settings)

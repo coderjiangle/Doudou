@@ -1091,6 +1091,40 @@ async def test_stats_can_be_scoped_to_a_thread(tmp_path: Path) -> None:
     assert {item["thread_id"] for item in traces_a["traces"]} == {thread_a}
 
 
+async def test_deleting_thread_purges_its_statistics(tmp_path: Path) -> None:
+    """删会话要连它的审计 / 用量 / 轨迹一起删干净，不留孤儿行。"""
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        thread_id = (await client.post("/api/v1/chat", json={"message": "现在几点？"})).json()[
+            "thread_id"
+        ]
+        # 先确认数据确实存在
+        assert (await client.get(f"/api/v1/traces?thread_id={thread_id}")).json()["count"] == 1
+        assert (await client.get(f"/api/v1/audit?thread_id={thread_id}")).json()["count"] >= 1
+        usage_before = (await client.get("/api/v1/usage")).json()
+        assert any(row["thread_id"] == thread_id for row in usage_before["by_thread"])
+
+        response = await client.delete(f"/api/v1/threads/{thread_id}")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["deleted"] is True
+        assert body["purged"]["run_traces"] == 1
+        assert body["purged"]["audit_events"] >= 1
+        assert body["purged"]["usage_daily"] == 1
+
+        # 删完之后都查不到
+        assert (await client.get(f"/api/v1/traces?thread_id={thread_id}")).json()["count"] == 0
+        assert (await client.get(f"/api/v1/audit?thread_id={thread_id}")).json()["count"] == 0
+        scoped = (await client.get(f"/api/v1/stats?thread_id={thread_id}")).json()
+        assert scoped["overview"]["runs"] == 0
+        usage_after = (await client.get("/api/v1/usage")).json()
+        assert not any(row["thread_id"] == thread_id for row in usage_after["by_thread"])
+
+        # 会话本身也没了
+        assert (await client.get(f"/api/v1/threads/{thread_id}")).status_code == 404
+
+
 async def test_stats_page_is_served(tmp_path: Path) -> None:
     settings = _write_config(tmp_path)
 

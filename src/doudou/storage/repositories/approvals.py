@@ -96,5 +96,14 @@ class ApprovalRepository:
         result = await self.session.execute(delete(ApprovalModel))
         return affected_rows(result)
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部确认记录（删会话时调用）。"""
+        from doudou.storage.database import affected_rows
+
+        result = await self.session.execute(
+            delete(ApprovalModel).where(ApprovalModel.thread_id == thread_id)
+        )
+        return affected_rows(result)
+
 
 __all__ = ["ApprovalRepository"]

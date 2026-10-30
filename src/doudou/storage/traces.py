@@ -77,6 +77,10 @@ class SqlTraceStore(TraceStore):
             row = await RunTraceRepository(session).get(run_id)
             return _to_record(row) if row is not None else None
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        async with self.database.session() as session:
+            return await RunTraceRepository(session).delete_for_thread(thread_id)
+
 
 def _to_summary(row: RunTraceModel) -> TraceRecord:
     """列表 / 统计行 → 记录（不含 steps_detail；它没被加载）。"""

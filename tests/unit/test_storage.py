@@ -218,6 +218,20 @@ async def test_sql_store_recovers_from_stale_binding(database: Database) -> None
     assert await store.get_thread(recreated) is not None
 
 
+async def test_sql_store_clear_removes_binding(database: Database) -> None:
+    """删会话要连渠道绑定一起删，不留「渠道会话 → 已删 thread」的悬空指向。"""
+    store = SqlHistoryStore(database)
+    thread_id = await store.resolve_thread("conv-1", channel="cli")
+
+    async with database.session() as session:
+        assert await SessionBindingRepository(session).list_for_thread(thread_id)
+
+    assert await store.clear(thread_id) is True
+
+    async with database.session() as session:
+        assert await SessionBindingRepository(session).list_for_thread(thread_id) == []
+
+
 async def test_sql_store_thread_info(database: Database) -> None:
     store = SqlHistoryStore(database)
 

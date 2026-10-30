@@ -126,6 +126,10 @@ class TraceStore(Protocol):
 
     async def get(self, run_id: str) -> TraceRecord | None: ...
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部轨迹，返回删除条数（删会话时调用）。"""
+        ...
+
 
 class MemoryTraceStore:
     """进程内轨迹（有容量上限的环形缓冲）。
@@ -168,6 +172,12 @@ class MemoryTraceStore:
 
     async def get(self, run_id: str) -> TraceRecord | None:
         return self._records.get(run_id)
+
+    async def delete_for_thread(self, thread_id: str) -> int:
+        keys = [key for key, record in self._records.items() if record.thread_id == thread_id]
+        for key in keys:
+            self._records.pop(key, None)
+        return len(keys)
 
 
 def _matches(

@@ -133,5 +133,12 @@ class AuditRepository:
         result = await self.session.execute(delete(AuditModel))
         return affected_rows(result)
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部审计记录（删会话时调用）。"""
+        result = await self.session.execute(
+            delete(AuditModel).where(AuditModel.thread_id == thread_id)
+        )
+        return affected_rows(result)
+
 
 __all__ = ["AuditRepository"]

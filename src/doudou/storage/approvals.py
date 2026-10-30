@@ -73,6 +73,11 @@ class SqlApprovalStore:
             rows = await ApprovalRepository(session).list_recent(limit=limit)
         return [_to_dict(row) for row in rows]
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部确认记录（删会话时调用）。"""
+        async with self.database.session() as session:
+            return await ApprovalRepository(session).delete_for_thread(thread_id)
+
 
 def _to_dict(row: ApprovalModel) -> dict[str, object]:
     return {

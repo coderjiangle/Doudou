@@ -246,6 +246,26 @@ class ApprovalBroker:
             request.event.set()
         return outcome
 
+    async def forget(self, thread_id: str) -> int:
+        """丢弃某条会话的待决请求（删会话时调用），返回丢弃条数。
+
+        等同超时：按拒绝处理并唤醒等待方 —— 不能只是从 ``_pending`` 里删掉，
+        否则等待那次工具调用的协程会一直挂到超时。
+        """
+        targets = [
+            request
+            for request in self._pending.values()
+            if request.thread_id == thread_id and request.status == "pending"
+        ]
+        for request in targets:
+            await self._expire(request)
+            if request.event is not None:
+                request.event.set()
+            self._pending.pop(request.approval_id, None)
+        if targets:
+            logger.info("approval.forgotten", thread_id=thread_id, count=len(targets))
+        return len(targets)
+
     async def _record(self, request: ApprovalRequest, outcome: ApprovalOutcome) -> None:
         if self._recorder is None:
             return

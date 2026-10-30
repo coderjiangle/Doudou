@@ -75,6 +75,13 @@ class SessionStore:
     def clear(self) -> None:
         self._records.clear()
 
+    def remove_thread(self, thread_id: str) -> int:
+        """删除指向该 thread 的映射（删会话时调用），返回删除条数。"""
+        keys = [key for key, record in self._records.items() if record.thread_id == thread_id]
+        for key in keys:
+            del self._records[key]
+        return len(keys)
+
     # ---------------------------------------------------------------- 内部
 
     def _expire(self) -> None:

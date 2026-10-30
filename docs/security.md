@@ -175,6 +175,11 @@ agent:
 - **密钥不可能进表**：`AuditEntry.__post_init__` 里强制打码，
   这样「审计含明文密钥」不是「记得调那个函数」的问题，而是构造就做不到。
 
+保留期：审计由 `observability.audit.max_rows` 封顶（超出按时间清理）；
+另外 `DELETE /api/v1/threads/{id}` 会**连同该会话的审计一起删掉** —— 审计绑定在会话
+生命周期上，不是永久留痕。需要不可删的合规留痕时，请自行把 `GET /api/v1/audit`
+导出到外部存储（见 `docs/observability.md` §6）。
+
 ## 9. 依赖与镜像
 
 | 手段 | 命令 | CI |

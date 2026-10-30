@@ -117,6 +117,9 @@ class SqlHistoryStore(HistoryStore):
         async with self.database.session() as session:
             removed = await MessageRepository(session).delete_all(thread_id)
             deleted = await ThreadRepository(session).delete(thread_id)
+            # 绑定一并删掉：否则渠道会话仍指向一个已删除的 thread（悬空绑定），
+            # 下次消息会命中它、再走一遍「绑定失效」的补救路径。
+            await SessionBindingRepository(session).delete_for_thread(thread_id)
         return bool(removed or deleted)
 
     # ---------------------------------------------------------------- 元信息

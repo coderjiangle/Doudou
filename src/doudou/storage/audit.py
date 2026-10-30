@@ -87,6 +87,10 @@ class SqlAuditStore(AuditStore):
             row = await AuditRepository(session).get(audit_id)
         return entry_to_model(row) if row is not None else None
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        async with self.database.session() as session:
+            return await AuditRepository(session).delete_for_thread(thread_id)
+
 
 def entry_to_model(row: AuditModel) -> AuditEntry:
     """ORM 行 → :class:`AuditEntry`（补上 UTC 时区）。"""

@@ -6,8 +6,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from doudou.api.deps import RunnerDep
+from doudou.api.deps import RunnerDep, StateDep
 from doudou.api.errors import ApiError
+from doudou.api.lifespan import AppState
 from doudou.api.schemas import (
     ContextReport,
     MessageOut,
@@ -88,12 +89,40 @@ async def get_thread_context(thread_id: str, runner: RunnerDep) -> ContextReport
 
 
 @router.delete("/threads/{thread_id}", summary="删除会话")
-async def delete_thread(thread_id: str, runner: RunnerDep) -> dict[str, object]:
-    """删除会话及其全部历史。"""
+async def delete_thread(thread_id: str, runner: RunnerDep, state: StateDep) -> dict[str, object]:
+    """删除会话**及其全部痕迹**。
+
+    除了消息与线程本身，还会清掉这条会话的审计 / 用量 / 轨迹 / 确认记录与渠道绑定 ——
+    删会话就该删干净，别留下「查得到、又对不上任何会话」的孤儿行。
+    返回各表各删了多少行，便于确认。
+    """
     deleted = await runner.clear_thread(thread_id)
     if not deleted:
         raise ApiError(404, "thread_not_found", f"会话 {thread_id} 不存在")
-    return {"thread_id": thread_id, "deleted": True}
+    purged = await _purge_observability(state, thread_id)
+    logger.info("api.thread_deleted", thread_id=thread_id, purged=purged)
+    return {"thread_id": thread_id, "deleted": True, "purged": purged}
+
+
+async def _purge_observability(state: AppState, thread_id: str) -> dict[str, int]:
+    """清掉该会话在观测层与确认层的残留。
+
+    攒批写的缓冲区也在这里被清空（见 ``Buffered*Store.delete_for_thread``），
+    否则尚未落盘的记录会在下一次 flush 时把刚删的行又插回来。
+    """
+    observability = state.observability
+    counts: dict[str, int] = {}
+    if observability.audit_store is not None:
+        counts["audit_events"] = await observability.audit_store.delete_for_thread(thread_id)
+    if observability.usage_store is not None:
+        counts["usage_daily"] = await observability.usage_store.delete_for_thread(thread_id)
+    if observability.trace_store is not None:
+        counts["run_traces"] = await observability.trace_store.delete_for_thread(thread_id)
+    if state.approval_store is not None:
+        counts["approvals"] = await state.approval_store.delete_for_thread(thread_id)
+    if state.broker is not None:
+        counts["pending_approvals"] = await state.broker.forget(thread_id)
+    return counts
 
 
 __all__ = ["router"]

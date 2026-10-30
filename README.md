@@ -235,7 +235,7 @@ uv run doudou serve --port 9000 --reload
 | `POST /api/v1/chat/stream` | SSE 流式：`start → (delta\|tool_call\|tool_result)* → done` |
 | `GET /api/v1/threads` / `GET /api/v1/threads/{id}` | 会话列表 / 会话详情（含完整历史） |
 | `GET /api/v1/threads/{id}/context` | 上下文占用、预算与压缩明细（排查用） |
-| `DELETE /api/v1/threads/{id}` | 删除会话 |
+| `DELETE /api/v1/threads/{id}` | 删除会话（连同其审计 / 用量 / 轨迹 / 确认与渠道绑定） |
 | `GET /api/v1/tools` | 工具清单 |
 | `GET /api/v1/audit` / `GET /api/v1/usage` | 审计记录 / token 与费用用量 |
 | `GET /api/v1/traces` / `GET /api/v1/traces/{run_id}` | 运行轨迹列表 / 单次运行的逐步回放（列表可 `?thread_id=`） |

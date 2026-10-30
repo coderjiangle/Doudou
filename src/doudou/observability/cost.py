@@ -157,6 +157,10 @@ class UsageStore(Protocol):
         """
         ...
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部用量行，返回删除条数（删会话时调用）。"""
+        ...
+
 
 class MemoryUsageStore:
     """进程内用量统计（单副本部署与测试用）。"""
@@ -235,6 +239,12 @@ class MemoryUsageStore:
             output_tokens += record.output_tokens
             cost = _add_cost(cost, record.cost)
         return input_tokens, output_tokens, cost
+
+    async def delete_for_thread(self, thread_id: str) -> int:
+        keys = [key for key in self._records if key[1] == thread_id]
+        for key in keys:
+            self._records.pop(key, None)
+        return len(keys)
 
 
 def _copy(

@@ -42,5 +42,9 @@ class SqlUsageStore(UsageStore):
         async with self.database.session() as session:
             return await UsageRepository(session).total(day=day)
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        async with self.database.session() as session:
+            return await UsageRepository(session).delete_for_thread(thread_id)
+
 
 __all__ = ["SqlUsageStore"]

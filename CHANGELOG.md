@@ -4,6 +4,14 @@
 
 ## 2026-10-30
 
+### 删除会话改为彻底删除
+
+- `DELETE /api/v1/threads/{id}` 现在会**连同该会话的审计 / 用量 / 轨迹 / 确认记录与
+  渠道绑定一起删掉**（此前只删 `messages` 与 `threads`，观测数据会作为孤儿行留下）。
+  响应新增 `purged` 字段回显各表删除行数；攒批写的缓冲区也会被清空，避免回写复活。
+- 历史存储的 `clear()` 顺带清理渠道绑定，修掉「渠道会话仍指向已删 thread」的悬空绑定；
+  内存实现的会话映射同样清理。
+
 ### 可观测性：轨迹落库 + 自建统计页（移除 Langfuse）
 
 - **移除 Langfuse 追踪**：删掉 `observability/tracing.py`、`observability.tracing` 配置段、

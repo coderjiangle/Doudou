@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doudou.observability.cost import UsageRecord
 from doudou.observability.logging import get_logger
+from doudou.storage.database import affected_rows
 from doudou.storage.models import UsageModel, as_utc, utcnow
 
 logger = get_logger(__name__)
@@ -153,6 +154,13 @@ class UsageRepository:
         known = int(row[3] or 0)
         rows = int(row[4] or 0)
         return int(row[0] or 0), int(row[1] or 0), (None if known < rows else row[2])
+
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部用量行（删会话时调用）。"""
+        result = await self.session.execute(
+            delete(UsageModel).where(UsageModel.thread_id == thread_id)
+        )
+        return affected_rows(result)
 
 
 def _add_cost(left: float | None, right: float | None) -> float | None:

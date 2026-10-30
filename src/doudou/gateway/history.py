@@ -78,7 +78,11 @@ class HistoryStore(Protocol):
         ...
 
     async def clear(self, thread_id: str) -> bool:
-        """清空线程历史；返回是否确有删除。"""
+        """删除线程及其历史；返回是否确有删除。
+
+        实现可以顺带清掉这条会话的渠道绑定（``session_bindings``），
+        避免留下指向已删 thread 的悬空映射。
+        """
         ...
 
     async def get_thread(self, thread_id: str) -> ThreadInfo | None: ...
@@ -163,6 +167,8 @@ class InMemoryHistoryStore:
 
     async def clear(self, thread_id: str) -> bool:
         record = self._threads.pop(thread_id, None)
+        # 同时清掉会话映射，避免「渠道会话 → 已删除的 thread」的悬空指向。
+        self.sessions.remove_thread(thread_id)
         return record is not None
 
     # ---------------------------------------------------------------- 元信息

@@ -128,5 +128,12 @@ class RunTraceRepository:
         result = await self.session.execute(delete(RunTraceModel))
         return affected_rows(result)
 
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除某条会话的全部轨迹（删会话时调用）。"""
+        result = await self.session.execute(
+            delete(RunTraceModel).where(RunTraceModel.thread_id == thread_id)
+        )
+        return affected_rows(result)
+
 
 __all__ = ["RunTraceRepository"]

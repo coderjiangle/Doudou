@@ -43,7 +43,11 @@ class SessionBindingRepository:
         )
 
     async def resolve(self, channel: str, conversation_id: str) -> str | None:
-        """取绑定的 thread；对应的 thread 行已被删除时返回 ``None``。"""
+        """取绑定的 thread。
+
+        **不校验 thread 是否还存在** —— 悬空绑定的补救在
+        ``SqlHistoryStore.resolve_thread`` 里做（发现 thread 行已删就重新分配）。
+        """
         return await self.get(channel, conversation_id)
 
     async def unbind(self, channel: str, conversation_id: str) -> bool:
@@ -58,6 +62,13 @@ class SessionBindingRepository:
     async def list_for_thread(self, thread_id: str) -> list[SessionBindingModel]:
         statement = select(SessionBindingModel).where(SessionBindingModel.thread_id == thread_id)
         return list((await self.session.execute(statement)).scalars().all())
+
+    async def delete_for_thread(self, thread_id: str) -> int:
+        """删除指向某条会话的全部绑定（删会话时调用，避免留下悬空绑定）。"""
+        result = await self.session.execute(
+            delete(SessionBindingModel).where(SessionBindingModel.thread_id == thread_id)
+        )
+        return affected_rows(result)
 
 
 __all__ = ["SessionBindingRepository"]

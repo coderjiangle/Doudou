@@ -312,3 +312,18 @@ observability:
     max_rows: 20000            # 行数上限，超出按时间清理
     max_text_chars: 1000       # 单段文本（步骤文本/工具结果）截断长度
     batch_size: 50             # 攒批写：1 = 逐条严格持久化
+
+# ---------------------------------------------------------------- 定时任务
+# 在聊天里让 Agent 建任务（schedule_* 工具）；到点由 serve 进程过一遍 LLM，
+# 把结果推到目标会话。**任务不绑定会话**，只记投递目标：
+#   飞书群 → 那个群；飞书私聊 → 那条私聊；CLI / Web → 飞书私聊（触发时解析）。
+scheduler:
+  enabled: true
+  tick_seconds: 30.0           # 轮询间隔；到点任务的最小精度就是它
+  timezone: null               # 解释 cron/间隔用的时区；null 继承 runtime.timezone
+  max_tasks: 200               # 任务数上限，超出时拒绝新建
+  run_timeout_seconds: 600.0   # 单次触发的最长运行时间；超时记为失败
+  # CLI/Web 建的任务推给谁的飞书私聊：填飞书 open_id。
+  # 留空时只能靠「唯一一条私聊绑定」推断，多用户场景请显式配置。
+  owner_user_id: null
+  catch_up: false              # 停机期间错过的触发点是否补跑（默认不补）

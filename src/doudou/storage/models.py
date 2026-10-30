@@ -1,6 +1,6 @@
-"""ORM models: threads, messages, channel bindings, approvals, audit, usage, traces.
+"""ORM models: threads, messages, channel bindings, approvals, audit, usage, traces, scheduler.
 
-七张表的分工：
+九张表的分工：
 
 * ``threads``          —— 一个会话（= 一个 agent thread），承载渠道归属与时间戳；
 * ``messages``         —— 线程内的消息，``seq`` 保证顺序，工具调用字段以 JSON 存；
@@ -8,7 +8,9 @@
 * ``approvals``        —— 人工确认的请求与决策（跨重启可查）；
 * ``audit_events``     —— 每次工具调用与每次运行的审计留痕；
 * ``usage_daily``      —— 按「天 × 会话」累计的 token 与费用；
-* ``run_traces``       —— 一次运行一行的轨迹（步骤明细以 JSON 存），供统计与回放。
+* ``run_traces``       —— 一次运行一行的轨迹（步骤明细以 JSON 存），供统计与回放；
+* ``scheduled_tasks``  —— 定时任务（**不绑定会话**，只记投递目标）；
+* ``channel_targets``  —— 「用户 → 该用户的渠道会话」映射（CLI/Web 任务的投递目标靠它推断）。
 
 时间戳统一存 UTC。注意 SQLite 不保留时区信息，读出来的可能是 naive datetime，
 因此对外输出前一律走 :func:`as_utc` 补上 UTC。
@@ -244,12 +246,70 @@ class RunTraceModel(Base):
     )
 
 
+class ScheduledTaskModel(Base):
+    """一条定时任务。
+
+    **刻意不绑定任何会话**（不存 ``thread_id``）：投递目标只记 ``channel`` +
+    ``conversation_id``。触发时在这一轮运行里按目标会话解析出 thread，
+    于是消息自然并入那个会话的上下文（见 doudou/scheduler）。
+
+    ``conversation_id`` 为 ``None`` 表示「目标未定」：这类任务来自 CLI/Web，
+    触发时再从 ``channel_targets`` 解析出用户的私聊会话；解析不到就跳过本次。
+    """
+
+    __tablename__ = "scheduled_tasks"
+
+    task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    #: 触发时交给模型的任务指令。
+    prompt: Mapped[str] = mapped_column(Text)
+    #: ``at``（一次性） / ``every``（间隔） / ``cron``。
+    kind: Mapped[str] = mapped_column(String(16))
+    #: 时间表达式：``at`` 存 ISO 时间、``every`` 存秒数、``cron`` 存 5 段表达式。
+    expr: Mapped[str] = mapped_column(String(200))
+    timezone: Mapped[str | None] = mapped_column(String(64))
+
+    #: 投递目标：渠道名 + 会话标识。``conversation_id`` 为空表示触发时再解析。
+    channel: Mapped[str] = mapped_column(String(32))
+    conversation_id: Mapped[str | None] = mapped_column(String(200))
+    #: 创建者（飞书 open_id 等）；CLI/Web 可能为空。
+    created_by: Mapped[str | None] = mapped_column(String(120))
+
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: ``ok`` / ``failed`` / ``skipped``（没有可推送目标时就地跳过）。
+    last_status: Mapped[str | None] = mapped_column(String(16))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ChannelTargetModel(Base):
+    """「用户 → 该用户在某个渠道的会话」映射。
+
+    用途：CLI / Web 建的任务没有渠道会话，但要求「推送到飞书私聊」。
+    用户**私聊过机器人**之后这里会记下他的 p2p ``chat_id``，触发时据此投递；
+    没记过就没有可推送目标，本次跳过。
+    """
+
+    __tablename__ = "channel_targets"
+
+    channel: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(200))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 __all__ = [
     "ApprovalModel",
     "AuditModel",
     "Base",
+    "ChannelTargetModel",
     "MessageModel",
     "RunTraceModel",
+    "ScheduledTaskModel",
     "SessionBindingModel",
     "ThreadModel",
     "UsageModel",

@@ -10,6 +10,10 @@ from doudou.storage.repositories.approvals import ApprovalRepository
 from doudou.storage.repositories.audit import AuditRepository
 from doudou.storage.repositories.channels import SessionBindingRepository
 from doudou.storage.repositories.messages import MessageRepository
+from doudou.storage.repositories.scheduled import (
+    ChannelTargetRepository,
+    ScheduledTaskRepository,
+)
 from doudou.storage.repositories.threads import ThreadRepository
 from doudou.storage.repositories.traces import RunTraceRepository
 from doudou.storage.repositories.usage import UsageRepository
@@ -17,8 +21,10 @@ from doudou.storage.repositories.usage import UsageRepository
 __all__ = [
     "ApprovalRepository",
     "AuditRepository",
+    "ChannelTargetRepository",
     "MessageRepository",
     "RunTraceRepository",
+    "ScheduledTaskRepository",
     "SessionBindingRepository",
     "ThreadRepository",
     "UsageRepository",

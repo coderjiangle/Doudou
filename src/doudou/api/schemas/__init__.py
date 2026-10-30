@@ -44,6 +44,7 @@ from doudou.api.schemas.observability import (
     UsageResponse,
     UsageTotalOut,
 )
+from doudou.api.schemas.scheduler import ScheduledListResponse, ScheduledTaskOut
 from doudou.api.schemas.traces import (
     StatsApprovalsOut,
     StatsChannelOut,
@@ -74,6 +75,8 @@ __all__ = [
     "McpStatusResponse",
     "MessageOut",
     "MessageOutLite",
+    "ScheduledListResponse",
+    "ScheduledTaskOut",
     "SkillOut",
     "SkillReloadResponse",
     "SkillsResponse",

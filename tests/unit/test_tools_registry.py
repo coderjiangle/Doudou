@@ -114,6 +114,7 @@ def test_all_groups_declared() -> None:
         "skills",
         "memory",
         "clock",
+        "schedule",
         "delegation",
         "meta",
     )

@@ -16,6 +16,7 @@ from doudou.agent.prompts import load_system_prompt
 from doudou.agent.react import ApprovalHook, ReactAgent
 from doudou.config.loader import Settings, get_settings
 from doudou.observability.logging import get_logger
+from doudou.scheduler.store import SchedulerStore
 from doudou.skills.registry import SkillRegistry
 from doudou.tools.registry import build_tools, effective_interrupt_on
 
@@ -98,6 +99,7 @@ def build_agent(
     extra_tools: Sequence[BaseTool] = (),
     model_spec: str | None = None,
     approval_hook: ApprovalHook | None = None,
+    scheduler_store: SchedulerStore | None = None,
 ) -> AgentBundle:
     """组装 Agent。
 
@@ -109,6 +111,7 @@ def build_agent(
             它们与内置工具一起走注册表，因此同样会做重名检测与确认策略计算。
         model_spec: 覆盖 ``model.primary``，对应 CLI 的 ``--model``。
         approval_hook: 人工确认回调，配合 ``agent.interrupt_on``。
+        scheduler_store: 定时任务存储；注入后 ``schedule_*`` 工具才会注册。
 
     Note:
         这是**同步**函数：MCP 工具的拉取是异步的，由调用方（lifespan / CLI）
@@ -134,6 +137,7 @@ def build_agent(
             extra_source="mcp",
             skills_registry=skills_registry,
             memory_store=memory,
+            scheduler_store=scheduler_store,
             model=model,
             fallback_models=fallback_models,
             approval_hook=approval_hook,

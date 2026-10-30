@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -22,12 +23,17 @@ from doudou.gateway.runner import AgentRunner
 from doudou.mcp.client import ServerOverview
 from doudou.mcp.config import McpConfigError
 from doudou.mcp.lifecycle import McpRuntime
-from doudou.observability.logging import configure_logging
+from doudou.observability.logging import configure_logging, get_logger
+from doudou.scheduler.store import SchedulerStore
 from doudou.skills.registry import SkillRegistry
+from doudou.storage.database import Database, create_database
+from doudou.storage.scheduled import SqlSchedulerStore
 from doudou.tools.registry import build_tools, describe_groups, tool_infos
 from doudou.utils.console import configure_stdio
 from doudou.utils.text import truncate
 from doudou.version import __version__
+
+logger = get_logger(__name__)
 
 app = typer.Typer(
     name="doudou",
@@ -93,6 +99,7 @@ def _build_bundle(
     *,
     approval_hook: ApprovalHook | None = None,
     extra_tools: Sequence[BaseTool] = (),
+    scheduler_store: SchedulerStore | None = None,
 ) -> AgentBundle:
     try:
         return build_agent(
@@ -100,10 +107,46 @@ def _build_bundle(
             model_spec=model_spec,
             approval_hook=approval_hook,
             extra_tools=extra_tools,
+            scheduler_store=scheduler_store,
         )
     except ModelBuildError as exc:
         err_console.print(f"[bold red]模型不可用：[/bold red]{exc}")
         raise typer.Exit(EXIT_USAGE) from exc
+
+
+@dataclass
+class CliSession:
+    """CLI 一次会话持有的资源：通道 +（可选）MCP 运行期与调度存储的数据库。"""
+
+    channel: CliChannel
+    mcp: McpRuntime | None = None
+    database: Database | None = None
+
+    async def aclose(self) -> None:
+        if self.mcp is not None:
+            await self.mcp.stop()
+        if self.database is not None:
+            await self.database.dispose()
+
+
+async def _open_scheduler_store(
+    settings: Settings,
+) -> tuple[SchedulerStore | None, Database | None]:
+    """为 CLI 打开调度存储。
+
+    CLI 本身是无状态的，但定时任务必须落库才能被 ``serve`` 实例触发，所以这里
+    按 ``storage.database_url`` 单独开一个库。开不起来就**安静降级**（不注册工具），
+    而不是让 ``doudou ask`` 直接失败。
+    """
+    if not settings.app.scheduler.enabled:
+        return None, None
+    try:
+        database = create_database(settings.app.storage)
+        await database.create_schema()
+    except Exception as exc:
+        logger.warning("scheduler.cli_store_unavailable", error=str(exc))
+        return None, None
+    return SqlSchedulerStore(database), database
 
 
 async def _prepare_channel(
@@ -113,7 +156,7 @@ async def _prepare_channel(
     stream: bool,
     interactive: bool,
     quiet: bool,
-) -> tuple[CliChannel, McpRuntime | None]:
+) -> CliSession:
     """组装 agent + runner + CLI 通道，并拉取 MCP 工具。
 
     顺序很重要：``ReactAgent`` 在创建时就固定了工具列表与确认回调，
@@ -136,8 +179,15 @@ async def _prepare_channel(
 
     mcp = McpRuntime(settings)
     mcp_tools = await mcp.start()
+    scheduler_store, database = await _open_scheduler_store(settings)
 
-    bundle = _build_bundle(settings, model_spec, approval_hook=hook, extra_tools=mcp_tools)
+    bundle = _build_bundle(
+        settings,
+        model_spec,
+        approval_hook=hook,
+        extra_tools=mcp_tools,
+        scheduler_store=scheduler_store,
+    )
     runner = AgentRunner(bundle)
     channel = CliChannel(
         runner,
@@ -147,7 +197,7 @@ async def _prepare_channel(
         console=target,
         show_tool_calls=not quiet,
     )
-    return channel, mcp if mcp.enabled else None
+    return CliSession(channel=channel, mcp=mcp if mcp.enabled else None, database=database)
 
 
 def _make_channel(
@@ -230,7 +280,7 @@ def chat(
     settings = _load(config_dir, log_level=log_level)
 
     async def _run() -> None:
-        channel, _mcp = await _prepare_channel(
+        prepared = await _prepare_channel(
             settings,
             model,
             stream=not no_stream,
@@ -238,10 +288,9 @@ def chat(
             quiet=False,
         )
         try:
-            await channel.repl(conversation_id=conversation)
+            await prepared.channel.repl(conversation_id=conversation)
         finally:
-            if _mcp is not None:
-                await _mcp.stop()
+            await prepared.aclose()
 
     try:
         asyncio.run(_run())
@@ -269,7 +318,7 @@ def ask(
     settings = _load(config_dir, log_level=log_level)
 
     async def _run() -> RunResult:
-        channel, _mcp = await _prepare_channel(
+        prepared = await _prepare_channel(
             settings,
             model,
             stream=not no_stream,
@@ -277,10 +326,9 @@ def ask(
             quiet=quiet,
         )
         try:
-            return await channel.ask(question, conversation_id=conversation)
+            return await prepared.channel.ask(question, conversation_id=conversation)
         finally:
-            if _mcp is not None:
-                await _mcp.stop()
+            await prepared.aclose()
 
     result = asyncio.run(_run())
 
@@ -305,19 +353,31 @@ def tools_list(
     """列出 Agent 实际装载的工具（默认包含 MCP 拉取到的那些）。"""
     settings = _load(config_dir)
 
-    async def _collect() -> tuple[list[Any], McpRuntime | None]:
+    async def _collect() -> tuple[list[Any], McpRuntime | None, Database | None]:
+        scheduler_store, database = await _open_scheduler_store(settings)
         if no_mcp:
-            return build_tools(settings), None
+            return build_tools(settings, scheduler_store=scheduler_store), None, database
         runtime = McpRuntime(settings)
         mcp_tools = await runtime.start()
-        return build_tools(settings, extra=mcp_tools, extra_source="mcp"), runtime
+        return (
+            build_tools(
+                settings,
+                extra=mcp_tools,
+                extra_source="mcp",
+                scheduler_store=scheduler_store,
+            ),
+            runtime,
+            database,
+        )
 
-    tools, runtime = asyncio.run(_collect())
+    tools, runtime, database = asyncio.run(_collect())
     try:
         infos = tool_infos(settings, tools=tools)
     finally:
         if runtime is not None:
             asyncio.run(runtime.stop())
+        if database is not None:
+            asyncio.run(database.dispose())
 
     table = Table(title=f"工具（{len(infos)}）")
     table.add_column("名称", style="bold")

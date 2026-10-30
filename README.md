@@ -42,6 +42,7 @@
 | 审计日志 | 工具调用全量留痕（参数打码 + 截断） | `doudou.observability.audit` |
 | 成本核算 | 按天×会话的 token/费用、日预算告警 | `doudou.observability.cost` |
 | 运行轨迹 | 一次运行一行落库（步骤明细 JSON），自建统计页可回放 | `doudou.observability.traces` |
+| 定时任务 | 聊天里创建，到点过一遍 LLM 再推送；不绑定会话 | `doudou.scheduler` |
 
 ## 1.1 立刻可跑（不需要任何 API Key）
 
@@ -112,6 +113,7 @@ Doudou/
 │  ├─ skills/                 # Skill 发现与索引
 │  ├─ channels/               # 通道实现（feishu / webhook / cli）
 │  ├─ gateway/                # 会话路由、消息总线、运行器
+│  ├─ scheduler/              # 定时任务：时间表达、投递目标、轮询触发
 │  ├─ api/                    # FastAPI 应用与路由
 │  ├─ storage/                # 持久化（typing / 消息 / 通道绑定）
 │  ├─ observability/          # 日志、链路追踪、指标
@@ -240,6 +242,7 @@ uv run doudou serve --port 9000 --reload
 | `GET /api/v1/audit` / `GET /api/v1/usage` | 审计记录 / token 与费用用量 |
 | `GET /api/v1/traces` / `GET /api/v1/traces/{run_id}` | 运行轨迹列表 / 单次运行的逐步回放（列表可 `?thread_id=`） |
 | `GET /api/v1/stats` | 运行量·成功率·工具分布·确认比例·token/费用趋势（可 `?thread_id=` 只看单会话） |
+| `GET /api/v1/scheduled` | 定时任务列表（只读；创建/取消在聊天里用 `schedule_*` 工具） |
 | `GET /api/v1/health` / `/health/ready` | 健康 / 就绪检查（**不需要鉴权**） |
 | `GET /` | 内置聊天页（会话列表 + 流式对话） |
 | `GET /stats` | 内置统计页（轨迹回放 + 图表，不依赖外部 CDN） |
@@ -376,6 +379,23 @@ curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```
 
+### 4.11 定时任务
+
+在任意通道里直接说「每天 9 点提醒我看邮件」「半小时后提醒我一下」，Agent 会建好任务；
+到点由 **`doudou serve` 进程**过一遍 LLM，把结果推到目标会话：
+
+- 飞书群 → 推给那个群；飞书私聊 → 推给那条私聊；CLI / Web → 推给飞书私聊；
+- **任务不绑定会话**；触发的运行落在**目标会话**的同一个 thread 上，历史自然衔接；
+- 触发时**没有可推送目标**（如飞书私聊从没聊过）→ **跳过本次**（不跑模型、不推送）。
+
+```bash
+uv run doudou serve                        # 定时任务由常驻服务托管
+uv run doudou ask "帮我建一个每天9点提醒站会的任务"   # 也可以在 CLI 里建
+curl http://127.0.0.1:8000/api/v1/scheduled # 只读查看现有任务
+```
+
+完整规则、时间写法与限制见 [`docs/scheduler.md`](docs/scheduler.md)。
+
 飞书接入步骤见 [`docs/channels.md`](docs/channels.md)，MCP 接入见 [`docs/mcp.md`](docs/mcp.md)，
 Skill 编写见 [`docs/skills.md`](docs/skills.md)。
 
@@ -406,6 +426,7 @@ make lint / test / fmt                     # 见 Makefile
 | [docs/mcp.md](docs/mcp.md) | MCP server 配置与工具装配 |
 | [docs/skills.md](docs/skills.md) | Skill 目录规范与编写指引 |
 | [docs/tools.md](docs/tools.md) | 自定义工具开发规范 |
+| [docs/scheduler.md](docs/scheduler.md) | 定时任务：用法、投递规则、触发语义 |
 | [docs/security.md](docs/security.md) | 鉴权、密钥、权限与审计 |
 | [CHANGELOG.md](CHANGELOG.md) | 按日期记录的变更 |
 

@@ -12,6 +12,7 @@ from langchain_core.tools import BaseTool
 from doudou.agent.memory import MemoryStore
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
+from doudou.scheduler.store import SchedulerStore
 from doudou.skills.registry import SkillRegistry
 from doudou.tools.builtin import (
     clock,
@@ -19,6 +20,7 @@ from doudou.tools.builtin import (
     files,
     http,
     memory,
+    schedule,
     self_config,
     shell,
     skills,
@@ -41,6 +43,8 @@ BUILTIN_PROVIDERS: tuple[tuple[str, ToolProvider], ...] = (
     ("skills", skills.build_tools),
     ("memory", memory.build_tools),
     ("clock", clock.build_tools),
+    #: 定时任务需要调度存储，同记忆/技能那样单独构造。
+    ("schedule", schedule.build_tools),
     #: 委派放最后：它需要「其它工具」的清单，见 build_tools。
     ("delegation", delegation.build_tools),
     #: 配置自检也要工具清单，同样在循环之后单独构造。
@@ -54,13 +58,16 @@ ALL_GROUPS: tuple[str, ...] = tuple(group for group, _ in BUILTIN_PROVIDERS)
 EXTRA_GROUP = "mcp"
 EXTRA_SOURCE = "mcp"
 
-#: 这几个分组的提供方需要「Agent 上下文」里的对象（索引/记忆/工具清单），
+#: 这几个分组的提供方需要「Agent 上下文」里的对象（索引/记忆/工具清单/调度存储），
 #: 因此不能走统一的 ``(settings) -> tools`` 形状，在 build_tools 里单独处理。
 SKILLS_GROUP = "skills"
 MEMORY_GROUP = "memory"
+SCHEDULE_GROUP = "schedule"
 DELEGATION_GROUP = "delegation"
 META_GROUP = "meta"
-CONTEXT_GROUPS = frozenset({SKILLS_GROUP, MEMORY_GROUP, DELEGATION_GROUP, META_GROUP})
+CONTEXT_GROUPS = frozenset(
+    {SKILLS_GROUP, MEMORY_GROUP, SCHEDULE_GROUP, DELEGATION_GROUP, META_GROUP}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +103,7 @@ def build_tools(
     extra_source: str = EXTRA_SOURCE,
     skills_registry: SkillRegistry | None = None,
     memory_store: MemoryStore | None = None,
+    scheduler_store: SchedulerStore | None = None,
     model: BaseChatModel | None = None,
     fallback_models: Sequence[BaseChatModel] = (),
     approval_hook: Any | None = None,
@@ -109,6 +117,7 @@ def build_tools(
         skills_registry: 复用已有的 Skill 索引。**必须与系统提示词用同一份**，
             否则提示词里列出的技能和 ``read_skill`` 能读到的会对不上。
         memory_store: 复用已有的记忆存储，同样要与提示词共用一份。
+        scheduler_store: 定时任务存储；为 ``None`` 时不注册定时任务工具。
         model: 主模型；``task`` 工具需要它来驱动子 Agent。
         approval_hook: 主 Agent 的确认回调，**必须传给 ``task``** ——
             否则子 Agent 调用有副作用的工具时无人可问。
@@ -139,6 +148,14 @@ def build_tools(
     if group_enabled(settings, MEMORY_GROUP):
         for item in memory.build_tools(settings, store=memory_store):
             _add(collected, seen, item, source=f"builtin:{MEMORY_GROUP}", settings=settings)
+
+    if group_enabled(settings, SCHEDULE_GROUP):
+        for item in schedule.build_tools(
+            settings,
+            store=scheduler_store,
+            default_timezone=settings.app.runtime.timezone,
+        ):
+            _add(collected, seen, item, source=f"builtin:{SCHEDULE_GROUP}", settings=settings)
 
     # 委派必须放最后：它要把「上面这些工具」按白名单交给子 Agent。
     if group_enabled(settings, DELEGATION_GROUP) and model is not None:

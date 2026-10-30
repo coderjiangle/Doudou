@@ -11,6 +11,7 @@ from doudou.api.routes import (
     chat,
     health,
     mcp,
+    schedule,
     skills,
     threads,
     tools,
@@ -37,6 +38,7 @@ def build_router(base_path: str = "/api/v1") -> APIRouter:
     router.include_router(audit.router, dependencies=[Depends(require_token)])
     router.include_router(usage.router, dependencies=[Depends(require_token)])
     router.include_router(traces.router, dependencies=[Depends(require_token)])
+    router.include_router(schedule.router, dependencies=[Depends(require_token)])
 
     return router
 

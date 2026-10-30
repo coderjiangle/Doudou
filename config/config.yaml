@@ -313,3 +313,10 @@ observability:
     max_rows: 20000            # 行数上限，超出按时间清理
     max_text_chars: 1000       # 单段文本（步骤文本/工具结果）截断长度
     batch_size: 50
+
+# 定时任务（在聊天里用 schedule_* 工具管理；由 serve 进程到点触发）
+scheduler:
+  enabled: true
+  tick_seconds: 30.0
+  timezone: null               # null = 用 runtime.timezone
+  owner_user_id: null          # CLI/Web 任务的飞书私聊归属（open_id）

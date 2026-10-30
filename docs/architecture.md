@@ -112,6 +112,20 @@ run_start
 
 设计取舍见 `docs/observability.md`，容量数据见 `docs/performance.md`。
 
+### 2.3.1 定时任务
+
+| 模块 | 职责 |
+| --- | --- |
+| `scheduler.types` | 领域对象 `ScheduledTask`（**不绑定会话**，只记投递目标） |
+| `scheduler.triggers` | 时间表达 → `next_run_at`（`at` / `every` / `cron`，cron 借 apscheduler 的 trigger 算） |
+| `scheduler.targets` | 投递目标：创建时定目标、触发时解析飞书私聊、记「用户 → 私聊会话」绑定 |
+| `scheduler.runtime` | 轮询到期任务 → `MessageRouter.run_now` 跑一轮 → 回写状态 |
+| `scheduler.store` | 存储协议 + 内存实现（SQL 实现在 `storage.scheduled`） |
+| `storage.scheduled` | 落库实现（`scheduled_tasks` / `channel_targets` 两张表） |
+
+**任务不绑定任何会话**：触发时在投递目标会话里解析出 thread，消息并入该会话上下文。
+没有可推送目标时跳过整次触发（不跑模型）。见 `docs/scheduler.md`。
+
 > **没有 `middleware` / `backends` / `checkpointer` 这三个模块。**
 > 规划、子 Agent、虚拟文件系统、上下文压缩分别由 `react` / `context` / `subagents` /
 > `tools.builtin.files` 自己实现。

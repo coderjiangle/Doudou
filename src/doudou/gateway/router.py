@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from doudou.channels.base import (
     EventSink,
     InboundMessage,
@@ -28,13 +30,24 @@ logger = get_logger(__name__)
 #: 队列满时回复用户的话术。
 BUSY_REPLY = "我还在处理上一条消息，稍等一下再说～"
 
+#: 入站钩子：拿到每条归一化消息（用于记录「用户 → 会话」映射等旁路）。
+InboundHook = Callable[[InboundMessage], Awaitable[None]]
+
 
 class MessageRouter:
     """把入站消息交给 Agent 跑，并把事件流交给通道渲染。"""
 
-    def __init__(self, runner: AgentRunner, *, bus: MessageBus | None = None) -> None:
+    def __init__(
+        self,
+        runner: AgentRunner,
+        *,
+        bus: MessageBus | None = None,
+        on_inbound: InboundHook | None = None,
+    ) -> None:
         self.runner = runner
         self.bus = bus
+        #: 旁路钩子：失败只告警，不影响运行（与观察者同一条原则）。
+        self.on_inbound = on_inbound
 
     async def dispatch(self, message: InboundMessage, sink: EventSink) -> bool:
         """处理一条入站消息。
@@ -72,6 +85,7 @@ class MessageRouter:
             user_id=message.user_id,
             text_chars=len(message.text),
         )
+        await self._notify_inbound(message)
         stream = self.runner.astream(request)
         # 标记「现在服务的是这条消息」：确认回调要靠它知道把卡片发到哪个会话。
         token = bind_inbound(message)
@@ -83,6 +97,29 @@ class MessageRouter:
             aclose = getattr(stream, "aclose", None)
             if callable(aclose):
                 await aclose()
+
+    async def run_now(self, message: InboundMessage, sink: EventSink) -> None:
+        """立即执行一轮（不排队）并等待完成。
+
+        定时任务用：它已经由调度器的节奏限流，且调用方需要等待结果来记录状态。
+        同一 thread 的并发仍由 ``AgentRunner`` 的每线程锁兜住。
+        """
+        request = RunRequest.from_inbound(message)
+        await self._run(message, sink, request)
+
+    async def _notify_inbound(self, message: InboundMessage) -> None:
+        """触发入站钩子；钩子是旁路，失败只告警。"""
+        if self.on_inbound is None:
+            return
+        try:
+            await self.on_inbound(message)
+        except Exception as exc:
+            logger.warning(
+                "router.inbound_hook_failed",
+                channel=message.channel,
+                conversation_id=message.conversation_id,
+                error=str(exc),
+            )
 
     async def _reply_busy(self, message: InboundMessage, sink: EventSink) -> None:
         get_metrics().incr("router.busy_rejected")
@@ -96,4 +133,4 @@ class MessageRouter:
             )
 
 
-__all__ = ["BUSY_REPLY", "MessageRouter"]
+__all__ = ["BUSY_REPLY", "InboundHook", "MessageRouter"]

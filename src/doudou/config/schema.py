@@ -561,6 +561,29 @@ class ObservabilityConfig(_Section):
     traces: TracesConfig = Field(default_factory=TracesConfig)
 
 
+# --------------------------------------------------------------------------- scheduler
+
+
+class SchedulerConfig(_Section):
+    """定时任务：聊天里创建，到点过一遍 LLM 再把结果推到目标会话。"""
+
+    enabled: bool = True
+    #: 轮询间隔（秒）。到点任务的最小触发精度就是它，别设得太小。
+    tick_seconds: float = 30.0
+    #: 解释 cron/间隔时用的时区；留空继承 ``runtime.timezone``。
+    timezone: str | None = None
+    #: 单个部署最多保留多少条任务（超出时拒绝新建）。
+    max_tasks: int = 200
+    #: 单次触发允许的最长运行时间（秒）；超时当作本次失败，不再等。
+    run_timeout_seconds: float = 600.0
+    #: CLI / Web 建的任务推给谁的飞书私聊：填飞书 ``open_id``。
+    #: 留空时只能靠「唯一一条私聊绑定」推断，多用户场景务必显式配置。
+    owner_user_id: str | None = None
+    #: 错过触发点（如服务停机）后，是否补跑一次。默认不补 —— 补跑会一次性
+    #: 涌出一堆过期推送，通常不是用户想要的。
+    catch_up: bool = False
+
+
 # --------------------------------------------------------------------------- root
 
 
@@ -579,6 +602,7 @@ class AppConfig(_Section):
     mcp: McpConfig = Field(default_factory=McpConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
 
 
 __all__ = [
@@ -601,6 +625,7 @@ __all__ = [
     "ObservabilityConfig",
     "PermissionRule",
     "RuntimeConfig",
+    "SchedulerConfig",
     "ServerConfig",
     "ShellToolConfig",
     "StorageConfig",

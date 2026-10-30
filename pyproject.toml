@@ -138,8 +138,8 @@ warn_unused_ignores = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# 这两个第三方包不带 py.typed，但它们只在可选/延迟 import 里出现。
-module = ["lark_oapi.*", "langchain_mcp_adapters.*"]
+# 这几个第三方包不带 py.typed，但它们只在可选/延迟 import 里出现。
+module = ["lark_oapi.*", "langchain_mcp_adapters.*", "apscheduler.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

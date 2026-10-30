@@ -4,6 +4,21 @@
 
 ## 2026-10-30
 
+### 定时任务
+
+- 新增**定时任务**（`doudou.scheduler`）：在聊天里用 `schedule_create` / `schedule_list` /
+  `schedule_cancel` 管理；到点由 `serve` 进程过一遍 LLM，把结果推到目标会话。
+  - **任务不绑定会话**：只记投递目标（`channel` + `conversation_id`）。飞书群 → 该群，
+    飞书私聊 → 该私聊，CLI / Web → 飞书私聊（触发时按 `channel_targets` 绑定解析）。
+  - 触发时**没有可推送目标就跳过整次**（`last_status: skipped`，不跑模型、不推送）。
+  - 触发的运行落在**目标会话的同一 thread** 上，消息并入上下文；触发消息以
+    `[定时任务] <name>：<prompt>` 写入历史。
+  - 时间表达支持 `at` / `every` / `cron`；cron 借 `apscheduler` 的 `CronTrigger` 算时间
+    （不用它的调度器，避免 DB 与内存双份状态）。停机错过的触发点默认不补跑。
+  - 新增表 `scheduled_tasks` / `channel_targets`，只读接口 `GET /api/v1/scheduled`；
+    `MessageRouter` 增加 `on_inbound` 钩子用于记录「用户 → 私聊会话」绑定。
+  - 新增配置段 `scheduler` 与文档 `docs/scheduler.md`。
+
 ### 删除会话改为彻底删除
 
 - `DELETE /api/v1/threads/{id}` 现在会**连同该会话的审计 / 用量 / 轨迹 / 确认记录与

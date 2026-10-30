@@ -1,13 +1,14 @@
-"""ORM models: threads, messages, channel bindings, approvals, audit, usage.
+"""ORM models: threads, messages, channel bindings, approvals, audit, usage, traces.
 
-六张表的分工：
+七张表的分工：
 
 * ``threads``          —— 一个会话（= 一个 agent thread），承载渠道归属与时间戳；
 * ``messages``         —— 线程内的消息，``seq`` 保证顺序，工具调用字段以 JSON 存；
 * ``session_bindings`` —— 「渠道会话 → thread」的映射，让会话归属在重启后仍然成立；
 * ``approvals``        —— 人工确认的请求与决策（跨重启可查）；
 * ``audit_events``     —— 每次工具调用与每次运行的审计留痕；
-* ``usage_daily``      —— 按「天 × 会话」累计的 token 与费用。
+* ``usage_daily``      —— 按「天 × 会话」累计的 token 与费用；
+* ``run_traces``       —— 一次运行一行的轨迹（步骤明细以 JSON 存），供统计与回放。
 
 时间戳统一存 UTC。注意 SQLite 不保留时区信息，读出来的可能是 naive datetime，
 因此对外输出前一律走 :func:`as_utc` 补上 UTC。
@@ -198,11 +199,57 @@ class UsageModel(Base):
     last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RunTraceModel(Base):
+    """一次运行的轨迹。
+
+    与 ``audit_events`` 的分工：审计是**安全视角**（工具调用与是否经人确认，
+    参数打码截断），这张表是**回放视角**（每一步说了什么、调了哪些工具、结果如何）。
+    两者都从同一份 ``RunEvent`` 流产生，但服务不同的查询。
+
+    ``steps_detail`` 以 JSON 存整棵步骤树 —— 它只用于「点进一次运行看回放」，
+    不需要 SQL 聚合（工具维度的统计走 ``audit_events``，那里本来就是一次调用一行）。
+    """
+
+    __tablename__ = "run_traces"
+
+    #: 观察者在运行开始时生成的短 id（uuid 前缀）。
+    run_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(120), index=True)
+    channel: Mapped[str | None] = mapped_column(String(32), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(200))
+    user_id: Mapped[str | None] = mapped_column(String(120))
+    model: Mapped[str | None] = mapped_column(String(120))
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    error: Mapped[str | None] = mapped_column(Text)
+    steps: Mapped[int] = mapped_column(Integer, default=0)
+    tool_calls: Mapped[int] = mapped_column(Integer, default=0)
+    approvals: Mapped[int] = mapped_column(Integer, default=0)
+    rejections: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    elapsed: Mapped[float] = mapped_column(Float, default=0.0)
+    #: 用户输入 / 最终答复的截断预览。
+    input_preview: Mapped[str] = mapped_column(Text, default="")
+    output_preview: Mapped[str] = mapped_column(Text, default="")
+    #: 按 step 聚合的明细（JSON 数组）。
+    steps_detail: Mapped[Any] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_run_traces_thread_started", "thread_id", "started_at"),
+        Index("ix_run_traces_channel_started", "channel", "started_at"),
+    )
+
+
 __all__ = [
     "ApprovalModel",
     "AuditModel",
     "Base",
     "MessageModel",
+    "RunTraceModel",
     "SessionBindingModel",
     "ThreadModel",
     "UsageModel",

@@ -304,13 +304,11 @@ observability:
       default: {input: 0.0, output: 0.0}
       # openai:gpt-x: {input: 3.0, output: 15.0}   # 每 100 万 token
 
-  # 追踪：Langfuse。默认关闭 —— 把对话内容发到第三方必须是明确的决定。
-  # 打开还需 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY，以及装好 SDK
-  # （uv sync --extra tracing）。缺任一条都会安静降级并告警。
-  # SDK 钉在 2.x：v3 走 OTEL 上报，只对 v3 服务端有效；自建常见的 2.95.x 得用 2.x SDK。
-  tracing:
-    enabled: false
-    host: https://cloud.langfuse.com   # 自建填自己的地址（v2 自建默认 :3000）
-    environment: null          # prod / staging，会打进 trace 标签
-    release: null
-    sample_rate: 1.0
+  # 轨迹：一次运行一行，步骤明细存 JSON。是 /traces 与 /stats 的数据源。
+  # **本地落库，不发送到任何外部服务**，所以默认开；用 max_rows 压住增长、
+  # max_text_chars 截断单段文本（轨迹是可重建的派生数据，放心压制）。
+  traces:
+    enabled: true
+    max_rows: 20000            # 行数上限，超出按时间清理
+    max_text_chars: 1000       # 单段文本（步骤文本/工具结果）截断长度
+    batch_size: 50             # 攒批写：1 = 逐条严格持久化

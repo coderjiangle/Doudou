@@ -100,26 +100,29 @@ class UsageRepository:
             for row in rows
         ]
 
-    async def by_day(self, *, days: int, limit: int = 60) -> list[UsageRecord]:
-        rows = (
-            await self.session.execute(
-                select(
-                    UsageModel.day,
-                    func.sum(UsageModel.runs),
-                    func.sum(UsageModel.input_tokens),
-                    func.sum(UsageModel.output_tokens),
-                    func.sum(UsageModel.tool_calls),
-                    func.sum(UsageModel.cost),
-                    func.count(UsageModel.cost),
-                    func.count(UsageModel.day),
-                    func.max(UsageModel.last_at),
-                )
-                .where(UsageModel.day >= _day_cutoff(days))
-                .group_by(UsageModel.day)
-                .order_by(UsageModel.day.desc())
-                .limit(limit)
+    async def by_day(
+        self, *, days: int, limit: int = 60, thread_id: str | None = None
+    ) -> list[UsageRecord]:
+        statement = (
+            select(
+                UsageModel.day,
+                func.sum(UsageModel.runs),
+                func.sum(UsageModel.input_tokens),
+                func.sum(UsageModel.output_tokens),
+                func.sum(UsageModel.tool_calls),
+                func.sum(UsageModel.cost),
+                func.count(UsageModel.cost),
+                func.count(UsageModel.day),
+                func.max(UsageModel.last_at),
             )
-        ).all()
+            .where(UsageModel.day >= _day_cutoff(days))
+            .group_by(UsageModel.day)
+            .order_by(UsageModel.day.desc())
+            .limit(limit)
+        )
+        if thread_id is not None:
+            statement = statement.where(UsageModel.thread_id == thread_id)
+        rows = (await self.session.execute(statement)).all()
 
         return [
             UsageRecord(

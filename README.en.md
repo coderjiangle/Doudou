@@ -45,7 +45,7 @@ standard), talks to you over a **Feishu (Lark) channel**, and exposes REST / SSE
 | Approval broker | Timeout means deny, decision reuse, persisted audit | `doudou.agent.approvals` |
 | Audit log | Every tool call recorded (arguments redacted + truncated) | `doudou.observability.audit` |
 | Cost accounting | Tokens / spend per day × conversation, daily budget alerts | `doudou.observability.cost` |
-| Tracing | Langfuse (optional, degrades when keys are missing) | `doudou.observability.tracing` |
+| Run traces | One row per run (step detail as JSON); built-in stats page for replay | `doudou.observability.traces` |
 
 ## 1.1 Run it right now (no API key required)
 
@@ -123,7 +123,7 @@ Doudou/
 │  ├─ gateway/                # Session routing, message bus, runner
 │  ├─ api/                    # FastAPI app and routes
 │  ├─ storage/                # Persistence (typing / messages / channel bindings)
-│  ├─ observability/          # Logging, tracing, metrics
+│  ├─ observability/          # Logging, traces, metrics
 │  ├─ security/               # Auth and secret handling
 │  └─ utils/                  # Shared utilities
 └─ tests/                     # Unit + integration tests

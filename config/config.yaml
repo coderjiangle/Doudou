@@ -308,7 +308,8 @@ observability:
     # 你的网关价格。没配 → cost 记为 null（未知 ≠ 0），并在 /usage 里列出 unknown_models
     prices:
       default: {input: 0.0, output: 0.0}
-  tracing:
-    enabled: true             # 需要 DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY
-    host: http://localhost:3000
-    sample_rate: 1.0
+  traces:
+    enabled: true              # 运行轨迹落库（run_traces 表），供 /traces 与 /stats 使用
+    max_rows: 20000            # 行数上限，超出按时间清理
+    max_text_chars: 1000       # 单段文本（步骤文本/工具结果）截断长度
+    batch_size: 50

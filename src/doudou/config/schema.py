@@ -535,28 +535,30 @@ class CostConfig(_Section):
     batch_size: int = 50
 
 
-class TracingConfig(_Section):
-    """Langfuse 追踪。"""
+class TracesConfig(_Section):
+    """运行轨迹：一次运行一行，步骤明细存 JSON（供 ``/traces`` 与 ``/stats`` 用）。
 
-    #: 显式开关：默认关闭，避免无意间把对话内容发到第三方。
-    enabled: bool = False
-    host: str = "https://cloud.langfuse.com"
-    #: Langfuse 凭据。**只放 `.env`**；
-    #: 环境变量：``DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY`` / ``_SECRET_KEY``。
-    public_key: str | None = None
-    secret_key: str | None = None
-    #: 打进 trace 标签，便于区分环境（prod / staging）。
-    environment: str | None = None
-    release: str | None = None
-    #: 采样率（0–1）。全量追踪很贵时压低它。
-    sample_rate: float = 1.0
+    与审计/成本不同，轨迹会带上正文（每一步的模型文本、工具参数与结果），
+    因此**默认开**（本地落库、正是统计页的数据源），但用 ``max_rows`` 压住增长、
+    用 ``max_text_chars`` 截断单段文本。轨迹是可重建的派生数据，放心压制。
+    """
+
+    enabled: bool = True
+    #: 落库时的行数上限，超出按时间清理（避免无限增长）。
+    max_rows: int = 20000
+    #: 无数据库时的内存上限（环形缓冲，超出丢最旧）。
+    max_memory_entries: int = 2000
+    #: 攒多少条写一次库（同 ``audit.batch_size``，绕开 SQLite 单写者瓶颈）。
+    batch_size: int = 50
+    #: 单段文本（步骤文本、工具参数/结果、输入输出摘要）的截断长度。
+    max_text_chars: int = 1000
 
 
 class ObservabilityConfig(_Section):
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     cost: CostConfig = Field(default_factory=CostConfig)
-    tracing: TracingConfig = Field(default_factory=TracingConfig)
+    traces: TracesConfig = Field(default_factory=TracesConfig)
 
 
 # --------------------------------------------------------------------------- root
@@ -604,7 +606,7 @@ __all__ = [
     "StorageConfig",
     "SubAgentSpec",
     "ToolsConfig",
-    "TracingConfig",
+    "TracesConfig",
     "WebSearchToolConfig",
     "WebhookChannelConfig",
 ]

@@ -1,4 +1,4 @@
-"""审计、成本、追踪。
+"""审计、成本、轨迹。
 
 这里钉住的是三条容易写错、且错了**不会立刻暴露**的规则：
 
@@ -45,7 +45,7 @@ from doudou.observability.observers import (
     notify_start,
 )
 from doudou.observability.setup import build_observability
-from doudou.observability.tracing import LangfuseTracer, TracingObserver
+from doudou.observability.traces import MemoryTraceStore, TraceObserver, TraceRecord
 from doudou.storage.audit import SqlAuditStore
 from doudou.storage.database import Database, create_database
 from doudou.storage.usage import SqlUsageStore
@@ -439,6 +439,11 @@ async def test_memory_usage_store_groups_by_day_and_thread() -> None:
     assert by_thread["t1"].input_tokens == 15
     assert "t3" not in by_thread
 
+    # 指定会话时只算那一条（统计页的「按会话」）
+    scoped = {item.day: item for item in await store.by_day(days=2, thread_id="t2")}
+    assert scoped[today.isoformat()].input_tokens == 7
+    assert yesterday.isoformat() not in scoped
+
 
 async def test_sql_usage_accumulates_and_aggregates(database: Database) -> None:
     store = SqlUsageStore(database)
@@ -455,6 +460,11 @@ async def test_sql_usage_accumulates_and_aggregates(database: Database) -> None:
     # t2 的价格未知 → 它的汇总费用是未知，而不是 0.75
     assert by_thread["t2"].cost is None
     assert (await store.total(day=day))[2] is None
+
+    # 按天 + 按会话：只算指定的那一条
+    scoped = {item.day: item for item in await store.by_day(days=2, thread_id="t1")}
+    assert scoped[day].input_tokens == 150
+    assert scoped[day].cost == pytest.approx(0.75)
 
 
 async def test_build_usage_report_budget_boundary() -> None:
@@ -648,12 +658,13 @@ async def test_observer_failure_never_breaks_the_run() -> None:
 
 
 async def test_build_observability_defaults(settings: Settings) -> None:
-    """默认（无库）时：审计与成本开启、追踪关闭。"""
+    """默认（无库）时：审计、成本、轨迹都开启（轨迹是本地落库）。"""
     stack = build_observability(settings)
 
-    assert stack.names == ["audit", "usage"]
+    assert stack.names == ["audit", "usage", "trace"]
     assert stack.describe()["audit_backend"] == "memory"
-    assert stack.tracer is None
+    assert stack.describe()["trace_backend"] == "memory"
+    assert stack.trace_store is not None
 
 
 async def test_build_observability_with_database(database: Database, settings: Settings) -> None:
@@ -661,98 +672,26 @@ async def test_build_observability_with_database(database: Database, settings: S
 
     assert stack.describe()["audit_backend"] == "database"
     assert stack.describe()["usage_backend"] == "database"
+    assert stack.describe()["trace_backend"] == "database"
 
 
 async def test_build_observability_can_be_disabled(settings_factory) -> None:  # type: ignore[no-untyped-def]
     settings = settings_factory(
-        config_yaml="observability:\n  audit:\n    enabled: false\n  cost:\n    enabled: false\n"
+        config_yaml=(
+            "observability:\n"
+            "  audit:\n    enabled: false\n"
+            "  cost:\n    enabled: false\n"
+            "  traces:\n    enabled: false\n"
+        )
     )
 
     stack = build_observability(settings)
 
     assert stack.names == []
+    assert stack.trace_store is None
 
 
-async def test_tracing_needs_credentials(settings_factory) -> None:  # type: ignore[no-untyped-def]
-    """打开追踪但没给 key → 安静降级，而不是崩掉或偷偷发出去。"""
-    settings = settings_factory(
-        config_yaml="observability:\n  tracing:\n    enabled: true\n", use_env=False
-    )
-
-    stack = build_observability(settings)
-
-    assert stack.tracer is None
-    assert "tracing" not in stack.names
-
-
-# --------------------------------------------------------------------------- 追踪
-
-
-class FakeSpan:
-    """假的 Langfuse v2 observation：记录调用，不做任何 IO。"""
-
-    def __init__(self, kind: str, name: str, **kw: Any) -> None:
-        self.record: dict[str, Any] = {"kind": kind, "name": name, **kw}
-        self.children: list[FakeSpan] = []
-        self.ended = False
-
-    def _child(self, kind: str, **kw: Any) -> FakeSpan:
-        child = FakeSpan(kind, kw.pop("name", ""), **kw)
-        self.children.append(child)
-        return child
-
-    def span(self, **kw: Any) -> FakeSpan:
-        return self._child("span", **kw)
-
-    def generation(self, **kw: Any) -> FakeSpan:
-        return self._child("generation", **kw)
-
-    def event(self, **kw: Any) -> FakeSpan:
-        return self._child("event", **kw)
-
-    def update(self, **kw: Any) -> FakeSpan:
-        self.record.setdefault("updates", []).append(kw)
-        return self
-
-    def end(self, **kw: Any) -> FakeSpan:
-        self.ended = True
-        return self
-
-
-class FakeLangfuse:
-    """假的 Langfuse v2 客户端：``trace()`` 起步，之后逐层 span/generation/event。"""
-
-    def __init__(self) -> None:
-        self.traces: list[FakeSpan] = []
-        self.flushed = False
-        self.shut = False
-
-    def trace(self, **kw: Any) -> FakeSpan:
-        trace = FakeSpan("trace", kw.pop("name", ""), **kw)
-        self.traces.append(trace)
-        return trace
-
-    def flush(self) -> None:
-        self.flushed = True
-
-    def shutdown(self) -> None:
-        self.shut = True
-
-    def auth_check(self) -> bool:
-        return True
-
-    def walk(self) -> list[FakeSpan]:
-        """摊平所有节点，方便断言。"""
-        found: list[FakeSpan] = []
-
-        def visit(node: FakeSpan) -> None:
-            found.append(node)
-            for child in node.children:
-                visit(child)
-
-        for trace in self.traces:
-            visit(trace)
-        return found
+# --------------------------------------------------------------------------- 轨迹
 
 
 def sample_events() -> list[RunEvent]:
@@ -776,109 +715,80 @@ def sample_events() -> list[RunEvent]:
     ]
 
 
-def test_tracer_emits_trace_with_steps_and_tools() -> None:
-    client = FakeLangfuse()
-    LangfuseTracer(client).emit(ctx(), RunSummary(ok=True, steps=2, tool_calls=2), sample_events())
-
-    trace = client.traces[0]
-    assert trace.record["name"] == "run:cli"
-    # 一次运行一条 trace，session 用 thread_id 串起来，输出是最终答复
-    assert trace.record["session_id"] == "t1"
-    assert trace.record["output"] == "好了"
-    assert {child.record["name"] for child in trace.children} == {"step 1", "step 2"}
-    tool_spans = [node for node in client.walk() if str(node.record["name"]).startswith("tool:")]
-    assert {node.record["name"] for node in tool_spans} == {
-        "tool:web_search",
-        "tool:workspace_write",
-    }
-    # span / generation 都必须 end()，否则界面里会一直显示「running」
-    # （trace 和 event 在 v2 里没有 end 的概念）
-    assert all(
-        node.ended for node in client.walk() if node.record["kind"] in {"span", "generation"}
-    )
-
-
-def test_tracer_marks_rejected_tool_as_warning() -> None:
-    """被拒绝的调用在 trace 上要显眼：它是「模型想做、人没让做」。"""
-    client = FakeLangfuse()
-    LangfuseTracer(client).emit(ctx(), RunSummary(ok=True), sample_events())
-
-    rejected = next(node for node in client.walk() if node.record["name"] == "tool:workspace_write")
-
-    assert rejected.record["level"] == "WARNING"
-    assert rejected.record["metadata"]["approved"] is False
-
-
-def test_tracer_attaches_usage_to_last_generation() -> None:
-    """v2 的用量只能挂在 generation 上；挂最后一个，trace 级合计才正确。"""
-    client = FakeLangfuse()
-    LangfuseTracer(client).emit(
-        ctx(),
-        RunSummary(ok=True, usage={"input_tokens": 100, "output_tokens": 20}),
-        sample_events(),
-    )
-
-    generations = [node for node in client.walk() if node.record["kind"] == "generation"]
-    assert [node.record.get("usage_details") for node in generations] == [
-        None,
-        {"input": 100, "output": 20},
-    ]
-
-
-def test_tracer_emits_error_event_on_failure() -> None:
-    client = FakeLangfuse()
-    LangfuseTracer(client).emit(ctx(), RunSummary(ok=False, error="达到最大步数"), sample_events())
-
-    errors = [node for node in client.walk() if node.record["kind"] == "event"]
-    assert errors[0].record["name"] == "error"
-    assert errors[0].record["level"] == "ERROR"
-
-
-def test_tracer_trims_long_payloads() -> None:
-    """一万字的文件内容贴进 trace 只会让界面难读。"""
-    client = FakeLangfuse()
-    events = [
-        RunEvent.tool_call(step=1, name="workspace_read", call_id="c1", args={"path": "a" * 5000}),
-        RunEvent.tool_result(
-            step=1, name="workspace_read", call_id="c1", result="y" * 5000, ok=True
-        ),
-    ]
-    LangfuseTracer(client).emit(ctx(), RunSummary(ok=True), events)
-
-    tool = next(node for node in client.walk() if node.record["name"] == "tool:workspace_read")
-
-    assert "截断" in str(tool.record["output"])
-    assert len(str(tool.record["input"])) < 1500
-
-
-async def test_tracing_observer_buffers_and_flushes() -> None:
-    client = FakeLangfuse()
-    observer = TracingObserver(LangfuseTracer(client))
+async def _record_trace(**summary_kwargs: Any) -> TraceRecord:
+    """跑一遍 sample_events，返回落库的那条轨迹。"""
+    store = MemoryTraceStore()
+    observer = TraceObserver(store, model="openai:gpt-x", id_factory=lambda: "run-1")
     context = ctx()
-
     await observer.on_run_start(context)
     for event in sample_events():
         await observer.on_event(context, event)
-    await observer.on_run_end(context, RunSummary(ok=True))
+    await observer.on_run_end(context, RunSummary(**summary_kwargs))
+    record = await store.get("run-1")
+    assert record is not None
+    return record
 
-    assert client.traces  # 攒到运行结束才发
-    await observer.aclose()
-    assert client.shut is True
+
+def test_traces_wired_by_default(settings: Settings) -> None:
+    """轨迹默认开（本地落库，不发第三方），且在默认栈上可见。"""
+    stack = build_observability(settings)
+
+    assert "trace" in stack.names
+    assert stack.trace_backend == "memory"
 
 
-async def test_tracing_observer_ignores_events_without_start() -> None:
-    """没有 run_start 也能跑（事件流被截断时不该抛异常）。"""
-    observer = TracingObserver(LangfuseTracer(FakeLangfuse()))
+def test_traces_can_be_disabled(settings_factory) -> None:  # type: ignore[no-untyped-def]
+    settings = settings_factory(config_yaml="observability:\n  traces:\n    enabled: false\n")
+
+    stack = build_observability(settings)
+
+    assert "trace" not in stack.names
+    assert stack.trace_store is None
+
+
+async def test_trace_observer_groups_steps_and_tools() -> None:
+    record = await _record_trace(
+        ok=True,
+        steps=2,
+        tool_calls=2,
+        approvals=0,
+        rejections=1,
+        usage={"input_tokens": 10, "output_tokens": 5},
+    )
+
+    assert record.run_id == "run-1"
+    assert record.thread_id == "t1"
+    assert record.model == "openai:gpt-x"
+    assert record.input_tokens == 10
+    assert record.output_tokens == 5
+    assert record.output_preview == "好了"
+    # step 0 的 run_start 不该造出一个空步骤
+    assert [step["step"] for step in record.steps_detail] == [1, 2]
+    # 步骤文本按 text_delta 累加
+    assert record.steps_detail[0]["text"] == "我查一下"
+    # 工具结果按 call_id 合并回它的调用；被拒绝的是 approved=False
+    write = record.steps_detail[1]["tools"][0]
+    assert write["name"] == "workspace_write"
+    assert write["approved"] is False
+    assert write["ok"] is False
+
+
+async def test_trace_observer_ignores_events_without_start() -> None:
+    """没有 run_start 也能跑（事件流被截断时不该抛异常），且不落一条无头记录。"""
+    store = MemoryTraceStore()
+    observer = TraceObserver(store)
 
     await observer.on_event(ctx(), RunEvent.run_start())
     await observer.on_run_end(ctx(), RunSummary())
 
+    assert await store.list_recent(limit=10) == []
 
-async def test_tracing_observer_caps_buffer() -> None:
-    from doudou.observability.tracing import MAX_BUFFERED_EVENTS
 
-    client = FakeLangfuse()
-    observer = TracingObserver(LangfuseTracer(client))
+async def test_trace_observer_caps_buffer() -> None:
+    from doudou.observability.traces import MAX_BUFFERED_EVENTS
+
+    store = MemoryTraceStore()
+    observer = TraceObserver(store, id_factory=lambda: "run-2")
     context = ctx()
 
     await observer.on_run_start(context)
@@ -887,3 +797,81 @@ async def test_tracing_observer_caps_buffer() -> None:
     await observer.on_run_end(context, RunSummary(ok=True))
 
     assert observer._events == {}
+    record = await store.get("run-2")
+    assert record is not None
+    # 超过上限后事件被丢弃，但**运行本身照样落一条**（截断只影响明细）
+    assert record.steps_detail[0]["text"].startswith("x")
+
+
+async def test_trace_observer_clips_long_payloads() -> None:
+    """一万字的结果不该整段进库：轨迹是给人看的回放，不是数据备份。"""
+    store = MemoryTraceStore()
+    observer = TraceObserver(store, max_text_chars=100, id_factory=lambda: "run-3")
+    context = ctx()
+
+    await observer.on_run_start(context)
+    await observer.on_event(
+        context,
+        RunEvent.tool_call(step=1, name="workspace_read", call_id="c1", args={"path": "a" * 5000}),
+    )
+    await observer.on_event(
+        context,
+        RunEvent.tool_result(
+            step=1, name="workspace_read", call_id="c1", result="y" * 5000, ok=True
+        ),
+    )
+    await observer.on_run_end(context, RunSummary(ok=True))
+
+    record = await store.get("run-3")
+    assert record is not None
+    tool = record.steps_detail[0]["tools"][0]
+    assert "截断" in tool["result"]
+    assert len(tool["result"]) < 300
+
+
+async def test_trace_args_are_redacted() -> None:
+    """轨迹表不是密钥仓库：工具参数里的 token / api_key 必须打码。"""
+    store = MemoryTraceStore()
+    observer = TraceObserver(store, id_factory=lambda: "run-4")
+    context = ctx()
+
+    await observer.on_run_start(context)
+    await observer.on_event(
+        context,
+        RunEvent.tool_call(
+            step=1,
+            name="http_request",
+            call_id="c1",
+            args={"api_key": "sk-should-not-be-here", "url": "https://example.com"},
+        ),
+    )
+    await observer.on_run_end(context, RunSummary(ok=True))
+
+    record = await store.get("run-4")
+    assert record is not None
+    args = record.steps_detail[0]["tools"][0]["args"]
+    assert args["api_key"] != "sk-should-not-be-here"
+    assert "****" in args["api_key"]
+    assert args["url"] == "https://example.com"
+
+
+async def test_sql_trace_store_round_trip(database: Database) -> None:
+    from doudou.storage.traces import SqlTraceStore
+
+    store = SqlTraceStore(database, max_rows=100)
+    observer = TraceObserver(store, id_factory=lambda: "run-sql")
+    context = ctx()
+
+    await observer.on_run_start(context)
+    for event in sample_events():
+        await observer.on_event(context, event)
+    await observer.on_run_end(context, RunSummary(ok=True, steps=2, tool_calls=2))
+
+    detail = await store.get("run-sql")
+    assert detail is not None
+    assert len(detail.steps_detail) == 2
+
+    recent = await store.list_recent(limit=10)
+    assert [item.run_id for item in recent] == ["run-sql"]
+    # 列表查询只读标量列，不把 steps_detail 也拉出来
+    assert recent[0].steps_detail == []

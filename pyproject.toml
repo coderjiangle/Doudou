@@ -69,11 +69,6 @@ dependencies = [
 anthropic = ["langchain-anthropic>=1.7,<2"]
 deepseek = ["langchain-deepseek>=1.1,<2"]
 postgres = ["asyncpg>=0.30", "psycopg[binary]>=3.2"]
-# LLM 级追踪。装不上或不配 key 时追踪整体降级为 no-op，
-# 因此它是可选依赖而不是核心依赖。
-# 钉在 2.x：v3 SDK 走 OTEL 上报（/api/public/otel/v1/traces），只有 v3 服务端收；
-# 自建实例常见的是 2.95.x，用 2.x SDK 两边都能对接（v3 服务端仍兼容旧上报接口）。
-tracing = ["langfuse>=2.60,<3"]
 
 [dependency-groups]
 dev = [
@@ -143,9 +138,8 @@ warn_unused_ignores = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# langfuse 2.x 不带 py.typed（3.x 才有），但它只在可选依赖里、且只被
-# observability.setup 延迟 import 一次。
-module = ["lark_oapi.*", "langchain_mcp_adapters.*", "langfuse.*"]
+# 这两个第三方包不带 py.typed，但它们只在可选/延迟 import 里出现。
+module = ["lark_oapi.*", "langchain_mcp_adapters.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

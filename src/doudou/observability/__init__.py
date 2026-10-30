@@ -1,4 +1,4 @@
-"""Observability package: logging, tracing and metrics."""
+"""Observability package: logging, traces and metrics."""
 
 from __future__ import annotations
 

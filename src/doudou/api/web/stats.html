@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doudou · 统计</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --text: #1f2329;
+    --muted: #6b7280;
+    --accent: #2f6fed;
+    --ok: #22a06b;
+    --warn: #e0a400;
+    --fail: #d64545;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--panel);
+    border-bottom: 1px solid var(--border); padding: 12px 20px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  button, select, input {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: #fff; color: var(--text);
+  }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .value { font-size: 22px; font-weight: 650; margin-top: 4px; }
+  .card .value small { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px;
+  }
+  .panel h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  .panel h2 .hint { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* CSS 柱状图：不依赖任何外部图表库 */
+  .chart { display: flex; align-items: flex-end; gap: 4px; height: 140px; padding-top: 8px; }
+  .chart .bar { flex: 1; min-width: 6px; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; }
+  .chart .bar .stack { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+  .chart .bar .seg { width: 100%; border-radius: 3px 3px 0 0; background: var(--accent); }
+  .chart .bar .seg.fail { background: var(--fail); border-radius: 0; }
+  .chart .bar .seg.ok { background: var(--ok); }
+  .chart .bar .tip {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    background: #000c; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 12px;
+    white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .1s;
+  }
+  .chart .bar:hover .tip { opacity: 1; }
+  .axis { display: flex; gap: 4px; color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .axis .tick { flex: 1; min-width: 6px; text-align: center; overflow: hidden; white-space: nowrap; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .legend { display: flex; gap: 14px; color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); padding: 18px; text-align: center; }
+
+  .run-list { display: flex; flex-direction: column; }
+  .run {
+    display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; align-items: center;
+    padding: 9px 10px; border-bottom: 1px solid var(--border); cursor: pointer;
+  }
+  .run:hover { background: #fafbfc; }
+  .run .when { color: var(--muted); font-size: 12px; }
+  .run .ask { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; }
+  .pill.ok { background: #e7f6ee; color: var(--ok); }
+  .pill.fail { background: #fdecec; color: var(--fail); }
+
+  dialog {
+    border: none; border-radius: 12px; padding: 0; width: min(720px, 92vw);
+    max-height: 84vh; box-shadow: 0 20px 60px #0003;
+  }
+  dialog::backdrop { background: #0006; }
+  .dlg-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .dlg-head h3 { margin: 0; font-size: 14px; }
+  .dlg-body { padding: 14px 18px; overflow: auto; max-height: 66vh; }
+  .step { border-left: 2px solid var(--border); padding: 4px 0 12px 14px; margin-left: 4px; }
+  .step .step-title { font-weight: 600; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .step .step-text { white-space: pre-wrap; }
+  .tool { margin-top: 8px; padding: 8px 10px; background: #f7f8fa; border-radius: 8px; font-size: 12px; }
+  .tool .tool-name { font-weight: 600; }
+  .tool .kv { color: var(--muted); }
+  .tool pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+  .settings { display: none; gap: 8px; align-items: center; }
+  .settings.show { display: flex; }
+  .settings input { width: 220px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐶 Doudou · 统计</h1>
+  <select id="days">
+    <option value="7">最近 7 天</option>
+    <option value="30">最近 30 天</option>
+    <option value="90">最近 90 天</option>
+  </select>
+  <select id="session" title="按会话统计">
+    <option value="">全部会话</option>
+  </select>
+  <button id="refresh">刷新</button>
+  <button id="toChat" class="primary">去对话</button>
+  <div class="spacer"></div>
+  <span id="scope" class="muted"></span>
+  <button id="settingsBtn">设置</button>
+  <span id="status" class="muted"></span>
+</header>
+<header class="settings" id="settings">
+  <input id="baseUrl" placeholder="服务地址（留空=当前站点）">
+  <input id="token" type="password" placeholder="DOUDOU_API_TOKEN（未鉴权可留空）">
+  <button id="saveSettings" class="primary">保存</button>
+</header>
+
+<main>
+  <section class="cards" id="overview"></section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>运行量 & 成功率 <span class="hint">按天</span></h2>
+      <div class="chart" id="runsChart"></div>
+      <div class="axis" id="runsAxis"></div>
+      <div class="legend"><span><i style="background:var(--ok)"></i>成功</span><span><i style="background:var(--fail)"></i>失败</span></div>
+    </section>
+    <section class="panel">
+      <h2>token 与费用 <span class="hint">按天</span></h2>
+      <div class="chart" id="tokenChart"></div>
+      <div class="axis" id="tokenAxis"></div>
+      <div class="legend" id="tokenLegend"><span><i style="background:var(--accent)"></i>token</span></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>工具调用分布</h2>
+      <div id="tools"></div>
+    </section>
+    <section class="panel">
+      <h2>人工确认</h2>
+      <div id="approvals"></div>
+      <h2 style="margin-top:16px">渠道分布</h2>
+      <div id="channels"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>运行列表 <span class="hint">点一行看逐步回放</span></h2>
+    <div class="run-list" id="runs"></div>
+  </section>
+</main>
+
+<dialog id="detail">
+  <div class="dlg-head">
+    <h3 id="detailTitle">运行轨迹</h3>
+    <div class="spacer" style="flex:1"></div>
+    <button id="detailClose">关闭</button>
+  </div>
+  <div class="dlg-body" id="detailBody"></div>
+</dialog>
+
+<script>
+(() => {
+  "use strict";
+
+  const LS_BASE = "doudou.baseUrl";
+  const LS_TOKEN = "doudou.token";
+  const BASE_PATH = "__DOUDOU_BASE_PATH__";
+
+  const el = (id) => document.getElementById(id);
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+
+  function apiRoot() {
+    const raw = (localStorage.getItem(LS_BASE) || "").trim().replace(/\/+$/, "");
+    const root = raw || location.origin;
+    return /\/api\/v\d+$/i.test(root) ? root : `${root}${BASE_PATH}`;
+  }
+
+  function authHeaders(json) {
+    const headers = {};
+    const token = (localStorage.getItem(LS_TOKEN) || "").trim();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (json) headers["Content-Type"] = "application/json";
+    return headers;
+  }
+
+  async function request(path) {
+    const response = await fetch(`${apiRoot()}${path}`, { headers: authHeaders(false) });
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body && body.error && body.error.message) message = body.error.message;
+      } catch (_) { /* 非 JSON 错误体，保留状态码 */ }
+      if (response.status === 401) message = "访问令牌无效或未填写（点右上角「设置」）";
+      throw new Error(message);
+    }
+    return response.json();
+  }
+
+  const fmtInt = (n) => (n ?? 0).toLocaleString("en-US");
+  const fmtNum = (n, d = 2) => (n === null || n === undefined ? "—" : Number(n).toFixed(d));
+  const fmtPct = (n) => (n === null || n === undefined ? "—" : `${(n * 100).toFixed(1)}%`);
+  const fmtCost = (n) => (n === null || n === undefined ? "未知" : `$${Number(n).toFixed(4)}`);
+
+  function shortDay(day) { return day.slice(5); } // 2026-10-30 -> 10-30
+
+  /** CSS 柱状图：data 为 [{day, ok, failed}] 或 [{day, total_tokens}]。 */
+  function renderBars(chart, axis, data, stacked) {
+    chart.innerHTML = "";
+    axis.innerHTML = "";
+    if (!data.length) { chart.innerHTML = '<div class="empty">暂无数据</div>'; return; }
+    const max = Math.max(1, ...data.map((d) => stacked ? (d.ok + d.failed) : d.value));
+    data.forEach((d) => {
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      const stack = document.createElement("div");
+      stack.className = "stack";
+      if (stacked) {
+        const total = d.ok + d.failed;
+        if (d.failed > 0) {
+          const seg = document.createElement("div");
+          seg.className = "seg fail";
+          seg.style.height = `${(d.failed / max) * 100}%`;
+          stack.appendChild(seg);
+        }
+        if (d.ok > 0) {
+          const seg = document.createElement("div");
+          seg.className = "seg ok";
+          seg.style.height = `${(d.ok / max) * 100}%`;
+          stack.appendChild(seg);
+        }
+        const tip = document.createElement("div");
+        tip.className = "tip";
+        tip.textContent = `${d.day}｜运行 ${total}（成功 ${d.ok} / 失败 ${d.failed}）`;
+        bar.appendChild(tip);
+      } else {
+        const seg = document.createElement("div");
+        seg.className = "seg";
+        seg.style.height = `${(d.value / max) * 100}%`;
+        stack.appendChild(seg);
+        const tip = document.createElement("div");
+        tip.className = "tip";
+        tip.textContent = `${d.day}｜${fmtInt(d.value)}`;
+        bar.appendChild(tip);
+      }
+      bar.appendChild(stack);
+      chart.appendChild(bar);
+
+      const tick = document.createElement("div");
+      tick.className = "tick";
+      tick.textContent = shortDay(d.day);
+      axis.appendChild(tick);
+    });
+  }
+
+  function renderOverview(overview, approvals) {
+    const items = [
+      ["运行数", fmtInt(overview.runs), `成功 ${fmtInt(overview.ok_runs)} / 失败 ${fmtInt(overview.failed_runs)}`],
+      ["成功率", fmtPct(overview.success_rate), `工具调用 ${fmtInt(overview.tool_calls)} 次`],
+      ["平均耗时", `${fmtNum(overview.avg_elapsed)}s`, `P95 ${fmtNum(overview.p95_elapsed)}s`],
+      ["tokens", fmtInt(overview.total_tokens), `入 ${fmtInt(overview.input_tokens)} / 出 ${fmtInt(overview.output_tokens)}`],
+      ["人工确认", `${fmtInt(approvals.approvals)} 同意 / ${fmtInt(approvals.rejections)} 拒绝`, `通过率 ${fmtPct(approvals.approval_rate)}`],
+    ];
+    el("overview").innerHTML = items.map(([label, value, sub]) =>
+      `<div class="card"><div class="label">${escapeHtml(label)}</div>
+       <div class="value">${escapeHtml(value)}</div>
+       <div class="muted" style="font-size:12px">${escapeHtml(sub)}</div></div>`
+    ).join("");
+  }
+
+  function renderTools(tools) {
+    if (!tools.length) { el("tools").innerHTML = '<div class="empty">暂无工具调用</div>'; return; }
+    const rows = tools.map((t) => `
+      <tr>
+        <td>${escapeHtml(t.name)}</td>
+        <td class="num">${fmtInt(t.calls)}</td>
+        <td class="num">${fmtInt(t.ok)}</td>
+        <td class="num">${fmtInt(t.failed)}</td>
+        <td class="num">${fmtInt(t.rejected)}</td>
+        <td class="num">${t.avg_elapsed === null ? "—" : fmtNum(t.avg_elapsed, 3)}</td>
+      </tr>`).join("");
+    el("tools").innerHTML = `<table><thead><tr>
+      <th>工具</th><th class="num">次数</th><th class="num">成功</th>
+      <th class="num">失败</th><th class="num">被拒</th><th class="num">平均耗时(s)</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function renderApprovals(approvals) {
+    const rows = [
+      ["需确认（问过）", fmtInt(approvals.required)],
+      ["同意", fmtInt(approvals.approvals)],
+      ["拒绝", fmtInt(approvals.rejections)],
+      ["免确认（没问过）", fmtInt(approvals.auto)],
+    ];
+    el("approvals").innerHTML = `<table><tbody>${rows.map(([k, v]) =>
+      `<tr><td>${escapeHtml(k)}</td><td class="num">${escapeHtml(v)}</td></tr>`).join("")}</tbody></table>`;
+  }
+
+  function renderChannels(channels) {
+    if (!channels.length) { el("channels").innerHTML = '<div class="empty">暂无数据</div>'; return; }
+    el("channels").innerHTML = `<table><thead><tr><th>渠道</th><th class="num">运行</th>
+      <th class="num">成功</th><th class="num">失败</th></tr></thead><tbody>${channels.map((c) => `
+      <tr><td>${escapeHtml(c.channel)}</td><td class="num">${fmtInt(c.runs)}</td>
+      <td class="num">${fmtInt(c.ok)}</td><td class="num">${fmtInt(c.failed)}</td></tr>`).join("")}</tbody></table>`;
+  }
+
+  function renderRuns(traces) {
+    if (!traces.length) { el("runs").innerHTML = '<div class="empty">暂无运行记录</div>'; return; }
+    el("runs").innerHTML = traces.map((t) => `
+      <div class="run" data-run="${escapeHtml(t.run_id)}">
+        <span class="when">${escapeHtml((t.started_at || "").replace("T", " ").slice(5, 19))}</span>
+        <span class="ask">${escapeHtml(t.input_preview || "（无输入）")}
+          <span class="muted">· ${escapeHtml(t.channel)}</span></span>
+        <span class="meta">
+          <span class="pill ${t.ok ? "ok" : "fail"}">${t.ok ? "成功" : "失败"}</span>
+          ${fmtNum(t.elapsed)}s · ${fmtInt(t.tool_calls)} 工具
+        </span>
+      </div>`).join("");
+    el("runs").querySelectorAll(".run").forEach((node) => {
+      node.addEventListener("click", () => openDetail(node.dataset.run));
+    });
+  }
+
+  async function openDetail(runId) {
+    const body = el("detailBody");
+    body.innerHTML = '<div class="empty">加载中…</div>';
+    el("detail").showModal();
+    try {
+      const trace = await request(`/traces/${encodeURIComponent(runId)}`);
+      renderDetail(trace);
+    } catch (error) {
+      body.innerHTML = `<div class="empty">加载失败：${escapeHtml(error.message)}</div>`;
+    }
+  }
+
+  function renderDetail(trace) {
+    el("detailTitle").textContent = `${trace.thread_id} · ${trace.ok ? "成功" : "失败"}`;
+    const head = `
+      <div class="muted" style="font-size:12px;margin-bottom:10px">
+        ${escapeHtml(trace.channel)}｜${escapeHtml(trace.model || "-")}｜
+        ${fmtNum(trace.elapsed)}s｜${fmtInt(trace.total_tokens)} tokens｜
+        ${escapeHtml(trace.started_at || "")}
+      </div>
+      <div class="tool"><span class="kv">输入</span><pre>${escapeHtml(trace.input_preview || "")}</pre></div>
+      ${trace.error ? `<div class="tool" style="background:#fdecec"><span class="kv">错误</span><pre>${escapeHtml(trace.error)}</pre></div>` : ""}`;
+    const steps = (trace.steps_detail || []).map((step) => {
+      const tools = (step.tools || []).map((tool) => {
+        const level = tool.approved === false ? "被拒" : (tool.ok === false ? "失败" : "成功");
+        return `<div class="tool">
+          <span class="tool-name">🔧 ${escapeHtml(tool.name)}</span>
+          <span class="kv">· ${level}${tool.elapsed != null ? ` · ${fmtNum(tool.elapsed, 3)}s` : ""}</span>
+          <pre class="kv">参数：${escapeHtml(JSON.stringify(tool.args || {}))}</pre>
+          ${tool.result ? `<pre>结果：${escapeHtml(tool.result)}</pre>` : ""}
+        </div>`;
+      }).join("");
+      return `<div class="step">
+        <div class="step-title">第 ${step.step} 步</div>
+        ${step.text ? `<div class="step-text">${escapeHtml(step.text)}</div>` : '<div class="muted">（无文本）</div>'}
+        ${tools}
+      </div>`;
+    }).join("");
+    const tail = trace.output_preview
+      ? `<div class="tool" style="background:#eef4ff"><span class="kv">最终答复</span><pre>${escapeHtml(trace.output_preview)}</pre></div>`
+      : "";
+    el("detailBody").innerHTML = head + (steps || '<div class="empty">没有步骤明细</div>') + tail;
+  }
+
+  async function load() {
+    const days = el("days").value;
+    const threadId = el("session").value;
+    const query = new URLSearchParams({ days });
+    if (threadId) query.set("thread_id", threadId);
+    el("scope").textContent = threadId ? `范围：${threadId}` : "范围：全部会话";
+    el("status").textContent = "加载中…";
+    try {
+      const [stats, traces] = await Promise.all([
+        request(`/stats?${query.toString()}`),
+        request(`/traces?${query.toString()}&limit=100`),
+      ]);
+      renderOverview(stats.overview, stats.approvals);
+      renderBars(
+        el("runsChart"), el("runsAxis"),
+        stats.by_day.map((d) => ({ day: d.day, ok: d.ok, failed: d.failed })), true
+      );
+      renderBars(
+        el("tokenChart"), el("tokenAxis"),
+        stats.by_day.map((d) => ({ day: d.day, value: d.total_tokens })), false
+      );
+      renderTools(stats.tools);
+      renderApprovals(stats.approvals);
+      renderChannels(stats.by_channel);
+      renderRuns(traces.traces || []);
+      el("status").textContent = `更新于 ${new Date().toLocaleTimeString()}`;
+    } catch (error) {
+      el("status").textContent = `加载失败：${error.message}`;
+    }
+  }
+
+  /** 下拉里的会话列表：取不到也不该挡住统计（保留「全部会话」即可）。 */
+  async function refreshSessions() {
+    const select = el("session");
+    const current = select.value;
+    try {
+      const data = await request("/threads?limit=200");
+      const options = ['<option value="">全部会话</option>'];
+      for (const thread of data.threads || []) {
+        const label = thread.channel ? `${thread.thread_id} · ${thread.channel}` : thread.thread_id;
+        options.push(
+          `<option value="${escapeHtml(thread.thread_id)}">${escapeHtml(label)}</option>`
+        );
+      }
+      select.innerHTML = options.join("");
+      select.value = current;
+      if (select.value !== current) select.value = ""; // 选中的会话没了 → 退回全部
+    } catch (_) { /* 会话列表不可用：不影响统计 */ }
+  }
+
+  // ------------------------------------------------------------------ 事件
+  el("refresh").addEventListener("click", () => refreshSessions().then(load));
+  el("days").addEventListener("change", load);
+  el("session").addEventListener("change", load);
+  el("toChat").addEventListener("click", () => { location.href = "./"; });
+  el("detailClose").addEventListener("click", () => el("detail").close());
+
+  el("settingsBtn").addEventListener("click", () => el("settings").classList.toggle("show"));
+  el("saveSettings").addEventListener("click", () => {
+    localStorage.setItem(LS_BASE, el("baseUrl").value.trim());
+    localStorage.setItem(LS_TOKEN, el("token").value.trim());
+    el("settings").classList.remove("show");
+    refreshSessions().then(load);
+  });
+  el("baseUrl").value = localStorage.getItem(LS_BASE) || "";
+  el("token").value = localStorage.getItem(LS_TOKEN) || "";
+
+  refreshSessions().then(load);
+})();
+</script>
+</body>
+</html>

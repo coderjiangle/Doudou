@@ -13,11 +13,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from doudou.observability.audit import AuditEntry, AuditStore
 from doudou.observability.cost import UsageRecord, UsageStore
 from doudou.observability.logging import get_logger
+from doudou.observability.traces import TraceRecord, TraceStore
 
 logger = get_logger(__name__)
 
@@ -125,9 +127,9 @@ class BufferedUsageStore(UsageStore):
         await self.flush()
         return await self.inner.by_thread(days=days)
 
-    async def by_day(self, *, days: int) -> list[UsageRecord]:
+    async def by_day(self, *, days: int, thread_id: str | None = None) -> list[UsageRecord]:
         await self.flush()
-        return await self.inner.by_day(days=days)
+        return await self.inner.by_day(days=days, thread_id=thread_id)
 
     async def total(
         self, *, day: str | None = None, include_pending: bool = False
@@ -154,6 +156,72 @@ class BufferedUsageStore(UsageStore):
             output_tokens += record.output_tokens
             cost = _add_cost(cost, record.cost)
         return input_tokens, output_tokens, cost
+
+    async def aclose(self) -> None:
+        await self.flush()
+
+
+class BufferedTraceStore(TraceStore):
+    """把轨迹写入攒成批。
+
+    轨迹是**一次运行一条**，所以去重键就是 ``run_id``：
+    合批时应保留最后一次的版本（同一运行只会写一次，去重只是兜底）。
+    """
+
+    def __init__(self, inner: TraceStore, *, max_pending: int = DEFAULT_MAX_PENDING) -> None:
+        self.inner = inner
+        self.max_pending = max(1, max_pending)
+        self._pending: dict[str, TraceRecord] = {}
+
+    async def append(self, record: TraceRecord) -> None:
+        await self.append_many([record])
+
+    async def append_many(self, records: list[TraceRecord]) -> None:
+        for record in records:
+            self._pending[record.run_id] = record
+        if len(self._pending) >= self.max_pending:
+            await self.flush()
+
+    async def flush(self) -> int:
+        if not self._pending:
+            return 0
+        records = list(self._pending.values())
+        self._pending.clear()
+        append_many = getattr(self.inner, "append_many", None)
+        try:
+            if append_many is not None:
+                await append_many(records)
+            else:
+                for record in records:
+                    await self.inner.append(record)
+        except Exception:
+            # 与审计一致：失败就丢弃这批，绝不造成「越攒越多、越写越慢」的雪崩。
+            logger.warning("trace.batch_failed", dropped=len(records), exc_info=True)
+            return 0
+        logger.debug("trace.batch_flushed", records=len(records))
+        return len(records)
+
+    async def list_recent(
+        self,
+        *,
+        limit: int = 50,
+        thread_id: str | None = None,
+        channel: str | None = None,
+        since: datetime | None = None,
+        only_failed: bool = False,
+    ) -> list[TraceRecord]:
+        await self.flush()  # 读之前先落盘，避免「刚发生的查不到」
+        return await self.inner.list_recent(
+            limit=limit,
+            thread_id=thread_id,
+            channel=channel,
+            since=since,
+            only_failed=only_failed,
+        )
+
+    async def get(self, run_id: str) -> TraceRecord | None:
+        await self.flush()
+        return await self.inner.get(run_id)
 
     async def aclose(self) -> None:
         await self.flush()
@@ -192,6 +260,7 @@ def pending_count(store: object) -> int:
 __all__ = [
     "DEFAULT_MAX_PENDING",
     "BufferedAuditStore",
+    "BufferedTraceStore",
     "BufferedUsageStore",
     "pending_count",
 ]

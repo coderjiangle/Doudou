@@ -32,9 +32,9 @@ class SqlUsageStore(UsageStore):
         async with self.database.session() as session:
             return await UsageRepository(session).by_thread(days=days)
 
-    async def by_day(self, *, days: int) -> list[UsageRecord]:
+    async def by_day(self, *, days: int, thread_id: str | None = None) -> list[UsageRecord]:
         async with self.database.session() as session:
-            return await UsageRepository(session).by_day(days=days)
+            return await UsageRepository(session).by_day(days=days, thread_id=thread_id)
 
     async def total(
         self, *, day: str | None = None, include_pending: bool = False

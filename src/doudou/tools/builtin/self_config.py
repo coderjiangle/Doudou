@@ -64,8 +64,6 @@ _CREDENTIAL_FIELDS = (
     "feishu_app_secret",
     "feishu_verification_token",
     "feishu_encrypt_key",
-    "langfuse_public_key",
-    "langfuse_secret_key",
 )
 
 #: URL 里的用户名/密码：``postgres://user:pass@host`` → ``postgres://user:********@host``。

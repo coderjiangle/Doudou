@@ -2,6 +2,20 @@
 
 按日期记录功能变更，版本号见 `src/doudou/version.py`。
 
+## 2026-10-30
+
+### 可观测性：轨迹落库 + 自建统计页（移除 Langfuse）
+
+- **移除 Langfuse 追踪**：删掉 `observability/tracing.py`、`observability.tracing` 配置段、
+  `[tracing]` 可选依赖与相关密钥/文档/测试。第三方上报不再是可选项。
+- **新增运行轨迹落库**（`observability.traces`，默认开）：一次运行一行写 `run_traces` 表，
+  步骤明细（每步推理文本 + 工具调用）以 JSON 存 `steps_detail`；带 `max_rows` 上限与
+  `max_text_chars` 截断。复用审计/用量那套「SQL + 内存 + 攒批」三件套。
+- **新增接口**：`GET /traces`、`GET /traces/{run_id}`、`GET /stats`
+  （运行量/成功率/耗时、工具分布、确认比例、token 与费用趋势；均支持 `?thread_id=` 收敛到单会话）。
+- **新增内置统计页** `GET /stats`（单文件、无构建、图表用内联 CSS，不依赖外部 CDN），
+  聊天页右上角加「统计」入口；顶部可按「全部会话 / 具体会话」切换，点开单次运行可逐步回放。
+
 ## 2026-10-27
 
 ### 配置与部署修复

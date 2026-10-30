@@ -1014,3 +1014,90 @@ async def test_usage_computes_cost_with_prices(tmp_path: Path) -> None:
     assert usage["unknown_models"] == []
     assert usage["budget"]["exceeded"] is False
     assert "scripted:demo" in usage["prices_known"]
+
+
+# --------------------------------------------------------------------------- 轨迹 / 统计
+
+
+async def test_run_produces_trace_and_stats(tmp_path: Path) -> None:
+    """跑一轮 → 落一条轨迹、统计接口有数。
+
+    验证的是**接线**（事件 → TraceObserver → run_traces → /traces 与 /stats），
+    用 ``scripted:demo`` 离线模型，因此 CI 里可跑。
+    """
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        chat = await client.post("/api/v1/chat", json={"message": "现在几点？"})
+        assert chat.status_code == 200
+
+        traces = (await client.get("/api/v1/traces")).json()
+        stats = (await client.get("/api/v1/stats")).json()
+
+        assert traces["backend"] == "database"
+        assert traces["count"] >= 1
+        run_id = traces["traces"][0]["run_id"]
+        detail = (await client.get(f"/api/v1/traces/{run_id}")).json()
+
+    assert detail["run_id"] == run_id
+    assert detail["ok"] is True
+    assert detail["steps_detail"], "轨迹没有步骤明细"
+    tool_names = {tool["name"] for step in detail["steps_detail"] for tool in step["tools"]}
+    assert "now" in tool_names
+
+    assert stats["overview"]["runs"] >= 1
+    assert stats["overview"]["success_rate"] == 1.0
+    assert "now" in {tool["name"] for tool in stats["tools"]}
+    # now 不需要确认（没问过）→ auto 至少 1，且没有「需确认」的记录
+    assert stats["approvals"]["auto"] >= 1
+    assert stats["approvals"]["required"] == 0
+
+
+async def test_trace_detail_unknown_id_is_404(tmp_path: Path) -> None:
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        response = await client.get("/api/v1/traces/nope")
+
+    assert response.status_code == 404
+
+
+async def test_stats_can_be_scoped_to_a_thread(tmp_path: Path) -> None:
+    """``/stats?thread_id=`` 只统计那一条会话；三份数据都按它过滤。"""
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        thread_a = (await client.post("/api/v1/chat", json={"message": "现在几点？"})).json()[
+            "thread_id"
+        ]
+        thread_b = (await client.post("/api/v1/chat", json={"message": "现在几点？"})).json()[
+            "thread_id"
+        ]
+        assert thread_a != thread_b
+
+        all_stats = (await client.get("/api/v1/stats")).json()
+        scope_a = (await client.get(f"/api/v1/stats?thread_id={thread_a}")).json()
+        traces_a = (await client.get(f"/api/v1/traces?thread_id={thread_a}")).json()
+
+    assert all_stats["thread_id"] is None
+    assert all_stats["overview"]["runs"] >= 2
+
+    assert scope_a["thread_id"] == thread_a
+    assert scope_a["overview"]["runs"] == 1
+    assert "now" in {tool["name"] for tool in scope_a["tools"]}
+    assert scope_a["by_channel"]  # 渠道分布也是该会话的
+
+    assert traces_a["count"] == 1
+    assert {item["thread_id"] for item in traces_a["traces"]} == {thread_a}
+
+
+async def test_stats_page_is_served(tmp_path: Path) -> None:
+    settings = _write_config(tmp_path)
+
+    async with api_client(settings) as client:
+        page = await client.get("/stats")
+
+    assert page.status_code == 200
+    assert "统计" in page.text
+    # base_path 已注入，占位符不该留在页面里
+    assert "__DOUDOU_BASE_PATH__" not in page.text

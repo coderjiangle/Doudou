@@ -5,7 +5,18 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from doudou.api.deps import require_token
-from doudou.api.routes import approvals, audit, chat, health, mcp, skills, threads, tools, usage
+from doudou.api.routes import (
+    approvals,
+    audit,
+    chat,
+    health,
+    mcp,
+    skills,
+    threads,
+    tools,
+    traces,
+    usage,
+)
 
 
 def build_router(base_path: str = "/api/v1") -> APIRouter:
@@ -25,6 +36,7 @@ def build_router(base_path: str = "/api/v1") -> APIRouter:
     router.include_router(approvals.router, dependencies=[Depends(require_token)])
     router.include_router(audit.router, dependencies=[Depends(require_token)])
     router.include_router(usage.router, dependencies=[Depends(require_token)])
+    router.include_router(traces.router, dependencies=[Depends(require_token)])
 
     return router
 

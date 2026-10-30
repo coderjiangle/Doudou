@@ -21,6 +21,8 @@ logger = get_logger(__name__)
 
 #: 内置的极简聊天页（无构建步骤，直接由服务托管）。
 WEB_INDEX = Path(__file__).with_name("web") / "index.html"
+#: 内置统计页（轨迹 / 工具 / 确认 / token 与费用的自建可视化，同样无构建步骤）。
+WEB_STATS = Path(__file__).with_name("web") / "stats.html"
 #: 页面用的头像（由 image/icon2.jpg 缩放到 192×192）。
 WEB_AVATAR = Path(__file__).with_name("web") / "avatar.png"
 
@@ -97,6 +99,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/ui/avatar.png", include_in_schema=False)
     async def web_avatar() -> FileResponse:
         return FileResponse(WEB_AVATAR, media_type="image/png")
+
+    @app.get("/stats", include_in_schema=False)
+    @app.get("/ui/stats", include_in_schema=False)
+    async def web_stats() -> HTMLResponse:
+        """内置统计页：轨迹、工具分布、人工确认与 token/费用趋势。
+
+        同样把 ``base_path`` 注入页面，并带上默认的统计窗口天数。
+        """
+        html = WEB_STATS.read_text(encoding="utf-8").replace(
+            "__DOUDOU_BASE_PATH__", resolved.app.server.base_path
+        )
+        return HTMLResponse(html)
 
     logger.debug(
         "api.app_created",

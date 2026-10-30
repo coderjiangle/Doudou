@@ -5,7 +5,6 @@
 * ``model.api_key`` / ``model.api_keys``
 * ``tools.web_search.api_key``
 * ``channels.feishu.app_id`` / ``app_secret`` / ``verification_token`` / ``encrypt_key``
-* ``observability.tracing.public_key`` / ``secret_key``
 
 环境变量统一为 ``DOUDOU_`` + 配置路径（见 :mod:`doudou.config.env`）。
 :class:`Secrets` 只是把这些字段整理成「按 provider 取值」的旧视图，
@@ -49,16 +48,12 @@ class Secrets(BaseModel):
     feishu_encrypt_key: str | None = None
     feishu_base_url: str | None = None
 
-    langfuse_public_key: str | None = None
-    langfuse_secret_key: str | None = None
-
     @classmethod
     def from_config(cls, app: AppConfig) -> Secrets:
         """把配置里的凭据字段按 provider 展开。"""
         primary = provider_of(app.model.primary)
         web = app.tools.web_search
         feishu = app.channels.feishu
-        tracing = app.observability.tracing
 
         def model_key(provider: str) -> str | None:
             key = app.model.api_keys.get(provider)
@@ -94,8 +89,6 @@ class Secrets(BaseModel):
             feishu_verification_token=feishu.verification_token,
             feishu_encrypt_key=feishu.encrypt_key,
             feishu_base_url=feishu.base_url,
-            langfuse_public_key=tracing.public_key,
-            langfuse_secret_key=tracing.secret_key,
         )
 
     def as_dict(self) -> dict[str, str | None]:

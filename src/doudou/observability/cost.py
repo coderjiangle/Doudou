@@ -143,8 +143,8 @@ class UsageStore(Protocol):
 
     async def by_thread(self, *, days: int) -> list[UsageRecord]: ...
 
-    async def by_day(self, *, days: int) -> list[UsageRecord]:
-        """按天汇总（``thread_id`` 为 ``*``）。"""
+    async def by_day(self, *, days: int, thread_id: str | None = None) -> list[UsageRecord]:
+        """按天汇总（``thread_id`` 为 ``*``；给了 ``thread_id`` 就只算那一条会话）。"""
         ...
 
     async def total(
@@ -204,11 +204,13 @@ class MemoryUsageStore:
             bucket.cost = _add_cost(bucket.cost, record.cost)
         return sorted(merged.values(), key=lambda item: item.total_tokens, reverse=True)
 
-    async def by_day(self, *, days: int) -> list[UsageRecord]:
+    async def by_day(self, *, days: int, thread_id: str | None = None) -> list[UsageRecord]:
         allowed = _recent_days(days)
         merged: dict[str, UsageRecord] = {}
         for (day, _thread), record in self._records.items():
             if day not in allowed:
+                continue
+            if thread_id is not None and record.thread_id != thread_id:
                 continue
             bucket = merged.get(day)
             if bucket is None:

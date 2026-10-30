@@ -44,6 +44,18 @@ from doudou.api.schemas.observability import (
     UsageResponse,
     UsageTotalOut,
 )
+from doudou.api.schemas.traces import (
+    StatsApprovalsOut,
+    StatsChannelOut,
+    StatsDayOut,
+    StatsOverviewOut,
+    StatsResponse,
+    StatsToolOut,
+    TraceDetailOut,
+    TraceListResponse,
+    TraceStepOut,
+    TraceSummaryOut,
+)
 
 __all__ = [
     "ApprovalDecisionRequest",
@@ -65,6 +77,12 @@ __all__ = [
     "SkillOut",
     "SkillReloadResponse",
     "SkillsResponse",
+    "StatsApprovalsOut",
+    "StatsChannelOut",
+    "StatsDayOut",
+    "StatsOverviewOut",
+    "StatsResponse",
+    "StatsToolOut",
     "StreamDone",
     "StreamError",
     "StreamStart",
@@ -76,6 +94,10 @@ __all__ = [
     "ThreadSummary",
     "ToolInfoOut",
     "ToolListResponse",
+    "TraceDetailOut",
+    "TraceListResponse",
+    "TraceStepOut",
+    "TraceSummaryOut",
     "UsageBucketOut",
     "UsageBudgetOut",
     "UsageResponse",

@@ -105,10 +105,10 @@ run_start
 | `observability.observers` | `RunObserver` 协议 + `RunContext` / `RunSummary`；回调失败只告警（观察者是旁路） |
 | `observability.audit` | 审计记录与 `AuditObserver`；参数**构造即打码**（`__post_init__`） |
 | `observability.cost` | 价格表 + 用量累计 + `UsageObserver`（超预算只告警） |
-| `observability.tracing` | Langfuse（运行结束整批发；缺包/缺 key 则 no-op） |
-| `observability.buffering` | 审计 / 用量的**写后缓冲**（SQLite 单写者下的必要优化） |
+| `observability.traces` | 轨迹记录与 `TraceObserver`（运行结束整批聚成步骤树并落库） |
+| `observability.buffering` | 审计 / 用量 / 轨迹的**写后缓冲**（SQLite 单写者下的必要优化） |
 | `observability.setup` | `build_observability()`：按配置装配，零配置零开销 |
-| `storage.audit` / `storage.usage` | 落库实现（`audit_events` / `usage_daily` 两张表） |
+| `storage.audit` / `storage.usage` / `storage.traces` | 落库实现（`audit_events` / `usage_daily` / `run_traces` 三张表） |
 
 设计取舍见 `docs/observability.md`，容量数据见 `docs/performance.md`。
 

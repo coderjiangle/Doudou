@@ -143,7 +143,6 @@ agent:
 | 模型网关（`DOUDOU_MODEL_API_KEY`） | 在网关后台新建 key → 改环境变量 → **确认能跑通**再吊销旧 key | 重启进程 |
 | `DOUDOU_CHANNELS_FEISHU_APP_SECRET` | 飞书开放平台重置 → 改环境变量 | 重启进程（长连接需重连） |
 | `DOUDOU_API_TOKEN` | 直接换一个新随机串，同时通知调用方 | 重启进程 |
-| `DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY` | Langfuse 项目设置里重建 | 重启进程 |
 | `DOUDOU_TOOLS_WEB_SEARCH_API_KEY` | 对应平台后台重建（取决于 `web_search.provider`） | 重启进程 |
 
 顺序很重要：**先让新 key 生效并验证，再吊销旧的**。反过来会出现一段

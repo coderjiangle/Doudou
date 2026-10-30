@@ -1,4 +1,4 @@
-"""Observability wiring: audit + cost + tracing assembled from config.
+"""Observability wiring: audit + cost + traces assembled from config.
 
 一个入口，三种能力，**零配置时零开销**：没打开的分组直接不构造观察者，
 runner 里的循环因此完全不跑。
@@ -6,8 +6,11 @@ runner 里的循环因此完全不跑。
 依赖不满足就不启用（与工具注册同一条原则）：
 
 * 审计/成本需要「库或内存」，两者都有实现，所以默认开；
-* 追踪需要 ``langfuse`` 包**且**两个 key **且** 显式 ``enabled: true`` ——
-  把对话内容发到第三方服务必须是一次明确的决定，不能靠「装了包就发」。
+* 轨迹也默认开 —— 它是**本地落库**（``run_traces`` 表），不把对话发到任何外部服务。
+  无库时用内存实现（有容量上限）。
+
+历史：这里曾经构造 Langfuse 追踪（第三方上报）。现已改为本地落库 + 自建统计页
+（``/traces`` / ``/stats``），见 docs/observability.md。
 """
 
 from __future__ import annotations
@@ -17,11 +20,15 @@ from typing import Any
 
 from doudou.config.loader import Settings
 from doudou.observability.audit import AuditObserver, AuditStore, MemoryAuditStore
-from doudou.observability.buffering import BufferedAuditStore, BufferedUsageStore
+from doudou.observability.buffering import (
+    BufferedAuditStore,
+    BufferedTraceStore,
+    BufferedUsageStore,
+)
 from doudou.observability.cost import MemoryUsageStore, PriceTable, UsageObserver, UsageStore
 from doudou.observability.logging import get_logger
 from doudou.observability.observers import RunObserver
-from doudou.observability.tracing import LangfuseTracer, TracingObserver
+from doudou.observability.traces import MemoryTraceStore, TraceObserver, TraceStore
 from doudou.storage.database import Database
 
 logger = get_logger(__name__)
@@ -35,7 +42,7 @@ class ObservabilityStack:
     audit_store: AuditStore | None = None
     usage_store: UsageStore | None = None
     usage: UsageObserver | None = None
-    tracer: LangfuseTracer | None = None
+    trace_store: TraceStore | None = None
 
     @property
     def names(self) -> list[str]:
@@ -56,6 +63,10 @@ class ObservabilityStack:
     def usage_backend(self) -> str | None:
         return _backend_name(self.usage_store)
 
+    @property
+    def trace_backend(self) -> str | None:
+        return _backend_name(self.trace_store)
+
     async def aclose(self) -> None:
         for observer in self.observers:
             closer = getattr(observer, "aclose", None)
@@ -67,7 +78,7 @@ class ObservabilityStack:
                 logger.warning("observability.close_failed", error=str(exc))
         self.observers.clear()
         # 缓冲的写入必须在这里落盘：攒批的代价就是「不主动 flush 就可能丢」。
-        for store in (self.audit_store, self.usage_store):
+        for store in (self.audit_store, self.usage_store, self.trace_store):
             flush = getattr(store, "flush", None)
             if flush is None:
                 continue
@@ -81,14 +92,14 @@ class ObservabilityStack:
             "observers": self.names,
             "audit_backend": self.audit_backend,
             "usage_backend": self.usage_backend,
-            "tracing": self.tracer is not None,
+            "trace_backend": self.trace_backend,
         }
 
 
 def build_observability(
     settings: Settings, *, database: Database | None = None
 ) -> ObservabilityStack:
-    """按配置装配审计 / 成本 / 追踪。"""
+    """按配置装配审计 / 成本 / 轨迹。"""
     config = settings.app.observability
     stack = ObservabilityStack()
 
@@ -124,67 +135,24 @@ def build_observability(
         )
         stack.observers.append(stack.usage)
 
-    tracer = _build_tracer(settings)
-    if tracer is not None:
-        stack.tracer = tracer
-        stack.observers.append(TracingObserver(tracer))
+    if config.traces.enabled:
+        trace_store: TraceStore = (
+            _sql_trace_store(database, config.traces.max_rows)
+            if database is not None
+            else MemoryTraceStore(max_entries=config.traces.max_memory_entries)
+        )
+        trace_store = BufferedTraceStore(trace_store, max_pending=config.traces.batch_size)
+        stack.trace_store = trace_store
+        stack.observers.append(
+            TraceObserver(
+                trace_store,
+                model=settings.app.model.primary,
+                max_text_chars=config.traces.max_text_chars,
+            )
+        )
 
     logger.info("observability.ready", **stack.describe())
     return stack
-
-
-def _build_tracer(settings: Settings) -> LangfuseTracer | None:
-    """构造 Langfuse tracer；任何一处不满足都**安静降级**。"""
-    config = settings.app.observability.tracing
-    if not config.enabled:
-        logger.debug("tracing.disabled")
-        return None
-
-    public_key = settings.secrets.langfuse_public_key
-    secret_key = settings.secrets.langfuse_secret_key
-    if not public_key or not secret_key:
-        logger.warning(
-            "tracing.missing_credentials",
-            hint="observability.tracing.enabled 为真，但缺少 "
-            "DOUDOU_OBSERVABILITY_TRACING_PUBLIC_KEY / "
-            "DOUDOU_OBSERVABILITY_TRACING_SECRET_KEY，追踪已关闭",
-        )
-        return None
-
-    try:
-        # 延迟 import：没装 langfuse 时**不应该**让整个服务起不来。
-        from langfuse import Langfuse
-    except ImportError:
-        logger.warning(
-            "tracing.sdk_missing",
-            hint="未安装 langfuse，请执行 uv sync --extra tracing（或 --all-extras）",
-        )
-        return None
-
-    try:
-        client = Langfuse(
-            public_key=public_key,
-            secret_key=secret_key,
-            host=config.host,
-            environment=config.environment,
-            release=config.release,
-            sample_rate=_clamp(config.sample_rate),
-        )
-    except Exception as exc:
-        logger.error("tracing.init_failed", error=str(exc), exc_info=True)
-        return None
-
-    logger.info(
-        "tracing.enabled",
-        host=config.host,
-        environment=config.environment,
-        sample_rate=config.sample_rate,
-    )
-    return LangfuseTracer(client)
-
-
-def _clamp(value: float) -> float:
-    return min(1.0, max(0.0, float(value)))
 
 
 def _backend_name(store: object | None) -> str | None:
@@ -205,6 +173,12 @@ def _sql_usage_store(database: Database) -> UsageStore:
     from doudou.storage.usage import SqlUsageStore
 
     return SqlUsageStore(database)
+
+
+def _sql_trace_store(database: Database, max_rows: int) -> TraceStore:
+    from doudou.storage.traces import SqlTraceStore
+
+    return SqlTraceStore(database, max_rows=max_rows)
 
 
 __all__ = ["ObservabilityStack", "build_observability"]

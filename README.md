@@ -41,7 +41,7 @@
 | 确认中介 | 超时按拒绝、决策复用、落库审计 | `doudou.agent.approvals` |
 | 审计日志 | 工具调用全量留痕（参数打码 + 截断） | `doudou.observability.audit` |
 | 成本核算 | 按天×会话的 token/费用、日预算告警 | `doudou.observability.cost` |
-| 追踪 | Langfuse（可选，缺 key 则降级） | `doudou.observability.tracing` |
+| 运行轨迹 | 一次运行一行落库（步骤明细 JSON），自建统计页可回放 | `doudou.observability.traces` |
 
 ## 1.1 立刻可跑（不需要任何 API Key）
 
@@ -237,14 +237,20 @@ uv run doudou serve --port 9000 --reload
 | `GET /api/v1/threads/{id}/context` | 上下文占用、预算与压缩明细（排查用） |
 | `DELETE /api/v1/threads/{id}` | 删除会话 |
 | `GET /api/v1/tools` | 工具清单 |
+| `GET /api/v1/audit` / `GET /api/v1/usage` | 审计记录 / token 与费用用量 |
+| `GET /api/v1/traces` / `GET /api/v1/traces/{run_id}` | 运行轨迹列表 / 单次运行的逐步回放（列表可 `?thread_id=`） |
+| `GET /api/v1/stats` | 运行量·成功率·工具分布·确认比例·token/费用趋势（可 `?thread_id=` 只看单会话） |
 | `GET /api/v1/health` / `/health/ready` | 健康 / 就绪检查（**不需要鉴权**） |
 | `GET /` | 内置聊天页（会话列表 + 流式对话） |
+| `GET /stats` | 内置统计页（轨迹回放 + 图表，不依赖外部 CDN） |
 | `GET /docs` | OpenAPI 交互文档 |
 
 > 浏览器直接打开 `http://127.0.0.1:8000/` 就是内置聊天页（效果预览见 §1.2）：左侧是历史会话，顶部显示
 > 当前模型与工具数，回复走 `/chat/stream` 流式输出并按 Markdown 渲染（标题、列表、表格、
 > 代码块）；工具调用显示成 chips，结果默认折叠。需要确认的工具（写文件、`shell_exec`）
 > 会在输入框上方弹出「同意 / 拒绝」卡片。`?thread=<id>` 可以直接打开某个会话。
+> 右上角「统计」进入内置统计页 `http://127.0.0.1:8000/stats`：运行量与成功率、token/费用趋势、
+> 工具调用分布、人工确认比例，点开单次运行可逐步回放（推理文本 + 工具调用）。
 > 开启 `DOUDOU_API_TOKEN` 后，点右上角「设置」填入令牌即可；页面不依赖任何外部 CDN。
 
 会话历史默认落库（`storage.history: database`），**进程重启后同一 thread 仍可续聊**。

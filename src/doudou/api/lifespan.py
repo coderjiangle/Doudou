@@ -55,7 +55,7 @@ class AppState:
     #: 人工确认的中介。所有通道共用它 —— 确认动作可能来自 CLI、HTTP 或飞书卡片。
     broker: ApprovalBroker | None = None
     approval_store: SqlApprovalStore | None = None
-    #: 审计 / 成本 / 追踪。API 从它读存储（``/audit``、``/usage``）。
+    #: 审计 / 成本 / 轨迹。API 从它读存储（``/audit``、``/usage``、``/traces``）。
     observability: ObservabilityStack = field(default_factory=ObservabilityStack)
     started_at: float = field(default_factory=time.monotonic)
 
@@ -127,7 +127,7 @@ async def create_state(settings: Settings | None = None) -> AppState:
 
     bundle = build_agent(resolved, extra_tools=mcp_tools, approval_hook=broker.hook())
 
-    # 审计 / 成本 / 追踪在 runner 之前装好：观察者是在构造时固定的。
+    # 审计 / 成本 / 轨迹在 runner 之前装好：观察者是在构造时固定的。
     observability = build_observability(resolved, database=database)
     runner = AgentRunner(bundle, store=store, observers=observability.observers)
 
@@ -171,7 +171,7 @@ async def dispose_state(state: AppState) -> None:
         await state.bus.stop()
     if state.mcp is not None:
         await state.mcp.stop()
-    # 观测放在数据库之前关：追踪还要 flush 一次，而 flush 可能读库。
+    # 观测放在数据库之前关：轨迹还要 flush 一次，而 flush 可能读库。
     await state.observability.aclose()
     if state.database is not None:
         await state.database.dispose()

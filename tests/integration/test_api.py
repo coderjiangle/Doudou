@@ -46,6 +46,7 @@ def _write_config(
     token: str = "",
     history: str = "database",
     skills_root: Path | None = None,
+    extra_config: str = "",
 ) -> Settings:
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -57,7 +58,7 @@ def _write_config(
         workspace=(tmp_path / "workspace").as_posix(),
         skills=skills,
     ).replace("history: database", f"history: {history}")
-    (config_dir / "config.yaml").write_text(text, encoding="utf-8")
+    (config_dir / "config.yaml").write_text(text + extra_config, encoding="utf-8")
     return load_settings(config_dir=config_dir, env_file=tmp_path / "no.env", use_env=False)
 
 
@@ -991,20 +992,16 @@ async def test_usage_reports_unknown_price_as_null(tmp_path: Path) -> None:
 
 
 async def test_usage_computes_cost_with_prices(tmp_path: Path) -> None:
-    # config.local.yaml 必须在**加载配置之前**写好：settings 是加载时快照，
-    # 之后再改文件不会生效（这是配置系统的刻意设计，不是 bug）。
-    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "config" / "config.local.yaml").write_text(
-        "observability:\n"
+    settings = _write_config(
+        tmp_path,
+        extra_config="observability:\n"
         "  cost:\n"
         "    prices:\n"
         "      scripted:demo:\n"
         "        input: 1.0\n"
         "        output: 1.0\n"
         "    daily_budget: 100\n",
-        encoding="utf-8",
     )
-    settings = _write_config(tmp_path)
 
     async with api_client(settings) as client:
         await client.post("/api/v1/chat", json={"message": "现在几点？"})

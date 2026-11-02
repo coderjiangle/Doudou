@@ -22,8 +22,9 @@ from doudou.tools.registry import build_tools, effective_interrupt_on
 
 logger = get_logger(__name__)
 
-#: :class:`AgentBundle` 是**唯一**的装配产物：模型、工具、系统提示词、Agent 实例
+#: :class:`AgentBundle` 是**唯一**的装配产物：配置、Agent 与上下文等配套组件
 #: 都挂在这一个对象上，gateway / channels / api 共享同一份引用。
+#: 模型、工具与系统提示词由 ReactAgent 保存，Bundle 不再重复维护。
 #: 需要换提示词时走 ``refresh_skills`` / ``refresh_memory`` 就地替换，
 #: 而不是重建 Agent —— 重建会让「新会话看到新提示词、老会话看到旧的」这种
 #: 半新半旧状态变得不可预测。
@@ -34,14 +35,21 @@ class AgentBundle:
     """一次组装完成、可直接运行的 Agent。"""
 
     settings: Settings
-    model: BaseChatModel
-    tools: list[BaseTool]
-    system_prompt: str
     agent: ReactAgent
     skills: SkillRegistry | None = None
     memory: MemoryStore | None = None
     context: ContextManager | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def system_prompt(self) -> str:
+        """读取 Agent 当前使用的提示词，避免维护两份可变状态。"""
+        return self.agent.system_prompt
+
+    @property
+    def tools(self) -> list[BaseTool]:
+        """读取 Agent 实际装载的工具，供通道与 API 展示。"""
+        return self.agent.tools
 
     @property
     def tool_names(self) -> list[str]:
@@ -85,10 +93,9 @@ class AgentBundle:
         """
         skills = self.skills or SkillRegistry([])
         memory_text = self.memory.render() if self.memory is not None else ""
-        self.system_prompt = load_system_prompt(
+        self.agent.system_prompt = load_system_prompt(
             self.settings, skills=skills.skills, memory=memory_text
         )
-        self.agent.system_prompt = self.system_prompt
 
 
 def build_agent(
@@ -181,9 +188,6 @@ def build_agent(
 
     bundle = AgentBundle(
         settings=resolved,
-        model=model,
-        tools=list(tools),
-        system_prompt=system_prompt,
         agent=agent,
         skills=skills_registry,
         memory=memory,

@@ -152,7 +152,7 @@ agent:
 一次真实调用（`uv run doudou ask "现在几点？"`）。
 
 **吊销旧 key 之后**再检查有没有历史泄漏：`git log -p -- . | grep -i "sk-"` 之类。
-本仓库的 `.gitignore` 已经覆盖 `.env` / `config/config.local.yaml` / `data/`，
+本仓库的 `.gitignore` 已经覆盖 `.env` / `data/`，
 但**已经把密钥提交进去的历史不会因此消失** —— 该轮换就得轮换，
 不改写历史也能靠轮换把风险关掉。
 

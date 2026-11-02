@@ -40,7 +40,6 @@ PREFIX = "DOUDOU_"
 META_ENV: dict[str, str] = {
     "DOUDOU_CONFIG_DIR": "config_dir",
     "DOUDOU_CONFIG_FILE": "config_file",
-    "DOUDOU_LOCAL_CONFIG_FILE": "local_config_file",
     "DOUDOU_API_TOKEN": "api_token",
 }
 

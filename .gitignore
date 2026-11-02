@@ -59,10 +59,6 @@ dist/
 .DS_Store
 Thumbs.db
 
-# ---- 本地覆盖配置 ----
-config/config.local.yaml
-config/*.local.yaml
-
 # ---- make audit 的临时依赖清单 ----
 .audit-requirements.txt
 

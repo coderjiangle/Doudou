@@ -3,7 +3,7 @@
 ## 1. 优先级与命名
 
 ```
-代码内默认值  <  config/config.yaml  <  config/config.local.yaml  <  环境变量
+代码内默认值  <  config/config.yaml  <  环境变量
 ```
 
 环境变量只有一条规则：

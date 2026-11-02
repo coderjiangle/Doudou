@@ -237,10 +237,11 @@ async def test_huge_tool_result_does_not_break_following_turns(tight_settings) -
     bundle = build_agent(settings, model=paged_model())
     bundle.context = ContextManager(settings, summarizer=FixedSummarizer())
     # 直接换掉 Agent 的工具与模型：这个用例只关心「超大结果进上下文后长什么样」
-    bundle.tools = [fetch_report]
     bundle.agent = _rebuild_agent(
         bundle, tools=[fetch_report], offloader=offloader, model=_tool_then_answer()
     )
+    # 更换引擎后，展示给外部的工具清单也应随之变化。
+    assert bundle.tool_names == ["fetch_report"]
     runner = AgentRunner(bundle)
 
     first = await runner.ainvoke(RunRequest(text="读那份报告", conversation_id="c1"))

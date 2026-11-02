@@ -1,4 +1,4 @@
-"""配置加载：默认值、YAML、本地覆盖、环境变量优先级与脱敏。"""
+"""配置加载：默认值、YAML、环境变量优先级与脱敏。"""
 
 from __future__ import annotations
 
@@ -39,19 +39,7 @@ def test_yaml_overrides_defaults(settings: Settings) -> None:
     assert settings.app.agent.interrupt_on == {"add": True}
     assert settings.config_file is not None
     assert settings.config_file.name == "config.yaml"
-
-
-def test_local_file_overrides_main(settings_factory) -> None:  # type: ignore[no-untyped-def]
-    settings = settings_factory(
-        config_yaml=MINIMAL_CONFIG,
-        local_yaml="agent:\n  name: LocalName\n  max_steps: 9\n",
-    )
-
-    assert settings.app.agent.name == "LocalName"
-    assert settings.app.agent.max_steps == 9
-    # 未被本地覆盖的字段保持主文件的值
-    assert settings.app.runtime.timezone == "Asia/Shanghai"
-    assert len(settings.loaded_files) == 2
+    assert settings.loaded_files == (settings.config_file,)
 
 
 def test_env_overrides_yaml(settings_factory) -> None:  # type: ignore[no-untyped-def]

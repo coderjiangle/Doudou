@@ -132,25 +132,19 @@ def skills_settings(
 def settings_factory(
     tmp_path: Path, missing_env_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Callable[..., Settings]:
-    """按需构造配置：``make(config_yaml=..., local_yaml=..., env={...})``。"""
+    """按需构造配置：``make(config_yaml=..., env={...})``。"""
 
     def make(
         *,
         config_yaml: str | None = None,
-        local_yaml: str | None = None,
         env: dict[str, str] | None = None,
         use_env: bool = True,
         env_file: Path | None = None,
     ) -> Settings:
-        root = (
-            tmp_path
-            / f"cfg-{abs(hash((config_yaml, local_yaml, str(sorted((env or {}).items())))))}"
-        )
+        root = tmp_path / f"cfg-{abs(hash((config_yaml, str(sorted((env or {}).items())))))}"
         root.mkdir(exist_ok=True)
         if config_yaml is not None:
             (root / "config.yaml").write_text(config_yaml, encoding="utf-8")
-        if local_yaml is not None:
-            (root / "config.local.yaml").write_text(local_yaml, encoding="utf-8")
         for key, value in (env or {}).items():
             monkeypatch.setenv(key, value)
         return load_settings(

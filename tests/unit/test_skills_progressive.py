@@ -237,11 +237,8 @@ def test_bundle_refresh_without_skills_is_safe() -> None:
     from doudou.agent.factory import AgentBundle
 
     assert (
-        AgentBundle(  # type: ignore[call-arg]
+        AgentBundle(
             settings=None,  # type: ignore[arg-type]
-            model=ScriptedChatModel(steps=[]),
-            tools=[],
-            system_prompt="",
             agent=ReactAgent(model=ScriptedChatModel(steps=[]), system_prompt=""),
         ).refresh_skills()
         == 0

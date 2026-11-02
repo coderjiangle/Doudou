@@ -2,7 +2,7 @@
 
 优先级（右 > 左）::
 
-    代码内默认值 → config/config.yaml → config/config.local.yaml → DOUDOU_* 环境变量
+    代码内默认值 → config/config.yaml → DOUDOU_* 环境变量
 
 环境变量名 = ``DOUDOU_`` + ``config.yaml`` 的路径（下划线连接），例如
 ``DOUDOU_MODEL_PRIMARY``、``DOUDOU_MODEL_MAX_TOKENS``。映射逻辑见
@@ -28,7 +28,6 @@ logger = get_logger(__name__)
 
 DEFAULT_CONFIG_DIR = Path("config")
 DEFAULT_CONFIG_NAME = "config.yaml"
-DEFAULT_LOCAL_CONFIG_NAME = "config.local.yaml"
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -54,7 +53,7 @@ def load_yaml(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         raise ValueError(f"配置文件根节点必须是映射（mapping）：{path}")
-    return cast("dict[str, Any]", data)
+    return data
 
 
 def resolve_path(base: Path, value: str | Path) -> Path:
@@ -122,7 +121,6 @@ def load_settings(
     *,
     config_dir: Path | str | None = None,
     config_file: Path | str | None = None,
-    local_config_file: Path | str | None = None,
     env_file: Path | str | None = None,
     use_env: bool = True,
 ) -> Settings:
@@ -132,7 +130,6 @@ def load_settings(
         config_dir: 配置目录，默认 ``./config``，可被 ``DOUDOU_CONFIG_DIR`` 覆盖。
         config_file: 主配置文件（相对 ``config_dir`` 或绝对路径），
             默认 ``config.yaml``，可被 ``DOUDOU_CONFIG_FILE`` 覆盖。
-        local_config_file: 本地覆盖文件，默认 ``config.local.yaml``。
         env_file: ``.env`` 路径；默认读取当前工作目录下的 ``.env``。
         use_env: 是否读取环境变量（测试中可关闭）。
     """
@@ -148,16 +145,10 @@ def load_settings(
     main_name = config_file or meta.get("config_file") or DEFAULT_CONFIG_NAME
     main_path = resolve_path(resolved_config_dir, main_name)
     if main_path.is_file():
-        raw = deep_merge(raw, load_yaml(main_path))
+        raw = load_yaml(main_path)
         loaded.append(main_path)
     else:
         logger.debug("config.file_missing", path=str(main_path))
-
-    local_name = local_config_file or meta.get("local_config_file") or DEFAULT_LOCAL_CONFIG_NAME
-    local_path = resolve_path(resolved_config_dir, local_name)
-    if local_path.is_file():
-        raw = deep_merge(raw, load_yaml(local_path))
-        loaded.append(local_path)
 
     raw = deep_merge(raw, env_overrides)
     app = AppConfig.model_validate(raw)

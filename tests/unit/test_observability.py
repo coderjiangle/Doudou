@@ -870,8 +870,8 @@ async def test_trace_args_are_redacted() -> None:
     assert args["url"] == "https://example.com"
 
 
-async def test_memory_trace_store_keyset_pagination() -> None:
-    """游标（keyset）分页：按 (started_at, run_id) 取更早的，不重不漏。"""
+async def test_memory_trace_store_offset_pagination() -> None:
+    """分页：按 (started_at, run_id) 倒序 + offset 切片，count 给出总数。"""
     from datetime import UTC, datetime, timedelta
 
     store = MemoryTraceStore()
@@ -883,14 +883,13 @@ async def test_memory_trace_store_keyset_pagination() -> None:
             )
         )
 
-    first = await store.list_recent(limit=2)
-    assert [item.run_id for item in first] == ["r4", "r3"]
+    assert await store.count() == 5
+    assert await store.count(thread_id="missing") == 0
 
-    second = await store.list_recent(limit=2, before=(first[-1].started_at, first[-1].run_id))
-    assert [item.run_id for item in second] == ["r2", "r1"]
-
-    third = await store.list_recent(limit=2, before=(second[-1].started_at, second[-1].run_id))
-    assert [item.run_id for item in third] == ["r0"]
+    assert [item.run_id for item in await store.list_recent(limit=2, offset=0)] == ["r4", "r3"]
+    assert [item.run_id for item in await store.list_recent(limit=2, offset=2)] == ["r2", "r1"]
+    assert [item.run_id for item in await store.list_recent(limit=2, offset=4)] == ["r0"]
+    assert await store.list_recent(limit=2, offset=99) == []
 
 
 async def test_sql_trace_store_round_trip(database: Database) -> None:

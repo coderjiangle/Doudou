@@ -219,20 +219,33 @@ class BufferedTraceStore(TraceStore):
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         thread_id: str | None = None,
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
-        before: tuple[datetime, str] | None = None,
     ) -> list[TraceRecord]:
         await self.flush()  # 读之前先落盘，避免「刚发生的查不到」
         return await self.inner.list_recent(
             limit=limit,
+            offset=offset,
             thread_id=thread_id,
             channel=channel,
             since=since,
             only_failed=only_failed,
-            before=before,
+        )
+
+    async def count(
+        self,
+        *,
+        thread_id: str | None = None,
+        channel: str | None = None,
+        since: datetime | None = None,
+        only_failed: bool = False,
+    ) -> int:
+        await self.flush()
+        return await self.inner.count(
+            thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
         )
 
     async def get(self, run_id: str) -> TraceRecord | None:

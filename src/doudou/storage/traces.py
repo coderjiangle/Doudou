@@ -56,23 +56,36 @@ class SqlTraceStore(TraceStore):
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         thread_id: str | None = None,
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
-        before: tuple[datetime, str] | None = None,
     ) -> list[TraceRecord]:
         async with self.database.session() as session:
             rows = await RunTraceRepository(session).list_recent(
                 limit=limit,
+                offset=offset,
                 thread_id=thread_id,
                 channel=channel,
                 since=since,
                 only_failed=only_failed,
-                before=before,
             )
             # 列表查询用了 load_only（不含 steps_detail），所以这里不能碰它。
             return [_to_summary(row) for row in rows]
+
+    async def count(
+        self,
+        *,
+        thread_id: str | None = None,
+        channel: str | None = None,
+        since: datetime | None = None,
+        only_failed: bool = False,
+    ) -> int:
+        async with self.database.session() as session:
+            return await RunTraceRepository(session).count(
+                thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
+            )
 
     async def get(self, run_id: str) -> TraceRecord | None:
         async with self.database.session() as session:

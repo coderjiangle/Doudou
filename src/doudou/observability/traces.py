@@ -118,12 +118,23 @@ class TraceStore(Protocol):
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         thread_id: str | None = None,
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
-        before: tuple[datetime, str] | None = None,
     ) -> list[TraceRecord]: ...
+
+    async def count(
+        self,
+        *,
+        thread_id: str | None = None,
+        channel: str | None = None,
+        since: datetime | None = None,
+        only_failed: bool = False,
+    ) -> int:
+        """符合条件的总条数（分页控件用）。"""
+        ...
 
     async def get(self, run_id: str) -> TraceRecord | None: ...
 
@@ -157,24 +168,48 @@ class MemoryTraceStore:
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         thread_id: str | None = None,
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
-        before: tuple[datetime, str] | None = None,
     ) -> list[TraceRecord]:
-        items = [
+        items = self._matching(
+            thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
+        )
+        items.sort(key=lambda item: (item.started_at, item.run_id), reverse=True)
+        start = max(0, offset)
+        return items[start : start + max(1, limit)]
+
+    async def count(
+        self,
+        *,
+        thread_id: str | None = None,
+        channel: str | None = None,
+        since: datetime | None = None,
+        only_failed: bool = False,
+    ) -> int:
+        return len(
+            self._matching(
+                thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
+            )
+        )
+
+    def _matching(
+        self,
+        *,
+        thread_id: str | None,
+        channel: str | None,
+        since: datetime | None,
+        only_failed: bool,
+    ) -> list[TraceRecord]:
+        return [
             item
             for item in self._records.values()
             if _matches(
                 item, thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
             )
         ]
-        if before is not None:
-            ts, run_id = before
-            items = [item for item in items if (item.started_at, item.run_id) < (ts, run_id)]
-        items.sort(key=lambda item: (item.started_at, item.run_id), reverse=True)
-        return items[: max(1, limit)]
 
     async def get(self, run_id: str) -> TraceRecord | None:
         return self._records.get(run_id)

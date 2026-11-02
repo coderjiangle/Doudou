@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
@@ -73,30 +74,16 @@ class RunTraceRepository:
     async def get(self, run_id: str) -> RunTraceModel | None:
         return await self.session.get(RunTraceModel, run_id)
 
-    async def list_recent(
-        self,
+    @staticmethod
+    def _filtered(
+        statement: Any,
         *,
-        limit: int = 50,
-        thread_id: str | None = None,
-        channel: str | None = None,
-        since: datetime | None = None,
-        only_failed: bool = False,
-        before: tuple[datetime, str] | None = None,
-    ) -> list[RunTraceModel]:
-        """列表 / 统计用：只加载标量列。
-
-        ``steps_detail`` 可能很大，列表与统计都用不上它 —— 只有 ``get``（单次
-        回放）才需要。少读这一列，90 天窗口下的查询才不会把几 MB 的 JSON 拉进内存。
-
-        ``before`` 是游标分页（keyset）：``(started_at, run_id)`` 严格小于它才返回，
-        这样翻页不会因为期间插入新记录而漏项或重复。
-        """
-        statement = (
-            select(RunTraceModel)
-            .options(load_only(*_STAT_COLUMNS))
-            .order_by(RunTraceModel.started_at.desc(), RunTraceModel.run_id.desc())
-            .limit(limit)
-        )
+        thread_id: str | None,
+        channel: str | None,
+        since: datetime | None,
+        only_failed: bool,
+    ) -> Any:
+        """列表与计数共用同一套筛选，保证「第几页有几条」与总数一致。"""
         if thread_id:
             statement = statement.where(RunTraceModel.thread_id == thread_id)
         if channel:
@@ -105,18 +92,55 @@ class RunTraceRepository:
             statement = statement.where(RunTraceModel.started_at >= since)
         if only_failed:
             statement = statement.where(RunTraceModel.ok.is_(False))
-        if before is not None:
-            ts, run_id = before
-            statement = statement.where(
-                or_(
-                    RunTraceModel.started_at < ts,
-                    and_(RunTraceModel.started_at == ts, RunTraceModel.run_id < run_id),
-                )
-            )
+        return statement
+
+    async def list_recent(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        thread_id: str | None = None,
+        channel: str | None = None,
+        since: datetime | None = None,
+        only_failed: bool = False,
+    ) -> list[RunTraceModel]:
+        """列表 / 统计用：只加载标量列。
+
+        ``steps_detail`` 可能很大，列表与统计都用不上它 —— 只有 ``get``（单次
+        回放）才需要。少读这一列，90 天窗口下的查询才不会把几 MB 的 JSON 拉进内存。
+
+        按 ``(started_at DESC, run_id DESC)`` 排序，用 ``offset``/``limit`` 翻页。
+        """
+        statement = self._filtered(
+            select(RunTraceModel).options(load_only(*_STAT_COLUMNS)),
+            thread_id=thread_id,
+            channel=channel,
+            since=since,
+            only_failed=only_failed,
+        )
+        statement = (
+            statement.order_by(RunTraceModel.started_at.desc(), RunTraceModel.run_id.desc())
+            .offset(max(0, offset))
+            .limit(limit)
+        )
         return list((await self.session.execute(statement)).scalars().all())
 
-    async def count(self) -> int:
-        statement = select(func.count(RunTraceModel.run_id))
+    async def count(
+        self,
+        *,
+        thread_id: str | None = None,
+        channel: str | None = None,
+        since: datetime | None = None,
+        only_failed: bool = False,
+    ) -> int:
+        """符合条件的总条数（给「第 N / 共 M 页」用）。"""
+        statement = self._filtered(
+            select(func.count(RunTraceModel.run_id)),
+            thread_id=thread_id,
+            channel=channel,
+            since=since,
+            only_failed=only_failed,
+        )
         return int((await self.session.execute(statement)).scalar_one())
 
     async def trim(self, *, keep: int) -> int:

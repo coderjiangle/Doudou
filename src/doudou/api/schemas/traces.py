@@ -48,10 +48,11 @@ class TraceDetailOut(TraceSummaryOut):
 
 class TraceListResponse(BaseModel):
     count: int
+    total: int = Field(default=0, description="符合条件的总条数（用于页码/总页数）。")
+    offset: int = Field(default=0, description="本次返回的起始偏移。")
+    has_more: bool = False
     backend: str = Field(description="database | memory | disabled")
     traces: list[TraceSummaryOut] = Field(default_factory=list)
-    #: 游标分页：非空表示还有更早的记录，把它作为下次请求的 ``cursor`` 即可。
-    next_cursor: str | None = Field(default=None, description="取下一页的游标；null 表示没有更多。")
     note: str = ""
 
 

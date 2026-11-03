@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from doudou.agent.events import RunEvent
+from doudou.agent.messages import ImageInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +31,8 @@ class InboundMessage:
     thread_key: str | None = None
     #: 原始事件，排查问题时使用。
     raw: dict[str, Any] = field(default_factory=dict)
+    #: 已校验的内嵌图片；CLI 不提供图片输入。
+    images: tuple[ImageInput, ...] = ()
 
     @property
     def session_key(self) -> str:

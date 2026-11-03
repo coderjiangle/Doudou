@@ -7,14 +7,18 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
 from doudou.agent.approvals import ApprovalBroker, ApprovalRequest
 from doudou.agent.events import RunEvent
+from doudou.agent.messages import ImageInput
 from doudou.channels.base import (
     InboundMessage,
     OutboundMessage,
@@ -24,6 +28,7 @@ from doudou.channels.base import (
 from doudou.channels.feishu.channel import FeishuChannel, _CardState
 from doudou.channels.feishu.client import FeishuClient, FeishuError, parse_action_value
 from doudou.config.loader import Settings
+from tests.unit.test_image_input import PNG_BYTES, PNG_URL
 
 # --------------------------------------------------------------------------- 假客户端
 
@@ -347,6 +352,64 @@ async def test_send_forwards_to_client(channel: FeishuChannel, fake_lark: FakeLa
     await channel.send(OutboundMessage(conversation_id="oc_chat", text="排队中"))
 
     assert request_json(fake_lark.message.created[0]) == {"text": "排队中"}
+
+
+async def test_download_user_image_uses_message_resource_api(
+    feishu_client: FeishuClient, fake_lark: FakeLarkClient
+) -> None:
+    requests: list[Any] = []
+
+    def get(request: Any) -> Any:
+        requests.append(request)
+        return SimpleNamespace(success=lambda: True, code=0, file=io.BytesIO(PNG_BYTES))
+
+    fake_lark.im.v1.message_resource = SimpleNamespace(get=get)
+    image = await feishu_client.download_image("om_in", "img_key")
+    assert image.data_url == PNG_URL
+    assert requests[0].message_id == "om_in"
+    assert requests[0].file_key == "img_key"
+    assert requests[0].type == "image"
+
+
+async def test_image_download_keeps_inbound_message_order(channel: FeishuChannel) -> None:
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def download(*_args: Any) -> ImageInput:
+        entered.set()
+        await release.wait()
+        return ImageInput(data_url=PNG_URL)
+
+    channel.client.download_image = AsyncMock(side_effect=download)  # type: ignore[method-assign]
+    image = replace(inbound(""), raw={"image_keys": ["img_key"]})
+    first = asyncio.create_task(channel._dispatch(image))
+    await asyncio.wait_for(entered.wait(), 1)
+    second = asyncio.create_task(channel._dispatch(inbound("再问一句")))
+    await asyncio.sleep(0)
+    sink = channel.router
+    assert isinstance(sink, RecordingSink)
+    assert not sink.dispatched
+    release.set()
+    await asyncio.gather(first, second)
+    assert [message.text for message in sink.dispatched] == ["", "再问一句"]
+    assert sink.dispatched[0].images[0].data_url == PNG_URL
+
+
+async def test_image_download_failure_does_not_run_text_only(
+    channel: FeishuChannel, fake_lark: FakeLarkClient
+) -> None:
+    channel.client.download_image = AsyncMock(side_effect=ValueError("bad image"))  # type: ignore[method-assign]
+    await channel._dispatch(replace(inbound("识图"), raw={"image_keys": ["img_key"]}))
+    sink = channel.router
+    assert isinstance(sink, RecordingSink)
+    assert not sink.dispatched
+    assert "图片读取失败" in request_json(fake_lark.message.created[-1])["text"]
+
+
+async def test_excessive_image_count_is_reported_before_download(channel: FeishuChannel) -> None:
+    download = AsyncMock()
+    channel.client.download_image = download  # type: ignore[method-assign]
+    await channel._dispatch(replace(inbound("识图"), raw={"image_keys": ["img_key"] * 5}))
+    download.assert_not_called()
 
 
 # --------------------------------------------------------------------------- 入站（WS 线程回调）

@@ -16,10 +16,12 @@ import asyncio
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from doudou.agent.approvals import ApprovalBroker, ApprovalRequest
 from doudou.agent.events import RunEvent
+from doudou.agent.messages import MAX_IMAGES
 from doudou.channels.base import InboundMessage, OutboundMessage, current_inbound
 from doudou.channels.feishu import cards
 from doudou.channels.feishu.client import FeishuClient, FeishuError, parse_action_value
@@ -164,6 +166,7 @@ class FeishuChannel:
         self._dedup = EventDedup(ttl_seconds=float(self.config.dedup_ttl_seconds))
         self._ws = runner
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._inbound_locks: dict[str, asyncio.Lock] = {}
         #: 确认卡片 ID：点了按钮之后要把那张卡换成「已同意 / 已拒绝」，
         #: 否则按钮还挂在那里，容易被重复点击（虽然决策是幂等的）。
         self._approval_cards: dict[str, str] = {}
@@ -286,7 +289,20 @@ class FeishuChannel:
             text_chars=len(message.text),
         )
         try:
-            await self.router.dispatch(message, self)
+            # 同一会话先完成图片下载再入队，避免后来的文字越过尚在下载的图片。
+            lock = self._inbound_locks.setdefault(message.session_key, asyncio.Lock())
+            async with lock:
+                keys = message.raw.get("image_keys") or []
+                if keys:
+                    if len(keys) > MAX_IMAGES or not message.message_id:
+                        raise ValueError(
+                            f"每条消息最多支持 {MAX_IMAGES} 张图片，且需要有效消息 ID。"
+                        )
+                    images = await asyncio.gather(
+                        *(self.client.download_image(message.message_id, key) for key in keys)
+                    )
+                    message = replace(message, images=tuple(images))
+                await self.router.dispatch(message, self)
         except Exception as exc:
             logger.error(
                 "feishu.dispatch_failed",
@@ -294,6 +310,18 @@ class FeishuChannel:
                 error=str(exc),
                 exc_info=True,
             )
+            if message.raw.get("image_keys"):
+                try:
+                    await self.send(
+                        OutboundMessage(
+                            conversation_id=message.conversation_id,
+                            text="图片读取失败。请重发 PNG、JPEG、GIF 或 WebP 图片"
+                            "（每张不超过 5 MiB，"
+                            "每条最多 4 张），并确认应用已开通图片资源读取权限。",
+                        )
+                    )
+                except Exception:
+                    logger.warning("feishu.image_error_reply_failed", exc_info=True)
 
     # ---------------------------------------------------------------- 出站
 

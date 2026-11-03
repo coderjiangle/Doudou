@@ -304,3 +304,16 @@ def test_utcnow_is_aware() -> None:
 
 def test_thread_model_table_name() -> None:
     assert ThreadModel.__tablename__ == "threads"
+
+
+async def test_multimodal_history_preserves_images_and_text(database: Database) -> None:
+    from doudou.agent.messages import ImageInput, human_message
+    from doudou.storage.history import CONTENT_PREFIX
+    from tests.unit.test_image_input import PNG_URL
+
+    store = SqlHistoryStore(database)
+    message = human_message("看这张图", [ImageInput(data_url=PNG_URL)])
+    escaped_text = HumanMessage(content=CONTENT_PREFIX + '["普通文字，不是内容块"]')
+    await store.append("images", [message, escaped_text, AIMessage(content="看到了")])
+    reloaded = await SqlHistoryStore(database).load("images")
+    assert [item.content for item in reloaded] == [message.content, escaped_text.content, "看到了"]

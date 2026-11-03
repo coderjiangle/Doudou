@@ -33,6 +33,7 @@
 | 实用工具集 | 检索 / 抓取 / 工作区文件 / 命令执行，默认拒绝 | `doudou.tools.builtin` |
 | 配置自检 | `my` 工具按需查询模型、限制、工具清单与密钥状态（只读） | `doudou.tools.builtin.self_config` |
 | 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` |
+| 图片输入 | Web 选图 / 粘贴截图、飞书图片 / 富文本图片、历史回放 | `doudou.agent.messages` |
 | 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` |
 | MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` |
 | Skill 渐进式加载 | 索引注入 + `read_skill` 按需读 + 热重载 | `doudou.skills` |

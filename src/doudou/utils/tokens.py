@@ -25,6 +25,9 @@ ENCODING_NAME = "cl100k_base"
 #: 单条消息的固定开销（角色、分隔符等）。经验值，与 OpenAI 的文档口径一致。
 MESSAGE_OVERHEAD_TOKENS = 4
 
+# 图片费用随模型和分辨率变化；这里仅用于历史裁剪的固定估算，不编码 base64 文本。
+IMAGE_ESTIMATE_TOKENS = 4096
+
 _encoding: Any | None = None
 _encoding_ready = False
 _fallback_warned = False
@@ -100,6 +103,13 @@ def count_message_tokens(message: Any) -> int:
 
     total = MESSAGE_OVERHEAD_TOKENS
     total += count_tokens(content_to_text(getattr(message, "content", None)))
+    content = getattr(message, "content", None)
+    if isinstance(content, list):
+        total += IMAGE_ESTIMATE_TOKENS * sum(
+            1
+            for block in content
+            if isinstance(block, dict) and block.get("type") in {"image", "image_url"}
+        )
 
     tool_calls = getattr(message, "tool_calls", None)
     if tool_calls:

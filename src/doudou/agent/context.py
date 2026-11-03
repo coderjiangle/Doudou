@@ -136,11 +136,15 @@ class HistorySummarizer:
         不做「角色名 + 内容」之外的花样：摘要的输入越简单，模型越不容易
         被格式细节带偏。
         """
-        from doudou.utils.text import content_to_text
+        from doudou.utils.text import blocks_to_text
 
         lines: list[str] = []
         for message in messages:
-            text = content_to_text(message.content).strip()
+            # 摘要模型只接收文字和图片占位，不将整段 base64 当成文本送出。
+            content = message.content
+            text = (
+                content if isinstance(content, str) else blocks_to_text(content, placeholders=True)
+            ).strip()
             calls = getattr(message, "tool_calls", None)
             if not text and calls:
                 text = f"（调用工具 {', '.join(str(call['name']) for call in calls)}）"
@@ -287,9 +291,7 @@ class ContextManager:
     ) -> tuple[list[BaseMessage], ContextStats]:
         """产出本轮要用的历史，并给出统计。
 
-        触发压缩的**唯一**条件是 token 预算（``budget * summarize_threshold_ratio``）：
-        按条数触发的规则曾经存在，但它与预算无关 —— 内容很小、条数很多的会话会被它
-        拖进一次没必要的摘要调用（那是一次完整的模型往返，且在关键路径上）。
+        触发压缩的**唯一**条件是 token 预算（``budget * summarize_threshold_ratio``）
         """
         messages = list(history)
         stats = ContextStats(budget=self.budget)

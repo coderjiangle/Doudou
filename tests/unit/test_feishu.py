@@ -126,7 +126,44 @@ def test_parse_post_content_flattens_and_keeps_links() -> None:
 
 
 def test_parse_content_unsupported_type() -> None:
-    assert parse_content("image", json.dumps({"image_key": "img"})).text == ""
+    assert parse_content("file", json.dumps({"file_key": "file"})).text == ""
+
+
+def test_image_content_and_localized_post_keep_image_keys() -> None:
+    assert parse_content("image", json.dumps({"image_key": "img1"})).image_keys == ["img1"]
+    post = parse_content(
+        "post",
+        json.dumps(
+            {
+                "zh_cn": {
+                    "title": "截图",
+                    "content": [
+                        [
+                            {"tag": "text", "text": "帮我看一下"},
+                            {"tag": "img", "image_key": "img1"},
+                            {"tag": "img", "image_key": "img2"},
+                        ]
+                    ],
+                }
+            }
+        ),
+    )
+    assert post.text == "截图\n帮我看一下"
+    assert post.image_keys == ["img1", "img2"]
+
+
+def test_image_messages_still_obey_mentions_and_allowlists(feishu_settings) -> None:  # type: ignore[no-untyped-def]
+    config = feishu_config(feishu_settings())
+    raw = json.dumps({"image_key": "img1"})
+    parsed = parse_message_event(make_event(message_type="image", content=raw), config)
+    assert parsed.ok
+    assert parsed.message is not None
+    assert parsed.message.raw["image_keys"] == ["img1"]
+    assert parsed.message.text == ""
+    group = make_event(message_type="image", content=raw, chat_type="group")
+    assert not parse_message_event(group, config).ok
+    denied = config.model_copy(update={"allowed_users": ["other"]})
+    assert not parse_message_event(make_event(message_type="image", content=raw), denied).ok
 
 
 # --------------------------------------------------------------------------- 事件解析
@@ -238,7 +275,7 @@ def test_unsupported_message_type_is_skipped(feishu_settings) -> None:  # type: 
     config = feishu_config(feishu_settings())
 
     parsed = parse_message_event(
-        make_event(message_type="image", content=json.dumps({"image_key": "k"})), config
+        make_event(message_type="file", content=json.dumps({"file_key": "k"})), config
     )
 
     assert not parsed.ok

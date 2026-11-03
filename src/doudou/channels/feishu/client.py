@@ -11,12 +11,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
+from doudou.agent.messages import MAX_IMAGE_BYTES, ImageInput
 from doudou.channels.feishu.schemas import CardActionValue
 from doudou.config.schema import FeishuChannelConfig
 from doudou.observability.logging import get_logger
+from doudou.utils.async_utils import retry_async
 
 logger = get_logger(__name__)
 
@@ -51,6 +54,40 @@ class FeishuClient:
         )
 
     # ---------------------------------------------------------------- 发消息
+
+    async def download_image(self, message_id: str, image_key: str) -> ImageInput:
+        """下载用户消息里的图片；SDK 同步 I/O 下沉线程，统一重试只读请求。"""
+
+        async def fetch() -> bytes:
+            return await asyncio.to_thread(self._read_image, message_id, image_key)
+
+        data = await retry_async(
+            fetch, retry_on=(FeishuError, OSError), label="feishu.image_download"
+        )
+        image = await asyncio.to_thread(ImageInput.from_bytes, data)
+        logger.info("feishu.image_downloaded", message_id=message_id, bytes=len(data))
+        return image
+
+    def _read_image(self, message_id: str, image_key: str) -> bytes:
+        from lark_oapi.api.im.v1 import GetMessageResourceRequest
+
+        request = (
+            GetMessageResourceRequest.builder()
+            .message_id(message_id)
+            .file_key(image_key)
+            .type("image")
+            .build()
+        )
+        response = self._client.im.v1.message_resource.get(request)
+        if not response.success() or response.file is None:
+            raise FeishuError(f"读取消息图片失败（code={response.code}）。")
+        try:
+            data = response.file.read(MAX_IMAGE_BYTES + 1)
+        finally:
+            response.file.close()
+        if not isinstance(data, bytes):
+            raise FeishuError("飞书返回的图片数据无效。")
+        return data
 
     def send_card(self, chat_id: str, card: dict[str, Any]) -> str | None:
         """发送一张交互卡片，返回 ``message_id``（用于后续 patch）。"""

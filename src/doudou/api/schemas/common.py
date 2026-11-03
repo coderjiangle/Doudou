@@ -87,6 +87,7 @@ class MessageOut(BaseModel):
 
     role: str = Field(description="human | ai | tool | system")
     content: str = ""
+    images: list[str] = Field(default_factory=list, description="消息中内嵌图片的 data URL。")
     tool_calls: list[dict[str, Any]] | None = None
     tool_call_id: str | None = None
     name: str | None = None

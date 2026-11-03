@@ -271,7 +271,9 @@ async def test_chat_rejects_empty_message(settings_for_api: Settings) -> None:
     assert response.status_code == 422
     body = response.json()
     assert body["error"]["code"] == "invalid_request"
-    assert body["error"]["details"][0]["field"] == "body.message"
+    # 文字与图片共同决定请求是否为空，因此错误归属整个请求体。
+    assert body["error"]["details"][0]["field"] == "body"
+    assert "文字或发送图片" in body["error"]["details"][0]["issue"]
 
 
 async def test_conversation_id_binding_is_stable(settings_for_api: Settings) -> None:

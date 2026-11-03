@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from doudou.agent.messages import ImageInput
 from doudou.channels.base import InboundMessage
 
 
@@ -21,6 +22,7 @@ class RunRequest:
     #: 是否开启新会话（``/new``）。
     new_thread: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    images: tuple[ImageInput, ...] = ()
 
     @classmethod
     def from_inbound(cls, message: InboundMessage, **extra: Any) -> RunRequest:
@@ -29,6 +31,7 @@ class RunRequest:
             conversation_id=message.session_key,
             channel=message.channel,
             user_id=message.user_id,
+            images=message.images,
             metadata=dict(extra),
         )
 

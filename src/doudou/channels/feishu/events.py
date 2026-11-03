@@ -27,8 +27,8 @@ logger = get_logger(__name__)
 
 CHANNEL_NAME = "feishu"
 
-#: 支持的消息类型。图片/文件暂不支持（需要多模态链路）。
-SUPPORTED_MESSAGE_TYPES = ("text", "post")
+#: 图片在通道主事件循环中下载；文件和音频尚未接入。
+SUPPORTED_MESSAGE_TYPES = ("text", "post", "image")
 
 #: 私聊对话类型。
 P2P_CHAT_TYPES = ("p2p",)
@@ -140,7 +140,7 @@ def parse_message_event(
         # 把 @机器人的占位符从正文里去掉，模型不需要看到 "@_user_1"。
         text = strip_mention_keys(text, mentions).strip()
 
-    if not text:
+    if not text and not content.image_keys:
         return ParsedEvent(skip=SkipReason("empty_text", "消息正文为空"))
 
     thread_key = None
@@ -162,6 +162,7 @@ def parse_message_event(
                 "message_type": message_type,
                 "mentions": [str(_get(item, "name") or "") for item in mentions],
                 "links": content.links,
+                "image_keys": content.image_keys,
             },
         )
     )

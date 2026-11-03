@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
+from doudou.agent.messages import image_urls
 from doudou.api.deps import RunnerDep, StateDep
 from doudou.api.errors import ApiError
 from doudou.api.lifespan import AppState
@@ -64,6 +65,7 @@ async def get_thread(thread_id: str, runner: RunnerDep) -> ThreadDetail:
             MessageOut(
                 role=message.type,
                 content=content_to_text(message.content),
+                images=image_urls(message.content),
                 tool_calls=getattr(message, "tool_calls", None) or None,
                 tool_call_id=getattr(message, "tool_call_id", None),
                 name=getattr(message, "name", None),

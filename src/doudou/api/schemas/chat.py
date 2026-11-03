@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from doudou.agent.messages import MAX_IMAGES, ImageInput
 
 #: SSE 事件名。与 ``RunEvent`` 一一对应，客户端只需认这一组名字。
 StreamEventName = Literal["start", "delta", "tool_call", "tool_result", "done", "error"]
@@ -13,7 +15,12 @@ StreamEventName = Literal["start", "delta", "tool_call", "tool_result", "done", 
 class ChatRequest(BaseModel):
     """一次对话请求。"""
 
-    message: str = Field(min_length=1, description="用户输入。")
+    message: str = Field(default="", description="用户输入；发送图片时可为空。")
+    images: list[ImageInput] = Field(
+        default_factory=list,
+        max_length=MAX_IMAGES,
+        description="图片，最多 4 张，每张不超过 5 MiB。",
+    )
     thread_id: str | None = Field(
         default=None,
         description="指定会话；留空时由服务端按 conversation_id 分配（并持久绑定）。",
@@ -24,6 +31,12 @@ class ChatRequest(BaseModel):
     )
     channel: str = Field(default="api", description="来源渠道标记，仅用于记录与日志。")
     new_thread: bool = Field(default=False, description="为 True 时强制开启新会话。")
+
+    @model_validator(mode="after")
+    def require_content(self) -> ChatRequest:
+        if not self.message.strip() and not self.images:
+            raise ValueError("请输入文字或发送图片。")
+        return self
 
 
 class MessageOutLite(BaseModel):

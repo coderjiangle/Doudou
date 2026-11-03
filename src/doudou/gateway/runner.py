@@ -11,11 +11,12 @@ from collections.abc import AsyncIterator, Sequence
 from time import perf_counter
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage
 
 from doudou.agent.context import ContextManager, ContextStats
 from doudou.agent.events import RunEvent
 from doudou.agent.factory import AgentBundle
+from doudou.agent.messages import human_message
 from doudou.agent.react import RunResult
 from doudou.config.loader import Settings
 from doudou.gateway.history import HistoryStore, InMemoryHistoryStore, ThreadInfo, is_tool_message
@@ -154,6 +155,7 @@ class AgentRunner:
             else:
                 history, stats = stored, ContextStats()
             produced: list[BaseMessage] = []
+            user_message = human_message(request.text, request.images)
             started_ok = False
             steps = 0
             tool_calls = 0
@@ -163,7 +165,7 @@ class AgentRunner:
             error: str | None = None
             try:
                 async for event in self.bundle.agent.astream(
-                    [*history, HumanMessage(content=request.text)],
+                    [*history, user_message],
                     thread_id=resolved_thread,
                     messages_out=produced,
                 ):
@@ -188,7 +190,7 @@ class AgentRunner:
                 committed = truncate_dangling_tool_calls(produced)
                 await self.store.append(
                     resolved_thread,
-                    [HumanMessage(content=request.text), *committed],
+                    [user_message, *committed],
                     channel=request.channel,
                     conversation_id=request.conversation_id,
                 )

@@ -59,6 +59,7 @@ class ParsedContent(BaseModel):
     text: str = ""
     #: 富文本里的链接，按出现顺序。检索类回答常常需要它们。
     links: list[str] = Field(default_factory=list)
+    image_keys: list[str] = Field(default_factory=list)
 
 
 def parse_content(message_type: str, raw: str | None) -> ParsedContent:
@@ -68,7 +69,8 @@ def parse_content(message_type: str, raw: str | None) -> ParsedContent:
 
     * ``text``  —— ``{"text": "..."}``
     * ``post``  —— ``{"title": "...", "content": [[{tag, text}, ...], ...]}``
-    * 其它（image / file / audio …）—— 暂不支持，返回空文本。
+    * ``image`` —— ``{"image_key": "img_..."}``。
+    * 其它（file / audio …）—— 暂不支持，返回空文本。
     """
     if not raw:
         return ParsedContent()
@@ -86,13 +88,23 @@ def parse_content(message_type: str, raw: str | None) -> ParsedContent:
     if message_type == "post":
         return _parse_post(payload)
 
+    if message_type == "image":
+        key = payload.get("image_key")
+        return ParsedContent(image_keys=[key] if isinstance(key, str) and key else [])
+
     return ParsedContent()
 
 
 def _parse_post(payload: dict[str, Any]) -> ParsedContent:
-    """把富文本的段落数组拍平成文本，并保留链接。"""
+    """把富文本拍平成文本，并保留链接与图片；兼容带语言键的消息。"""
+    if "content" not in payload:
+        for language in ("zh_cn", "en_us", *payload):
+            localized = payload.get(language)
+            if isinstance(localized, dict) and "content" in localized:
+                return _parse_post(localized)
     lines: list[str] = []
     links: list[str] = []
+    image_keys: list[str] = []
     title = payload.get("title")
     if isinstance(title, str) and title.strip():
         lines.append(title.strip())
@@ -119,11 +131,15 @@ def _parse_post(payload: dict[str, Any]) -> ParsedContent:
             elif tag == "at":
                 # @ 某人在纯文本里保留为 @名字 —— 群聊里这说明「这条是给我说的」。
                 parts.append(f"@{node.get('user_id') or ''}")
+            elif tag == "img":
+                key = node.get("image_key")
+                if isinstance(key, str) and key and key not in image_keys:
+                    image_keys.append(key)
         line = "".join(parts).strip()
         if line:
             lines.append(line)
 
-    return ParsedContent(text="\n".join(lines), links=links)
+    return ParsedContent(text="\n".join(lines), links=links, image_keys=image_keys)
 
 
 __all__ = [

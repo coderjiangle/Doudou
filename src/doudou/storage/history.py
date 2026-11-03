@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -29,6 +30,9 @@ from doudou.storage.repositories import (
 )
 
 logger = get_logger(__name__)
+
+# 版本化封装复用原有 TEXT 列，兼容既有数据库；纯文字仍按原样保存。
+CONTENT_PREFIX = "\x1edoudou-content-v1:"
 
 
 class SqlHistoryStore(HistoryStore):
@@ -166,7 +170,7 @@ def _to_row_payload(message: BaseMessage) -> dict[str, Any]:
     """
     payload: dict[str, Any] = {
         "role": message.type,
-        "content": _flatten_content(message.content),
+        "content": _encode_content(message.content),
     }
     if isinstance(message, AIMessage) and message.tool_calls:
         payload["tool_calls"] = [dict(call) for call in message.tool_calls]
@@ -179,7 +183,7 @@ def _to_row_payload(message: BaseMessage) -> dict[str, Any]:
 
 def _to_message(row: MessageModel) -> BaseMessage | None:
     """把 ORM 行还原成 LangChain 消息；数据不完整时返回 ``None`` 并告警。"""
-    content = row.content or ""
+    content = _decode_content(row.content or "")
     if row.role == "human":
         return HumanMessage(content=content)
     if row.role == "ai":
@@ -204,19 +208,26 @@ def _to_message(row: MessageModel) -> BaseMessage | None:
     return None
 
 
-def _flatten_content(content: str | list[Any] | None) -> str:
-    """多模态内容目前只落文本部分。
-
-    打通图片链路时，这里需要改成保留完整的 content blocks（参见
-    docs/configuration.md 的「多模态」一节）。
-    """
+def _encode_content(content: str | list[Any] | None) -> str:
+    """完整保存多模态块；转义以标记开头的普通文字，避免误解码。"""
     if content is None:
         return ""
-    if isinstance(content, str):
+    if isinstance(content, str) and not content.startswith(CONTENT_PREFIX):
         return content
-    from doudou.utils.text import content_to_text
+    return CONTENT_PREFIX + json.dumps(content, ensure_ascii=False)
 
-    return content_to_text(content)
+
+def _decode_content(content: str) -> str | list[Any]:
+    if not content.startswith(CONTENT_PREFIX):
+        return content
+    try:
+        decoded: Any = json.loads(content[len(CONTENT_PREFIX) :])
+    except ValueError:
+        logger.warning("storage.invalid_content_envelope")
+        return "（消息内容损坏）"
+    if isinstance(decoded, (str, list)):
+        return decoded
+    return "（消息内容损坏）"
 
 
 __all__ = ["SqlHistoryStore", "utcnow"]

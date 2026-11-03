@@ -8,6 +8,11 @@ It supports custom **Tools**, **MCP** (Model Context Protocol) and **Skills** (t
 standard), talks to you over a **Feishu (Lark) channel**, and exposes REST / SSE endpoints through
 **FastAPI** when you need a network service.
 
+Image input is supported in the Web chat (file picker and pasted screenshots) and
+Feishu (image messages and rich-text images). Use a vision-capable model. Each message
+accepts up to 4 PNG/JPEG/GIF/WebP images, up to 5 MiB each. CLI input remains text-only.
+See the [image input guide](docs/configuration.md#6-图片输入) for API and permission details.
+
 > Doudou is named after my adorable Chinese rural dog (Zhonghua Tianyuan). I hope this assistant
 > keeps you company the way Doudou keeps me company.
 

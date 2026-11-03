@@ -60,6 +60,7 @@ def _to_request(payload: ChatRequest) -> RunRequest:
         channel=payload.channel,
         thread_id=payload.thread_id,
         new_thread=new_thread,
+        images=tuple(payload.images),
     )
 
 

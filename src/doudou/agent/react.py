@@ -28,6 +28,12 @@ from langchain_core.tools import BaseTool
 
 from doudou.agent.context import SUMMARY_PREFIX, ResultOffloader
 from doudou.agent.events import RunEvent, ToolOutcome
+from doudou.agent.messages import (
+    append_persona_reminder,
+    has_persona_reminder,
+    normalize_persona_reminder,
+    should_attach_persona_reminder,
+)
 from doudou.observability.logging import get_logger
 from doudou.security.secrets import redact
 from doudou.tools.decorators import annotations_of
@@ -90,7 +96,7 @@ class ReactAgent:
         tool_timeout: float | None = None,
         offloader: ResultOffloader | None = None,
         persona_reminder: str = "",
-        persona_reminder_after_messages: int = 2,
+        persona_reminder_interval: int = 5,
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps 必须 >= 1")
@@ -106,8 +112,8 @@ class ReactAgent:
         #: 大结果卸载。放在这里而不是通道层：工具结果是唯一会「一条顶掉整个上下文」
         #: 的来源，在它产生的地方处理最直接。
         self.offloader = offloader
-        self.persona_reminder = persona_reminder.strip()
-        self.persona_reminder_after_messages = max(0, persona_reminder_after_messages)
+        self.persona_reminder = normalize_persona_reminder(persona_reminder)
+        self.persona_reminder_interval = max(0, persona_reminder_interval)
         self._tools_by_name = {tool.name: tool for tool in self.tools}
         #: 没有工具时不绑定，避免部分 provider 在空工具列表上报错。
         self._runnables = [
@@ -138,6 +144,12 @@ class ReactAgent:
             ``tool_call``* → ``tool_result``*)+ → ``run_end``（或 ``error``）。
         """
         history, has_summary = _prepend_system_prompt(messages, self.system_prompt)
+        history = _ensure_turn_persona_reminder(
+            history,
+            reminder=self.persona_reminder,
+            interval=self.persona_reminder_interval,
+            has_summary=has_summary,
+        )
 
         usage: dict[str, int] = {}
         yield RunEvent.run_start(thread_id=thread_id)
@@ -146,9 +158,7 @@ class ReactAgent:
             yield RunEvent.step_start(step, thread_id=thread_id)
 
             turn = _ModelTurn()
-            async for event in self._reason(
-                history, step=step, thread_id=thread_id, turn=turn, has_summary=has_summary
-            ):
+            async for event in self._reason(history, step=step, thread_id=thread_id, turn=turn):
                 yield event
             _merge_usage(usage, turn.usage)
 
@@ -277,7 +287,6 @@ class ReactAgent:
         step: int,
         thread_id: str | None,
         turn: _ModelTurn,
-        has_summary: bool = False,
     ) -> AsyncIterator[RunEvent]:
         """按配置顺序尝试模型；已经输出文本的请求不能透明重放。"""
         for index in range(len(self._runnables)):
@@ -290,7 +299,6 @@ class ReactAgent:
                     thread_id=thread_id,
                     turn=attempt,
                     model_index=index,
-                    has_summary=has_summary,
                 ):
                     emitted = True
                     yield event
@@ -322,19 +330,11 @@ class ReactAgent:
         thread_id: str | None,
         turn: _ModelTurn,
         model_index: int,
-        has_summary: bool = False,
     ) -> AsyncIterator[RunEvent]:
         """跑一轮模型，把文本与工具调用累积进 ``turn``。"""
         pending: dict[int, dict[str, Any]] = {}
         saw_chunks = False
         direct_calls: list[dict[str, Any]] = []
-
-        model_messages = _apply_persona_reminder(
-            history,
-            reminder=self.persona_reminder,
-            after_messages=self.persona_reminder_after_messages,
-            force=has_summary,
-        )
 
         # 模型调用是循环里最关键的一步：入参（上下文规模 + 最新用户输入）用 DEBUG 留痕，
         # 正常运行时不会打扰，排查「模型为什么不调工具」时把日志级别调到 DEBUG 即可。
@@ -342,12 +342,12 @@ class ReactAgent:
             "agent.model_call",
             step=step,
             thread_id=thread_id,
-            context_messages=len(model_messages),
+            context_messages=len(history),
             tools=len(self._tools_by_name),
             last_user=_log_safe(_last_user_preview(history)),
         )
 
-        async for chunk in self._runnables[model_index].astream(model_messages):
+        async for chunk in self._runnables[model_index].astream(history):
             text = content_to_text(getattr(chunk, "content", None))
             if text:
                 turn.text += text
@@ -674,24 +674,19 @@ def _is_summary_system_message(message: BaseMessage) -> bool:
     ).lstrip().startswith(SUMMARY_PREFIX)
 
 
-def _apply_persona_reminder(
+def _ensure_turn_persona_reminder(
     history: list[BaseMessage],
     *,
     reminder: str,
-    after_messages: int,
-    force: bool = False,
+    interval: int,
+    has_summary: bool = False,
 ) -> list[BaseMessage]:
-    """在发送给模型前，往最后一条 HumanMessage 尾部临时附带轻量人设提醒。
+    """在直接调用 ReactAgent（未经过 AgentRunner）时，按相同间隔在循环开始前补齐人设锚点。
 
-    不改动 ``history`` 本身，因此不会写进数据库或污染返回值；
-    把提醒附在最后一条 HumanMessage 上也能避免在 ToolMessage 后插消息触发接口 400。
+    只在本轮开始前判定一次，循环内所有工具调用步都共享完全一致的前缀；
+    经过 AgentRunner 时，锚点已提前附着并持久化在最新的 HumanMessage 上，此处直接跳过。
     """
-    cleaned = reminder.strip()
-    if not cleaned:
-        return history
-
-    non_system_count = sum(1 for msg in history if not isinstance(msg, SystemMessage))
-    if not force and non_system_count <= after_messages:
+    if not reminder or interval <= 0:
         return history
 
     last_human_idx = -1
@@ -703,18 +698,17 @@ def _apply_persona_reminder(
         return history
 
     target = history[last_human_idx]
-    note = f"\n\n[人设提醒] {cleaned}"
-    content = target.content
-    updated_content: str | list[str | dict[Any, Any]]
-    if isinstance(content, str):
-        updated_content = f"{content}{note}"
-    elif isinstance(content, list):
-        updated_content = [*content, {"type": "text", "text": note.lstrip("\n")}]
-    else:
+    assert isinstance(target, HumanMessage)
+    if has_persona_reminder(target):
+        return history
+
+    if not should_attach_persona_reminder(
+        history[:last_human_idx], interval=interval, has_summary=has_summary
+    ):
         return history
 
     patched = list(history)
-    patched[last_human_idx] = target.model_copy(update={"content": updated_content})
+    patched[last_human_idx] = append_persona_reminder(target, reminder)
     return patched
 
 

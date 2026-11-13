@@ -174,7 +174,7 @@ def build_agent(
         approval_hook=approval_hook,
         offloader=offloader,
         persona_reminder=resolved.app.agent.persona_reminder or "",
-        persona_reminder_after_messages=resolved.app.agent.persona_reminder_after_messages,
+        persona_reminder_interval=resolved.app.agent.persona_reminder_interval,
     )
 
     metadata = {

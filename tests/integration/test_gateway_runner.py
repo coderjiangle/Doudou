@@ -272,3 +272,44 @@ async def test_in_memory_store_trims_by_count() -> None:
     assert [message.content for message in messages] == ["2", "3", "4"]
     info = await store.get_thread("t1")
     assert info is not None and info.message_count == 3
+
+
+async def test_runner_persists_periodic_persona_anchor_and_strips_for_display(
+    settings_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """每隔 N 轮在用户消息后固化锚点并落库（保证下轮前缀严格一致），对外 history 剥离。"""
+    seen_prompts: list[list[str]] = []
+
+    def _capture(messages: list) -> AIMessage:
+        seen_prompts.append([str(msg.content) for msg in messages])
+        return AIMessage(content="汪")
+
+    settings = settings_factory(
+        config_yaml=('agent:\n  persona_reminder: "保持豆豆口吻"\n  persona_reminder_interval: 3\n')
+    )
+    model = ScriptedChatModel(steps=[_capture, _capture, _capture, _capture])
+    runner = AgentRunner(build_agent(settings, model=model))
+
+    for idx in range(1, 5):
+        result = await runner.ainvoke(RunRequest(text=f"第{idx}问", conversation_id="conv-cache"))
+        # 对外展示结果中永远不应看到 [人设提醒]
+        assert all("[人设提醒]" not in str(m.content) for m in result.messages)
+
+    # 第 1、2 轮不插入锚点；第 3 轮插入并落库；第 4 轮不插入且第 3 轮前缀一字不变
+    assert "[人设提醒]" not in seen_prompts[0][-1]
+    assert "[人设提醒]" not in seen_prompts[1][-1]
+    assert "[人设提醒] 保持豆豆口吻" in seen_prompts[2][-1]
+    assert "[人设提醒]" not in seen_prompts[3][-1]
+    # Prefix Cache 关键约束：第 4 轮看到的第 3 轮前缀与第 3 轮发给模型时完全一致
+    assert seen_prompts[3][:-2] == seen_prompts[2]
+
+    thread_id = await runner.resolve_thread(RunRequest(text="", conversation_id="conv-cache"))
+    raw_stored = await runner.store.load(thread_id)
+    display_history = await runner.history(thread_id)
+    assert any("[人设提醒] 保持豆豆口吻" in str(m.content) for m in raw_stored)
+    assert [str(m.content) for m in display_history if isinstance(m, HumanMessage)] == [
+        "第1问",
+        "第2问",
+        "第3问",
+        "第4问",
+    ]

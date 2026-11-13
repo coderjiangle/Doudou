@@ -445,8 +445,8 @@ async def test_summary_system_message_preserves_system_prompt() -> None:
     assert SUMMARY_PREFIX in str(system_messages[0].content)
 
 
-async def test_persona_reminder_only_applied_in_model_input_after_threshold() -> None:
-    """人设提醒在多轮后才注入模型入参，且不污染持久化历史与返回值。"""
+async def test_persona_reminder_only_applied_at_turn_interval() -> None:
+    """人设锚点按轮次间隔插入：不足间隔不插，达到间隔才附着在最后一条用户消息上。"""
     seen: list[list] = []
 
     def _capture(messages: list) -> AIMessage:
@@ -454,18 +454,28 @@ async def test_persona_reminder_only_applied_in_model_input_after_threshold() ->
         return AIMessage(content="汪")
 
     agent = ReactAgent(
-        model=ScriptedChatModel(steps=[_capture, _capture]),
+        model=ScriptedChatModel(steps=[_capture, _capture, _capture]),
         tools=[],
         system_prompt="你是豆豆。",
         persona_reminder="保持豆豆口吻",
-        persona_reminder_after_messages=2,
+        persona_reminder_interval=3,
     )
 
-    # 首轮（1 条非系统消息 <= 2）：不附带提醒
+    # 第 1 轮（1 < 3）：不附带提醒
     await agent.ainvoke([HumanMessage(content="第一问")])
     assert "保持豆豆口吻" not in str(seen[0][-1].content)
 
-    # 多轮（3 条非系统消息 > 2）：模型看到提醒，但 result.messages 不被污染
+    # 第 2 轮（2 < 3）：不附带提醒
+    await agent.ainvoke(
+        [
+            HumanMessage(content="第一问"),
+            AIMessage(content="汪"),
+            HumanMessage(content="第二问"),
+        ]
+    )
+    assert "保持豆豆口吻" not in str(seen[1][-1].content)
+
+    # 第 3 轮（3 >= 3）：附带提醒；返回值中的 produced 不被污染
     produced: list = []
     events = [
         event
@@ -474,19 +484,22 @@ async def test_persona_reminder_only_applied_in_model_input_after_threshold() ->
                 HumanMessage(content="第一问"),
                 AIMessage(content="汪"),
                 HumanMessage(content="第二问"),
+                AIMessage(content="汪"),
+                HumanMessage(content="第三问"),
             ],
             messages_out=produced,
         )
     ]
     assert events[-1].type == "run_end"
-    assert "第二问" in str(seen[1][-1].content)
-    assert "[人设提醒] 保持豆豆口吻" in str(seen[1][-1].content)
+    assert "第三问" in str(seen[2][-1].content)
+    assert "[人设提醒] 保持豆豆口吻" in str(seen[2][-1].content)
     assert all("人设提醒" not in str(msg.content) for msg in produced)
 
 
 async def test_persona_reminder_supports_multimodal_and_summary() -> None:
-    """多模态 HumanMessage 与摘要场景也能正确附带人设提醒。"""
+    """多模态 HumanMessage 与摘要场景也能正确附带人设锚点，并可无损剥离展示文本。"""
     from doudou.agent.context import SUMMARY_PREFIX
+    from doudou.agent.messages import strip_persona_reminder_message
 
     seen: list[list] = []
 
@@ -499,7 +512,7 @@ async def test_persona_reminder_supports_multimodal_and_summary() -> None:
         tools=[],
         system_prompt="你是豆豆。",
         persona_reminder="保持豆豆口吻",
-        persona_reminder_after_messages=10,  # 即使阈值高，有摘要时也应注入
+        persona_reminder_interval=10,  # 即使间隔大，有摘要且窗口内无锚点时也应注入
     )
 
     await agent.ainvoke(
@@ -509,7 +522,11 @@ async def test_persona_reminder_supports_multimodal_and_summary() -> None:
         ]
     )
 
-    last_content = seen[0][-1].content
+    last_msg = seen[0][-1]
+    last_content = last_msg.content
     assert isinstance(last_content, list)
     assert last_content[0]["text"] == "看看这张图"
     assert "[人设提醒] 保持豆豆口吻" in last_content[-1]["text"]
+
+    stripped = strip_persona_reminder_message(last_msg)
+    assert stripped.content == [{"type": "text", "text": "看看这张图"}]

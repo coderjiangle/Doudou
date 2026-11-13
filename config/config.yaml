@@ -65,9 +65,10 @@ agent:
     shell_exec: true
   max_steps: 20                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
-  # 多轮后防人设漂移：附在最新用户消息后的轻量提醒（仅发给模型，不写进历史库）
+  # 多轮防人设漂移：每隔 N 轮用户消息（及摘要压缩后）在用户消息后固化一次锚点并落库，
+  # 使前缀完全一致、Prefix Cache 100% 命中；历史接口与飞书展示会自动剥离该标记。
   persona_reminder: "请始终保持豆豆（中华田园犬）的口吻和对应家人态度，正事说准，禁止变成普通AI客服套话。"
-  persona_reminder_after_messages: 2
+  persona_reminder_interval: 5
   # 文件系统路径权限；顺序即匹配顺序，拒绝规则要写在前面
   # 文件系统路径权限。**首匹配生效**，所以拒绝规则必须写在放行规则前面。
   # 匹配的是相对工作区的 POSIX 路径（以 / 开头）：

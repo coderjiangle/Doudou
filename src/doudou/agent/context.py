@@ -137,6 +137,7 @@ class HistorySummarizer:
         不做「角色名 + 内容」之外的花样：摘要的输入越简单，模型越不容易
         被格式细节带偏。
         """
+        from doudou.agent.messages import strip_persona_reminder_text
         from doudou.utils.text import blocks_to_text
 
         lines: list[str] = []
@@ -145,7 +146,8 @@ class HistorySummarizer:
             content = message.content
             text = (
                 content if isinstance(content, str) else blocks_to_text(content, placeholders=True)
-            ).strip()
+            )
+            text = strip_persona_reminder_text(text).strip()
             calls = getattr(message, "tool_calls", None)
             if not text and calls:
                 text = f"（调用工具 {', '.join(str(call['name']) for call in calls)}）"

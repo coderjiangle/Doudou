@@ -813,3 +813,53 @@ async def test_card_action_on_unknown_approval_does_not_crash(
     await channel._handle_card_action("ap-gone", True)
 
     assert fake_lark.message.patched == []
+
+
+async def test_feishu_strips_persona_reminder_from_rendered_messages(settings_factory) -> None:  # type: ignore[no-untyped-def]
+    """飞书卡片、纯文本回复与审批提问在展示时都必须剥离 [人设提醒] 锚点。"""
+    from doudou.channels.base import OutboundMessage, bind_inbound, unbind_inbound
+
+    settings = settings_factory(
+        config_yaml=(
+            "channels:\n"
+            "  feishu:\n"
+            "    enabled: true\n"
+            "    bot_open_id: ou_bot\n"
+            "    reply_mode: text\n"
+        )
+    )
+    fake = FakeLarkClient()
+    broker = ApprovalBroker(timeout=5.0)
+    channel = FeishuChannel(
+        settings,
+        RecordingSink(),  # type: ignore[arg-type]
+        client=FeishuClient(settings.app.channels.feishu, client=fake),
+        runner=FakeWsRunner(),
+        broker=broker,
+    )
+
+    msg = inbound("帮我改个文件\n\n[人设提醒] 保持豆豆口吻")
+    token = bind_inbound(msg)
+    try:
+        waiter = asyncio.create_task(
+            broker.request(tool_name="workspace_write", args={}, call_id="c1")
+        )
+        approval_id = await _await_pending(broker)
+        await broker.decide(approval_id, approved=False)
+        await waiter
+    finally:
+        unbind_inbound(token)
+
+    approval_card_json = fake.message.created[0].request_body.content
+    assert "帮我改个文件" in approval_card_json
+    assert "[人设提醒]" not in approval_card_json
+
+    await channel.deliver(
+        inbound("你好"), stream(RunEvent.run_end("汪！办妥啦\n\n[人设提醒] 保持豆豆口吻", step=1))
+    )
+    assert request_json(fake.message.created[1]) == {"text": "汪！办妥啦"}
+
+    await channel.send(
+        OutboundMessage(conversation_id="oc_test", text="收到\n\n[人设提醒] 保持豆豆口吻")
+    )
+    assert request_json(fake.message.created[2]) == {"text": "收到"}

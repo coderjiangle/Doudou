@@ -11,12 +11,17 @@ from collections.abc import AsyncIterator, Sequence
 from time import perf_counter
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 
-from doudou.agent.context import ContextManager, ContextStats
+from doudou.agent.context import SUMMARY_PREFIX, ContextManager, ContextStats
 from doudou.agent.events import RunEvent
 from doudou.agent.factory import AgentBundle
-from doudou.agent.messages import human_message
+from doudou.agent.messages import (
+    append_persona_reminder,
+    human_message,
+    should_attach_persona_reminder,
+    strip_persona_reminder_message,
+)
 from doudou.agent.react import RunResult
 from doudou.config.loader import Settings
 from doudou.gateway.history import HistoryStore, InMemoryHistoryStore, ThreadInfo, is_tool_message
@@ -30,6 +35,7 @@ from doudou.observability.observers import (
     notify_event,
     notify_start,
 )
+from doudou.utils.text import content_to_text
 
 logger = get_logger(__name__)
 
@@ -91,8 +97,9 @@ class AgentRunner:
         return thread_id
 
     async def history(self, thread_id: str) -> list[BaseMessage]:
-        """取某个 thread 的历史消息（不含系统提示词）。"""
-        return await self.store.load(thread_id)
+        """取某个 thread 的历史消息（不含系统提示词，并剥离展示用的人设锚点标记）。"""
+        messages = await self.store.load(thread_id)
+        return [strip_persona_reminder_message(message) for message in messages]
 
     async def get_thread(self, thread_id: str) -> ThreadInfo | None:
         return await self.store.get_thread(thread_id)
@@ -156,6 +163,19 @@ class AgentRunner:
                 history, stats = stored, ContextStats()
             produced: list[BaseMessage] = []
             user_message = human_message(request.text, request.images)
+            # 按间隔把人设锚点固化在用户消息上并一并落库：后续轮次直接复用同一历史前缀，
+            # 既能周期性提醒人设，又不会破坏 Prefix Cache；对外展示时再剥离该标记。
+            has_summary = stats.compressed or (
+                bool(history)
+                and isinstance(history[0], SystemMessage)
+                and content_to_text(history[0].content).lstrip().startswith(SUMMARY_PREFIX)
+            )
+            reminder = self.bundle.agent.persona_reminder
+            interval = self.bundle.agent.persona_reminder_interval
+            if reminder and should_attach_persona_reminder(
+                history, interval=interval, has_summary=has_summary
+            ):
+                user_message = append_persona_reminder(user_message, reminder)
             started_ok = False
             steps = 0
             tool_calls = 0
@@ -262,7 +282,7 @@ class AgentRunner:
         return RunResult(
             text=text,
             steps=steps,
-            messages=await self.store.load(resolved_thread),
+            messages=await self.history(resolved_thread),
             usage=usage,
             events=events,
             ok=error is None,

@@ -93,8 +93,8 @@ DOUDOU_MODEL_API_KEY=<网关签发的 Key>
 | `DOUDOU_AGENT_SKILL_INDEX_LIMIT` | `40` | 提示词里最多列几个 Skill |
 | `DOUDOU_AGENT_INTERRUPT_ON` | `{}` | 额外需确认的工具（JSON 对象） |
 | `DOUDOU_AGENT_PERMISSIONS` | `[]` | 路径权限规则（JSON 数组） |
-| `DOUDOU_AGENT_PERSONA_REMINDER` | `null` | 多轮对话时附在最新用户消息后的轻量人设提醒（仅发给模型，不入库） |
-| `DOUDOU_AGENT_PERSONA_REMINDER_AFTER_MESSAGES` | `2` | 历史非系统消息超过该条数后触发 `persona_reminder` |
+| `DOUDOU_AGENT_PERSONA_REMINDER` | `null` | 多轮对话时每隔若干轮固化在用户消息后并落库的人设锚点（展示层自动剥离） |
+| `DOUDOU_AGENT_PERSONA_REMINDER_INTERVAL` | `5` | 每隔多少轮用户消息插入一次 `persona_reminder`（`0` 表示关闭） |
 
 ### 2.4 上下文工程
 

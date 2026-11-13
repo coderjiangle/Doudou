@@ -80,6 +80,25 @@ def test_system_prompt_without_skills(skills_settings) -> None:  # type: ignore[
     assert "## 可用技能" not in prompt
 
 
+def test_system_prompt_respects_memory_and_skills_slots(skills_settings) -> None:  # type: ignore[no-untyped-def]
+    """模板显式声明 {{ memory }} / {{ skills }} 时按槽位插入，末尾人设不被挤到后面。"""
+    settings = skills_settings()
+    assert settings.system_prompt_path is not None
+    settings.system_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.system_prompt_path.write_text(
+        "头部人设\n\n{{ memory }}\n\n{{ skills }}\n\n尾部口吻示例",
+        encoding="utf-8",
+    )
+    registry = SkillRegistry.from_settings(settings)
+
+    prompt = load_system_prompt(settings, skills=registry.skills, memory="## 长期记忆\n- 乐哥")
+
+    assert prompt.startswith("头部人设")
+    assert prompt.endswith("尾部口吻示例")
+    assert prompt.count("## 长期记忆") == 1
+    assert prompt.count("## 可用技能") == 1
+
+
 # --------------------------------------------------------------------------- 工具注册
 
 

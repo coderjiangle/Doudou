@@ -218,6 +218,10 @@ class AgentConfig(_Section):
     max_steps: int = 8
     #: 单次模型返回中允许并发执行的工具调用数上限
     max_tool_calls_per_step: int = 8
+    #: 多轮对话时每轮附在最新用户消息后的轻量人设提醒（仅发给模型，不入库）。
+    persona_reminder: str | None = None
+    #: 历史消息（不含系统提示词）超过该条数后才附带 persona_reminder，避免首轮冗余。
+    persona_reminder_after_messages: int = Field(default=2, ge=0)
     permissions: list[PermissionRule] = Field(default_factory=list)
 
     @model_validator(mode="after")

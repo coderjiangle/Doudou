@@ -62,6 +62,10 @@ agent:
     # shell_exec: true          # 默认已由 side_effects 覆盖，写在这里只是显式化
   # 单次运行的步数上限，防止死循环
   max_steps: 8
+  # 多轮防人设漂移：在历史消息超过指定条数后，仅发给模型时于末尾附带轻量人设提醒（不入库）。
+  # persona_reminder: "保持既定人设与口吻回复，不要退化成普通客服套话。"
+  persona_reminder: null
+  persona_reminder_after_messages: 2
   # 等待人工确认的时长（秒）。等不到就按**拒绝**处理 ——
   # 悬着的确认等于没有确认，默认必须偏向安全的一侧。
   approval_timeout_seconds: 300

@@ -88,14 +88,26 @@ def load_system_prompt(
 
     merged_vars = default_variables(settings)
     merged_vars.update(variables or {})
-    prompt = render_template(template, merged_vars).strip()
-
-    if memory.strip():
-        prompt = f"{prompt}\n\n{memory.strip()}"
 
     limit = skill_index_limit or settings.app.agent.skill_index_limit
     index = render_skill_index(skills, limit=limit)
-    if index:
+    memory_block = memory.strip()
+
+    has_memory_slot = bool(re.search(r"\{\{\s*memory\s*\}\}", template))
+    has_skills_slot = bool(re.search(r"\{\{\s*skills\s*\}\}", template))
+    if has_memory_slot:
+        merged_vars.setdefault("memory", memory_block)
+    if has_skills_slot:
+        merged_vars.setdefault("skills", index)
+
+    prompt = render_template(template, merged_vars).strip()
+    # 槽位为空时可能会留下连续空行，收敛成最多一个空行。
+    prompt = re.sub(r"\n{3,}", "\n\n", prompt)
+
+    if not has_memory_slot and memory_block:
+        prompt = f"{prompt}\n\n{memory_block}"
+
+    if not has_skills_slot and index:
         prompt = f"{prompt}\n\n{index}"
 
     return prompt

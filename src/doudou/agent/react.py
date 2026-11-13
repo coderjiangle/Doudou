@@ -26,7 +26,7 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 
-from doudou.agent.context import ResultOffloader
+from doudou.agent.context import SUMMARY_PREFIX, ResultOffloader
 from doudou.agent.events import RunEvent, ToolOutcome
 from doudou.observability.logging import get_logger
 from doudou.security.secrets import redact
@@ -89,6 +89,8 @@ class ReactAgent:
         approval_hook: ApprovalHook | None = None,
         tool_timeout: float | None = None,
         offloader: ResultOffloader | None = None,
+        persona_reminder: str = "",
+        persona_reminder_after_messages: int = 2,
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps 必须 >= 1")
@@ -104,6 +106,8 @@ class ReactAgent:
         #: 大结果卸载。放在这里而不是通道层：工具结果是唯一会「一条顶掉整个上下文」
         #: 的来源，在它产生的地方处理最直接。
         self.offloader = offloader
+        self.persona_reminder = persona_reminder.strip()
+        self.persona_reminder_after_messages = max(0, persona_reminder_after_messages)
         self._tools_by_name = {tool.name: tool for tool in self.tools}
         #: 没有工具时不绑定，避免部分 provider 在空工具列表上报错。
         self._runnables = [
@@ -133,9 +137,7 @@ class ReactAgent:
             RunEvent: 依次为 ``run_start`` → (``step_start`` → ``text_delta``* →
             ``tool_call``* → ``tool_result``*)+ → ``run_end``（或 ``error``）。
         """
-        history = list(messages)
-        if self.system_prompt and not isinstance(history[0] if history else None, SystemMessage):
-            history.insert(0, SystemMessage(content=self.system_prompt))
+        history, has_summary = _prepend_system_prompt(messages, self.system_prompt)
 
         usage: dict[str, int] = {}
         yield RunEvent.run_start(thread_id=thread_id)
@@ -144,7 +146,9 @@ class ReactAgent:
             yield RunEvent.step_start(step, thread_id=thread_id)
 
             turn = _ModelTurn()
-            async for event in self._reason(history, step=step, thread_id=thread_id, turn=turn):
+            async for event in self._reason(
+                history, step=step, thread_id=thread_id, turn=turn, has_summary=has_summary
+            ):
                 yield event
             _merge_usage(usage, turn.usage)
 
@@ -251,9 +255,7 @@ class ReactAgent:
                 error = event.text
                 steps = event.step
 
-        history = list(messages)
-        if self.system_prompt and not isinstance(history[0] if history else None, SystemMessage):
-            history.insert(0, SystemMessage(content=self.system_prompt))
+        history, _ = _prepend_system_prompt(messages, self.system_prompt)
         history.extend(produced)
 
         return RunResult(
@@ -275,6 +277,7 @@ class ReactAgent:
         step: int,
         thread_id: str | None,
         turn: _ModelTurn,
+        has_summary: bool = False,
     ) -> AsyncIterator[RunEvent]:
         """按配置顺序尝试模型；已经输出文本的请求不能透明重放。"""
         for index in range(len(self._runnables)):
@@ -282,7 +285,12 @@ class ReactAgent:
             emitted = False
             try:
                 async for event in self._reason_once(
-                    history, step=step, thread_id=thread_id, turn=attempt, model_index=index
+                    history,
+                    step=step,
+                    thread_id=thread_id,
+                    turn=attempt,
+                    model_index=index,
+                    has_summary=has_summary,
                 ):
                     emitted = True
                     yield event
@@ -314,11 +322,19 @@ class ReactAgent:
         thread_id: str | None,
         turn: _ModelTurn,
         model_index: int,
+        has_summary: bool = False,
     ) -> AsyncIterator[RunEvent]:
         """跑一轮模型，把文本与工具调用累积进 ``turn``。"""
         pending: dict[int, dict[str, Any]] = {}
         saw_chunks = False
         direct_calls: list[dict[str, Any]] = []
+
+        model_messages = _apply_persona_reminder(
+            history,
+            reminder=self.persona_reminder,
+            after_messages=self.persona_reminder_after_messages,
+            force=has_summary,
+        )
 
         # 模型调用是循环里最关键的一步：入参（上下文规模 + 最新用户输入）用 DEBUG 留痕，
         # 正常运行时不会打扰，排查「模型为什么不调工具」时把日志级别调到 DEBUG 即可。
@@ -326,12 +342,12 @@ class ReactAgent:
             "agent.model_call",
             step=step,
             thread_id=thread_id,
-            context_messages=len(history),
+            context_messages=len(model_messages),
             tools=len(self._tools_by_name),
             last_user=_log_safe(_last_user_preview(history)),
         )
 
-        async for chunk in self._runnables[model_index].astream(history):
+        async for chunk in self._runnables[model_index].astream(model_messages):
             text = content_to_text(getattr(chunk, "content", None))
             if text:
                 turn.text += text
@@ -631,6 +647,75 @@ def _merge_usage(target: dict[str, int], source: Any) -> None:
     for key, value in source.items():
         if isinstance(value, int):
             target[key] = target.get(key, 0) + value
+
+
+def _prepend_system_prompt(
+    messages: Sequence[BaseMessage], system_prompt: str
+) -> tuple[list[BaseMessage], bool]:
+    """确保系统提示词在首位，同时保留摘要压缩产出的首条摘要内容。"""
+    history = list(messages)
+    has_summary = bool(history) and _is_summary_system_message(history[0])
+    if system_prompt:
+        first = history[0] if history else None
+        if not isinstance(first, SystemMessage):
+            history.insert(0, SystemMessage(content=system_prompt))
+        elif has_summary:
+            # 历史摘要占用首条 SystemMessage 时，不能跳过系统提示词，
+            # 否则会丢失人设、长期记忆与技能索引；合并成单条 SystemMessage 兼容各 provider。
+            summary_text = content_to_text(first.content)
+            history[0] = SystemMessage(content=f"{system_prompt}\n\n{summary_text}")
+    return history, has_summary
+
+
+def _is_summary_system_message(message: BaseMessage) -> bool:
+    """判断是否为上下文压缩产出的摘要 SystemMessage。"""
+    return isinstance(message, SystemMessage) and content_to_text(
+        message.content
+    ).lstrip().startswith(SUMMARY_PREFIX)
+
+
+def _apply_persona_reminder(
+    history: list[BaseMessage],
+    *,
+    reminder: str,
+    after_messages: int,
+    force: bool = False,
+) -> list[BaseMessage]:
+    """在发送给模型前，往最后一条 HumanMessage 尾部临时附带轻量人设提醒。
+
+    不改动 ``history`` 本身，因此不会写进数据库或污染返回值；
+    把提醒附在最后一条 HumanMessage 上也能避免在 ToolMessage 后插消息触发接口 400。
+    """
+    cleaned = reminder.strip()
+    if not cleaned:
+        return history
+
+    non_system_count = sum(1 for msg in history if not isinstance(msg, SystemMessage))
+    if not force and non_system_count <= after_messages:
+        return history
+
+    last_human_idx = -1
+    for idx in range(len(history) - 1, -1, -1):
+        if isinstance(history[idx], HumanMessage):
+            last_human_idx = idx
+            break
+    if last_human_idx < 0:
+        return history
+
+    target = history[last_human_idx]
+    note = f"\n\n[人设提醒] {cleaned}"
+    content = target.content
+    updated_content: str | list[str | dict[Any, Any]]
+    if isinstance(content, str):
+        updated_content = f"{content}{note}"
+    elif isinstance(content, list):
+        updated_content = [*content, {"type": "text", "text": note.lstrip("\n")}]
+    else:
+        return history
+
+    patched = list(history)
+    patched[last_human_idx] = target.model_copy(update={"content": updated_content})
+    return patched
 
 
 def build_messages(

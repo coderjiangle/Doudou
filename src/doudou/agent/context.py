@@ -30,7 +30,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
-from doudou.utils.text import truncate
+from doudou.utils.text import content_to_text, truncate
 from doudou.utils.tokens import count_messages_tokens, count_tokens
 
 logger = get_logger(__name__)
@@ -417,6 +417,13 @@ def render_summary(summary: str) -> str:
     return f"{SUMMARY_PREFIX}\n{summary}"
 
 
+def is_summary_message(message: BaseMessage) -> bool:
+    """判断是否为上下文压缩产出的摘要 SystemMessage。"""
+    return isinstance(message, SystemMessage) and content_to_text(
+        message.content
+    ).lstrip().startswith(SUMMARY_PREFIX)
+
+
 def trim_to_budget(messages: Sequence[BaseMessage], *, max_tokens: int) -> list[BaseMessage]:
     """从尾部往前取，直到 token 预算用完；且不以工具结果开头。
 
@@ -478,6 +485,7 @@ __all__ = [
     "ResultOffloader",
     "Summarizer",
     "context_report",
+    "is_summary_message",
     "render_summary",
     "trim_to_budget",
 ]

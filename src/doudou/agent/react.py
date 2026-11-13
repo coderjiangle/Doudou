@@ -26,13 +26,14 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 
-from doudou.agent.context import SUMMARY_PREFIX, ResultOffloader
+from doudou.agent.context import ResultOffloader, is_summary_message
 from doudou.agent.events import RunEvent, ToolOutcome
 from doudou.agent.messages import (
     append_persona_reminder,
     has_persona_reminder,
     normalize_persona_reminder,
     should_attach_persona_reminder,
+    strip_persona_reminder_text,
 )
 from doudou.observability.logging import get_logger
 from doudou.security.secrets import redact
@@ -624,7 +625,7 @@ def _last_user_preview(history: list[BaseMessage], *, limit: int = 200) -> str:
     """取最后一条用户消息的文本，用于日志中的「本次输入是什么」。"""
     for message in reversed(history):
         if isinstance(message, HumanMessage):
-            return truncate(content_to_text(message.content), limit)
+            return truncate(strip_persona_reminder_text(content_to_text(message.content)), limit)
     return ""
 
 
@@ -654,7 +655,7 @@ def _prepend_system_prompt(
 ) -> tuple[list[BaseMessage], bool]:
     """确保系统提示词在首位，同时保留摘要压缩产出的首条摘要内容。"""
     history = list(messages)
-    has_summary = bool(history) and _is_summary_system_message(history[0])
+    has_summary = bool(history) and is_summary_message(history[0])
     if system_prompt:
         first = history[0] if history else None
         if not isinstance(first, SystemMessage):
@@ -665,13 +666,6 @@ def _prepend_system_prompt(
             summary_text = content_to_text(first.content)
             history[0] = SystemMessage(content=f"{system_prompt}\n\n{summary_text}")
     return history, has_summary
-
-
-def _is_summary_system_message(message: BaseMessage) -> bool:
-    """判断是否为上下文压缩产出的摘要 SystemMessage。"""
-    return isinstance(message, SystemMessage) and content_to_text(
-        message.content
-    ).lstrip().startswith(SUMMARY_PREFIX)
 
 
 def _ensure_turn_persona_reminder(

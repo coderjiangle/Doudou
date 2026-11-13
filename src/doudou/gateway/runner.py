@@ -11,9 +11,9 @@ from collections.abc import AsyncIterator, Sequence
 from time import perf_counter
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage
 
-from doudou.agent.context import SUMMARY_PREFIX, ContextManager, ContextStats
+from doudou.agent.context import ContextManager, ContextStats, is_summary_message
 from doudou.agent.events import RunEvent
 from doudou.agent.factory import AgentBundle
 from doudou.agent.messages import (
@@ -35,7 +35,6 @@ from doudou.observability.observers import (
     notify_event,
     notify_start,
 )
-from doudou.utils.text import content_to_text
 
 logger = get_logger(__name__)
 
@@ -165,11 +164,7 @@ class AgentRunner:
             user_message = human_message(request.text, request.images)
             # 按间隔把人设锚点固化在用户消息上并一并落库：后续轮次直接复用同一历史前缀，
             # 既能周期性提醒人设，又不会破坏 Prefix Cache；对外展示时再剥离该标记。
-            has_summary = stats.compressed or (
-                bool(history)
-                and isinstance(history[0], SystemMessage)
-                and content_to_text(history[0].content).lstrip().startswith(SUMMARY_PREFIX)
-            )
+            has_summary = stats.compressed or (bool(history) and is_summary_message(history[0]))
             reminder = self.bundle.agent.persona_reminder
             interval = self.bundle.agent.persona_reminder_interval
             if reminder and should_attach_persona_reminder(

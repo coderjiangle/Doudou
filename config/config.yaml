@@ -63,7 +63,6 @@ agent:
     edit_file: true
     delete: true
     shell_exec: true
-  recursion_limit: 60
   max_steps: 20                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
   # 文件系统路径权限；顺序即匹配顺序，拒绝规则要写在前面
@@ -172,18 +171,13 @@ tools:
     timeout: 60
     max_output_chars: 20000
 
-# ---------------------------------------------------------------- 虚拟文件系统
+# ---------------------------------------------------------------- 工作区文件系统
 filesystem:
   # 所有文件类工具都被钉在这个目录里（resolve 之后再校验，软链接也逃不出去）
   root_dir: ./data/workspace
-  # 以下字段未使用（原为 deepagents 的虚拟文件系统预留，计划已取消），
-  # 保留只为兼容你的既有配置：backend / virtual_mode / routes
-  backend: state
-  virtual_mode: true
 
 # ---------------------------------------------------------------- 上下文管理
 context:
-  todo_list: true              # 未使用（原为 deepagents 的 write_todos 预留）
   summarization: true          # 早期历史超阈值时压成摘要（原文不删）
   # 压缩时始终保留的最近消息条数（它们对当前对话最相关）
   keep_recent_messages: 12
@@ -208,8 +202,6 @@ storage:
   # 单个会话在库里保留的消息条数（**保留**，不是送进模型的窗口）。
   # 保留得多一些是有意的：压缩是有损的，原始历史要能回溯。
   max_messages_per_thread: 500
-  checkpointer: sqlite
-  store: sqlite
   echo_sql: false
 
 # ---------------------------------------------------------------- MCP

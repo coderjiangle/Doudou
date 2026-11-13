@@ -11,8 +11,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-FilesystemBackendName = Literal["state", "store", "filesystem", "composite"]
-CheckpointerName = Literal["memory", "sqlite", "postgres"]
 PermissionMode = Literal["allow", "deny"]
 PermissionOperation = Literal["read", "write"]
 
@@ -107,14 +105,6 @@ class WebSearchToolConfig(_Section):
         return value.strip().lower() if isinstance(value, str) else value
 
 
-class NotesToolConfig(_Section):
-    """**已移除**：笔记工具不再提供。保留字段只为兼容既有配置文件。"""
-
-    directory: str = "./data/notes"
-    max_list: int = 50
-    max_read_chars: int = 20000
-
-
 class FilesToolConfig(_Section):
     """文件工具的限制。
 
@@ -159,8 +149,6 @@ class ToolsConfig(_Section):
     disabled: list[str] = Field(default_factory=list)
     http: HttpToolConfig = Field(default_factory=HttpToolConfig)
     web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
-    #: 已移除的笔记工具配置；保留字段仅为兼容旧配置文件，不生效。
-    notes: NotesToolConfig = Field(default_factory=NotesToolConfig)
     files: FilesToolConfig = Field(default_factory=FilesToolConfig)
     shell: ShellToolConfig = Field(default_factory=ShellToolConfig)
 
@@ -226,9 +214,6 @@ class AgentConfig(_Section):
     #: 系统提示词里最多列出几个技能。索引必须**有界**，
     #: 否则技能一多，光是索引就把上下文顶坏了。
     skill_index_limit: int = 40
-    #: 保留字段。**未使用**：原为接入 deepagents/LangGraph 预留，该方案已放弃，
-    #: 保留只为兼容既有配置文件。
-    recursion_limit: int = 60
     #: ReAct 循环的单次运行最大步数（模型往返次数）
     max_steps: int = 8
     #: 单次模型返回中允许并发执行的工具调用数上限
@@ -250,19 +235,8 @@ class AgentConfig(_Section):
 # --------------------------------------------------------------------------- filesystem
 
 
-class FilesystemRouteConfig(_Section):
-    prefix: str
-    backend: FilesystemBackendName
-
-
 class FilesystemConfig(_Section):
-    # 下面三个字段**未被任何代码读取**：它们来自早期「虚拟文件系统后端」的设想
-    # （后端选择 / 虚拟路径模式 / composite 路由），该方案已放弃。保留字段
-    # 只是为了兼容既有配置文件 —— 真正生效的是 root_dir + 工具层的 resolve 校验。
-    backend: FilesystemBackendName = "state"
     root_dir: str = "./data/workspace"
-    virtual_mode: bool = True
-    routes: list[FilesystemRouteConfig] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- context
@@ -278,8 +252,6 @@ class ContextConfig(_Section):
     * 大结果卸载 —— 一次 5 万字的工具返回会挤掉后续所有请求。
     """
 
-    #: **未使用**：原为 deepagents 的 ``write_todos`` 预留，计划已取消。
-    todo_list: bool = True
     summarization: bool = True
     #: 压缩时**始终保留**的最近消息条数（它们对当前对话最相关）。
     keep_recent_messages: int = 12
@@ -309,11 +281,6 @@ class StorageConfig(_Section):
     #: 后者由 ``context.max_input_tokens`` 决定）。
     #: 保留得多一些是有意的：压缩是有损的，原始历史要能回溯。
     max_messages_per_thread: int = 500
-    # ``checkpointer`` / ``store`` 是 LangGraph 的概念，**两个字段都没有被使用**：
-    # 原本预留给「接入 deepagents 引擎」的设想，该方案已放弃。会话续跑与历史一致性
-    # 由本仓库自己的 ``gateway.session`` + ``storage`` 负责，保留字段以兼容既有配置文件。
-    checkpointer: CheckpointerName = "sqlite"
-    store: CheckpointerName = "sqlite"
     echo_sql: bool = False
 
 
@@ -616,12 +583,10 @@ __all__ = [
     "FeishuChannelConfig",
     "FilesToolConfig",
     "FilesystemConfig",
-    "FilesystemRouteConfig",
     "HttpToolConfig",
     "McpConfig",
     "MetricsConfig",
     "ModelConfig",
-    "NotesToolConfig",
     "ObservabilityConfig",
     "PermissionRule",
     "RuntimeConfig",

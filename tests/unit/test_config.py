@@ -288,7 +288,8 @@ def test_app_config_defaults_are_complete() -> None:
     config = AppConfig()
     assert config.channels.cli.enabled is True
     assert config.mcp.enabled is True
-    assert config.storage.checkpointer == "sqlite"
+    assert config.storage.history == "database"
+    assert config.filesystem.root_dir == "./data/workspace"
     assert config.agent.skills == ["../skills/"]
 
 

@@ -14,9 +14,8 @@
 └───────────────────────────────┬──────────────────────────────────┘
                                 ▼ agent 调用
 ┌──────────────────────────── agent ───────────────────────────────┐
-│  factory（create_deep_agent 组装）                                │
-│  models  middleware  backends  memory  subagents  permissions     │
-│  checkpointer                                                     │
+│  factory（AgentBundle 组装）  react（ReAct 循环）  events          │
+│  models  context  memory  subagents  permissions  approvals      │
 └───────┬──────────────────────────────────────────┬───────────────┘
         │ tools=                                   │ 依赖
         ▼                                          ▼
@@ -233,4 +232,4 @@ GET  /api/v1/health[/ready]  → 健康 / 就绪（免鉴权）
 | 新 Skill | 根目录 `skills/<name>/SKILL.md` |
 | 新通道（如钉钉/微信） | `channels/` 新增子包并实现 `Channel` 协议，注册进 `channels.registry` |
 | 新模型厂商 | `doudou.agent.models` 注册 provider，或直接装 `langchain-<provider>` 并用 `provider:model` 写法 |
-| 换持久化 | 改 `DOUDOU_DATABASE_URL` + 对应 checkpointer/store 选型 |
+| 换持久化 | 改 `DOUDOU_STORAGE_DATABASE_URL`（如切换 SQLite / Postgres）与 `storage.history` |

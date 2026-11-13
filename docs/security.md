@@ -204,5 +204,5 @@ agent:
   容器；容器内通常还需要额外的 namespace 权限。`bwrap` 不存在时 `shell` 分组整组不注册。
 - 子 Agent 拿不到 `task`（`FORBIDDEN_TOOLS`），递归深度因此有界；
   它的确认策略按**自己的**工具清单重算，不会继承主 Agent 而静默放宽。
-- `agent.recursion_limit` 防死循环；`mcp.call_timeout` 与模型 `timeout` 防挂死。
+- `agent.max_steps` 防死循环；`mcp.call_timeout` 与模型 `timeout` 防挂死。
 - 依赖安全：CI 中可加 `pip-audit`；容器镜像定期重建。

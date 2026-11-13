@@ -61,7 +61,7 @@ agent:
     # workspace_delete: false   # 例如：删除也信任它（不推荐）
     # shell_exec: true          # 默认已由 side_effects 覆盖，写在这里只是显式化
   # 单次运行的步数上限，防止死循环
-  recursion_limit: 60
+  max_steps: 8
   # 等待人工确认的时长（秒）。等不到就按**拒绝**处理 ——
   # 悬着的确认等于没有确认，默认必须偏向安全的一侧。
   approval_timeout_seconds: 300
@@ -169,14 +169,11 @@ tools:
     # 只透传白名单里的环境变量，避免把 *_API_KEY 交给子进程
     inherit_env: ["PATH", "HOME", "LANG", "LC_ALL", "TZ", "TEMP", "TMP"]
 
-# ---------------------------------------------------------------- 虚拟文件系统
-# 目前只有 root_dir 生效：所有文件类工具的读写都被钉在这个目录里
+# ---------------------------------------------------------------- 工作区文件系统
+# 所有文件类工具的读写都被钉在这个目录里
 # （`resolve()` 之后再校验，软链接也逃不出去）。
 filesystem:
   root_dir: ./data/workspace
-  # 下面三个字段**未使用**，原本是「接入 deepagents 的虚拟文件系统」的配置项，
-  # 该方案已放弃。这里不列出来，避免误导。
-  # 兼容大型配置文件的用户可以在自己的 config.yaml 里保留它们，不会报错。
 
 # ---------------------------------------------------------------- 上下文管理
 context:
@@ -184,7 +181,6 @@ context:
   keep_recent_messages: 12       # 压缩时始终保留的最近消息条数
   offload_large_results: true    # 超大工具结果落盘，上下文里只留预览 + 路径
   offload_threshold_bytes: 20000
-  # 注：context.todo_list 未使用（原为 deepagents 的 write_todos 预留，计划已取消）。
   # 需要任务清单时把条目写进工作区文件，模型能看到、人也能改。
   # ---- 这三个数决定「窗口有多大」 ----
   # 送进模型的历史 token 预算。**最关键的一个数**：
@@ -205,8 +201,6 @@ storage:
   history: database
   # 库里保留的消息条数（**保留**，不是送进模型的窗口 —— 后者由 context 决定）
   max_messages_per_thread: 500
-  checkpointer: sqlite       # memory | sqlite | postgres
-  store: sqlite              # memory | sqlite | postgres
   echo_sql: false
 
 # ---------------------------------------------------------------- MCP

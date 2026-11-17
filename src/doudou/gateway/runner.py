@@ -18,9 +18,11 @@ from doudou.agent.events import RunEvent
 from doudou.agent.factory import AgentBundle
 from doudou.agent.messages import (
     append_persona_reminder,
+    append_time_context,
+    build_time_context,
     human_message,
     should_attach_persona_reminder,
-    strip_persona_reminder_message,
+    strip_display_annotations_message,
 )
 from doudou.agent.react import RunResult
 from doudou.config.loader import Settings
@@ -96,9 +98,9 @@ class AgentRunner:
         return thread_id
 
     async def history(self, thread_id: str) -> list[BaseMessage]:
-        """取某个 thread 的历史消息（不含系统提示词，并剥离展示用的人设锚点标记）。"""
+        """取某个 thread 的历史消息（不含系统提示词，并剥离展示用的人设与时间锚点）。"""
         messages = await self.store.load(thread_id)
-        return [strip_persona_reminder_message(message) for message in messages]
+        return [strip_display_annotations_message(message) for message in messages]
 
     async def get_thread(self, thread_id: str) -> ThreadInfo | None:
         return await self.store.get_thread(thread_id)
@@ -155,6 +157,7 @@ class AgentRunner:
         async with self._lock(resolved_thread):
             await notify_start(self.observers, context)
             stored = await self.store.load(resolved_thread)
+            thread_info = await self.store.get_thread(resolved_thread) if stored else None
             if self.context is not None:
                 history, stats = await self.context.prepare(resolved_thread, stored)
                 self._stats[resolved_thread] = stats
@@ -162,6 +165,15 @@ class AgentRunner:
                 history, stats = stored, ContextStats()
             produced: list[BaseMessage] = []
             user_message = human_message(request.text, request.images)
+            # 跨天或长间隔续聊时固化当前时间上下文（并落库），避免模型沿用旧对话日期，
+            # 同时保持历史前缀不变、不破坏 Prefix Cache；对外展示时再剥离该标记。
+            time_context = build_time_context(
+                last_active_at=thread_info.updated_at if thread_info else None,
+                timezone_name=self.settings.app.runtime.timezone,
+                gap_hours=self.settings.app.agent.time_context_gap_hours,
+            )
+            if time_context:
+                user_message = append_time_context(user_message, time_context)
             # 按间隔把人设锚点固化在用户消息上并一并落库：后续轮次直接复用同一历史前缀，
             # 既能周期性提醒人设，又不会破坏 Prefix Cache；对外展示时再剥离该标记。
             has_summary = stats.compressed or (bool(history) and is_summary_message(history[0]))

@@ -95,6 +95,7 @@ DOUDOU_MODEL_API_KEY=<网关签发的 Key>
 | `DOUDOU_AGENT_PERMISSIONS` | `[]` | 路径权限规则（JSON 数组） |
 | `DOUDOU_AGENT_PERSONA_REMINDER` | `null` | 多轮对话时每隔若干轮固化在用户消息后并落库的人设锚点（展示层自动剥离） |
 | `DOUDOU_AGENT_PERSONA_REMINDER_INTERVAL` | `5` | 每隔多少轮用户消息插入一次 `persona_reminder`（`0` 表示关闭） |
+| `DOUDOU_AGENT_TIME_CONTEXT_GAP_HOURS` | `4.0` | 续聊旧会话跨天或间隔超过该小时数时固化 `[时间上下文]`（`0` 表示关闭） |
 
 ### 2.4 上下文工程
 

@@ -67,6 +67,8 @@ agent:
   # persona_reminder: "保持既定人设与口吻回复，不要退化成普通客服套话。"
   persona_reminder: null
   persona_reminder_interval: 5
+  # 续聊旧会话时，若已跨天或距上次对话超过该小时数，在当轮用户消息后固化一条 [时间上下文]（0 表示关闭）。
+  time_context_gap_hours: 4.0
   # 等待人工确认的时长（秒）。等不到就按**拒绝**处理 ——
   # 悬着的确认等于没有确认，默认必须偏向安全的一侧。
   approval_timeout_seconds: 300

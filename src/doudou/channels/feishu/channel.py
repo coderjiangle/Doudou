@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from doudou.agent.approvals import ApprovalBroker, ApprovalRequest
 from doudou.agent.events import RunEvent
-from doudou.agent.messages import MAX_IMAGES, strip_persona_reminder_text
+from doudou.agent.messages import MAX_IMAGES, strip_display_annotations_text
 from doudou.channels.base import InboundMessage, OutboundMessage, current_inbound
 from doudou.channels.feishu import cards
 from doudou.channels.feishu.client import FeishuClient, FeishuError, parse_action_value
@@ -330,7 +330,7 @@ class FeishuChannel:
         await asyncio.to_thread(
             self.client.send_text,
             message.conversation_id,
-            truncate(strip_persona_reminder_text(message.text), self.config.max_reply_chars),
+            truncate(strip_display_annotations_text(message.text), self.config.max_reply_chars),
         )
 
     # ---------------------------------------------------------------- 人工确认
@@ -358,7 +358,7 @@ class FeishuChannel:
             approval_id=request.approval_id,
             tool_name=request.tool_name,
             args=request.args,
-            question=strip_persona_reminder_text(inbound.text),
+            question=strip_display_annotations_text(inbound.text),
             expires_in=self._broker.timeout if self._broker else None,
         )
         message_id = await asyncio.to_thread(self.client.send_card, inbound.conversation_id, card)
@@ -499,7 +499,7 @@ class FeishuChannel:
             logger.warning("feishu.final_patch_failed", conversation_id=message.conversation_id)
 
         # 没有卡片（或卡片更新失败）时兜底发文本：用户必须能看到结果。
-        fallback = strip_persona_reminder_text(state.answer) or "（本次运行没有产生内容）"
+        fallback = strip_display_annotations_text(state.answer) or "（本次运行没有产生内容）"
         await self.send(OutboundMessage(conversation_id=message.conversation_id, text=fallback))
 
 
@@ -559,11 +559,11 @@ class _CardState:
                 )
             return cards.answer_card(
                 bot_name=bot_name,
-                answer=strip_persona_reminder_text(self.answer),
+                answer=strip_display_annotations_text(self.answer),
                 tool_notes=self.tool_notes,
                 footer=self._footer(),
             )
-        partial = strip_persona_reminder_text(self.text).strip() or "正在思考…"
+        partial = strip_display_annotations_text(self.text).strip() or "正在思考…"
         return cards.answer_card(
             bot_name=bot_name,
             answer=partial,

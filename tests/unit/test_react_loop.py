@@ -499,7 +499,11 @@ async def test_persona_reminder_only_applied_at_turn_interval() -> None:
 async def test_persona_reminder_supports_multimodal_and_summary() -> None:
     """多模态 HumanMessage 与摘要场景也能正确附带人设锚点，并可无损剥离展示文本。"""
     from doudou.agent.context import SUMMARY_PREFIX
-    from doudou.agent.messages import strip_persona_reminder_message
+    from doudou.agent.messages import (
+        append_time_context,
+        build_time_context,
+        strip_display_annotations_message,
+    )
 
     seen: list[list] = []
 
@@ -528,5 +532,22 @@ async def test_persona_reminder_supports_multimodal_and_summary() -> None:
     assert last_content[0]["text"] == "看看这张图"
     assert "[人设提醒] 保持豆豆口吻" in last_content[-1]["text"]
 
-    stripped = strip_persona_reminder_message(last_msg)
+    stripped = strip_display_annotations_message(last_msg)
     assert stripped.content == [{"type": "text", "text": "看看这张图"}]
+
+    # 同时带 [时间上下文] 与 [人设提醒] 时也能完整剥离
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime(2026, 11, 17, 11, 50, tzinfo=UTC)
+    time_ctx = build_time_context(
+        last_active_at=now - timedelta(days=2),
+        timezone_name="Asia/Shanghai",
+        gap_hours=4.0,
+        now=now,
+    )
+    assert "2026-11-17 19:50" in time_ctx
+    assert "距上次对话已过 2 天" in time_ctx
+
+    anchored = append_time_context(HumanMessage(content="今天什么安排"), time_ctx)
+    assert "[时间上下文]" in str(anchored.content)
+    assert strip_display_annotations_message(anchored).content == "今天什么安排"

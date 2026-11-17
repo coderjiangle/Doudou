@@ -222,6 +222,8 @@ class AgentConfig(_Section):
     persona_reminder: str | None = None
     #: 每隔多少轮用户消息插一次人设锚点（0 表示关闭；发生上下文摘要后会立即补一次）。
     persona_reminder_interval: int = Field(default=5, ge=0)
+    #: 续聊旧会话跨天或间隔超过该小时数时固化一条时间上下文（0 表示关闭）。
+    time_context_gap_hours: float = Field(default=4.0, ge=0.0)
     permissions: list[PermissionRule] = Field(default_factory=list)
 
     @model_validator(mode="after")

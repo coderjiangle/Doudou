@@ -313,3 +313,57 @@ async def test_runner_persists_periodic_persona_anchor_and_strips_for_display(
         "第3问",
         "第4问",
     ]
+
+
+async def test_runner_injects_time_context_after_cross_day_gap_and_strips_display(
+    settings_factory,  # type: ignore[no-untyped-def]
+) -> None:
+    """隔天或长时间续聊时注入并持久化 [时间上下文]，保持后续缓存命中并剥离展示标记。"""
+    from datetime import UTC, datetime, timedelta
+
+    seen_prompts: list[list[str]] = []
+
+    def _capture(messages: list) -> AIMessage:
+        seen_prompts.append([str(msg.content) for msg in messages])
+        return AIMessage(content="汪")
+
+    settings = settings_factory(
+        config_yaml=(
+            "runtime:\n"
+            '  timezone: "Asia/Shanghai"\n'
+            "agent:\n"
+            "  persona_reminder: null\n"
+            "  time_context_gap_hours: 4.0\n"
+        )
+    )
+    store = InMemoryHistoryStore()
+    runner = AgentRunner(
+        build_agent(settings, model=ScriptedChatModel(steps=[_capture, _capture, _capture])),
+        store=store,
+    )
+
+    # 第 1 轮（新会话）和同天紧接着的第 2 轮都不插 [时间上下文]
+    await runner.ainvoke(RunRequest(text="15号聊一下", conversation_id="conv-time"))
+    assert "[时间上下文]" not in seen_prompts[0][-1]
+
+    # 模拟该会话最后活跃时间是 2 天前
+    thread_id = await runner.resolve_thread(RunRequest(text="", conversation_id="conv-time"))
+    store._threads[thread_id].updated_at = datetime.now(UTC) - timedelta(days=2)
+
+    # 第 2 轮隔 2 天回来续聊：插入 [时间上下文] 并落库
+    await runner.ainvoke(RunRequest(text="今天安排啥", conversation_id="conv-time"))
+    assert "[时间上下文]" in seen_prompts[1][-1]
+    assert "距上次对话已过 2 天" in seen_prompts[1][-1]
+
+    # 同天第 3 轮紧接着续聊：不再重复插入，且完全复用第 2 轮的完整前缀（Cache 100% 命中）
+    await runner.ainvoke(RunRequest(text="那下午呢", conversation_id="conv-time"))
+    assert "[时间上下文]" not in seen_prompts[2][-1]
+    assert seen_prompts[2][:-2] == seen_prompts[1]
+
+    # 对外 history 剥离 [时间上下文]
+    display_history = await runner.history(thread_id)
+    assert [str(m.content) for m in display_history if isinstance(m, HumanMessage)] == [
+        "15号聊一下",
+        "今天安排啥",
+        "那下午呢",
+    ]

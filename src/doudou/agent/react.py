@@ -33,7 +33,7 @@ from doudou.agent.messages import (
     has_persona_reminder,
     normalize_persona_reminder,
     should_attach_persona_reminder,
-    strip_persona_reminder_text,
+    strip_display_annotations_text,
 )
 from doudou.observability.logging import get_logger
 from doudou.security.secrets import redact
@@ -625,7 +625,7 @@ def _last_user_preview(history: list[BaseMessage], *, limit: int = 200) -> str:
     """取最后一条用户消息的文本，用于日志中的「本次输入是什么」。"""
     for message in reversed(history):
         if isinstance(message, HumanMessage):
-            return truncate(strip_persona_reminder_text(content_to_text(message.content)), limit)
+            return truncate(strip_display_annotations_text(content_to_text(message.content)), limit)
     return ""
 
 

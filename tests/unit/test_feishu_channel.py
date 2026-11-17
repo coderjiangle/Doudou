@@ -838,7 +838,7 @@ async def test_feishu_strips_persona_reminder_from_rendered_messages(settings_fa
         broker=broker,
     )
 
-    msg = inbound("帮我改个文件\n\n[人设提醒] 保持豆豆口吻")
+    msg = inbound("帮我改个文件\n\n[时间上下文] 当前时间：2026-11-17\n\n[人设提醒] 保持豆豆口吻")
     token = bind_inbound(msg)
     try:
         waiter = asyncio.create_task(
@@ -853,13 +853,22 @@ async def test_feishu_strips_persona_reminder_from_rendered_messages(settings_fa
     approval_card_json = fake.message.created[0].request_body.content
     assert "帮我改个文件" in approval_card_json
     assert "[人设提醒]" not in approval_card_json
+    assert "[时间上下文]" not in approval_card_json
 
     await channel.deliver(
-        inbound("你好"), stream(RunEvent.run_end("汪！办妥啦\n\n[人设提醒] 保持豆豆口吻", step=1))
+        inbound("你好"),
+        stream(
+            RunEvent.run_end(
+                "汪！办妥啦\n\n[时间上下文] 当前时间：2026-11-17\n\n[人设提醒] 保持豆豆口吻", step=1
+            )
+        ),
     )
     assert request_json(fake.message.created[1]) == {"text": "汪！办妥啦"}
 
     await channel.send(
-        OutboundMessage(conversation_id="oc_test", text="收到\n\n[人设提醒] 保持豆豆口吻")
+        OutboundMessage(
+            conversation_id="oc_test",
+            text="收到\n\n[时间上下文] 当前时间：2026-11-17\n\n[人设提醒] 保持豆豆口吻",
+        )
     )
     assert request_json(fake.message.created[2]) == {"text": "收到"}

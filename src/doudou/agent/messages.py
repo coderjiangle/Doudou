@@ -6,7 +6,10 @@ import base64
 import binascii
 import re
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from functools import cache
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -16,9 +19,9 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_DATA_URL_CHARS = 4 * ((MAX_IMAGE_BYTES + 2) // 3) + 64
 IMAGE_MEDIA_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
 PERSONA_REMINDER_PREFIX = "[人设提醒]"
-_REMINDER_LINE_RE = re.compile(r"(?:^|\r?\n)\[人设提醒\](?:\s|$)")
-_REMINDER_TRAILING_RE = re.compile(r"(?:\r?\n)*\[人设提醒\](?:[ \t][^\r\n]*)?\s*$")
-_REMINDER_INLINE_LINE_RE = re.compile(r"(?:^|\r?\n)\[人设提醒\](?:[ \t][^\r\n]*)?(?=\r?\n|$)")
+TIME_CONTEXT_PREFIX = "[时间上下文]"
+_DISPLAY_ANNOTATION_PREFIXES = (PERSONA_REMINDER_PREFIX, TIME_CONTEXT_PREFIX)
+_WEEKDAYS = "一二三四五六日"
 
 
 def image_media_type(data: bytes) -> str:
@@ -95,24 +98,112 @@ def image_urls(content: str | list[Any]) -> list[str]:
     return urls
 
 
+@cache
+def _marker_patterns(
+    prefix: str,
+) -> tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]:
+    escaped = re.escape(prefix)
+    return (
+        re.compile(rf"(?:^|\r?\n){escaped}(?:\s|$)"),
+        re.compile(rf"(?:\r?\n)*{escaped}(?:[ \t][^\r\n]*)?\s*$"),
+        re.compile(rf"(?:^|\r?\n){escaped}(?:[ \t][^\r\n]*)?(?=\r?\n|$)"),
+    )
+
+
+def _resolve_zone(name: str | None) -> ZoneInfo:
+    candidate = (name or "").strip() or "UTC"
+    try:
+        return ZoneInfo(candidate)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
+def _has_marker(message: BaseMessage, prefix: str) -> bool:
+    line_re, _, _ = _marker_patterns(prefix)
+    content = message.content
+    if isinstance(content, str):
+        return bool(line_re.search(content))
+    if isinstance(content, list):
+        return any(
+            isinstance(block, dict)
+            and block.get("type") == "text"
+            and bool(line_re.search(str(block.get("text", ""))))
+            for block in content
+        )
+    return False
+
+
+def _append_marker(message: HumanMessage, prefix: str, body: str) -> HumanMessage:
+    cleaned = normalize_persona_reminder(body)
+    if not cleaned or _has_marker(message, prefix):
+        return message
+
+    note = f"{prefix} {cleaned}"
+    content = message.content
+    updated: str | list[str | dict[Any, Any]]
+    if isinstance(content, str):
+        updated = f"{content}\n\n{note}" if content else note
+    elif isinstance(content, list):
+        updated = [*content, {"type": "text", "text": note}]
+    else:
+        return message
+    return message.model_copy(update={"content": updated})
+
+
+def _strip_markers_text(text: str, prefixes: Sequence[str]) -> str:
+    cleaned = text
+    # 连续剥离直到末尾不再带有任意内部标记（兼容「[时间上下文] + [人设提醒]」并存）。
+    while True:
+        before = cleaned
+        for prefix in prefixes:
+            if prefix not in cleaned:
+                continue
+            _, trailing_re, inline_re = _marker_patterns(prefix)
+            cleaned = trailing_re.sub("", cleaned)
+            if prefix in cleaned:
+                cleaned = inline_re.sub("", cleaned).lstrip("\r\n")
+        if cleaned == before:
+            return cleaned
+
+
+def _strip_markers_message(message: BaseMessage, prefixes: Sequence[str]) -> BaseMessage:
+    if not isinstance(message, HumanMessage):
+        return message
+
+    content = message.content
+    if isinstance(content, str):
+        cleaned = _strip_markers_text(content, prefixes)
+        if cleaned == content:
+            return message
+        return message.model_copy(update={"content": cleaned})
+
+    if isinstance(content, list):
+        changed = False
+        new_blocks: list[str | dict[Any, Any]] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                raw = block.get("text")
+                if isinstance(raw, str) and any(prefix in raw for prefix in prefixes):
+                    stripped = _strip_markers_text(raw, prefixes)
+                    changed = True
+                    if not stripped:
+                        continue
+                    new_blocks.append({**block, "text": stripped})
+                    continue
+            new_blocks.append(block)
+        if changed:
+            return message.model_copy(update={"content": new_blocks})
+    return message
+
+
 def normalize_persona_reminder(reminder: str) -> str:
-    """将人设提醒折叠为单行文本，方便稳定附着与展示剥离。"""
+    """将人设提醒等内部锚点折叠为单行文本，方便稳定附着与展示剥离。"""
     return " ".join(reminder.split())
 
 
 def has_persona_reminder(message: BaseMessage) -> bool:
     """判断消息是否已包含人设提醒锚点。"""
-    content = message.content
-    if isinstance(content, str):
-        return bool(_REMINDER_LINE_RE.search(content))
-    if isinstance(content, list):
-        return any(
-            isinstance(block, dict)
-            and block.get("type") == "text"
-            and bool(_REMINDER_LINE_RE.search(str(block.get("text", ""))))
-            for block in content
-        )
-    return False
+    return _has_marker(message, PERSONA_REMINDER_PREFIX)
 
 
 def should_attach_persona_reminder(
@@ -147,58 +238,68 @@ def should_attach_persona_reminder(
 
 def append_persona_reminder(message: HumanMessage, reminder: str) -> HumanMessage:
     """将人设锚点附着到用户消息末尾，返回新消息副本；已附着或提醒为空时原样返回。"""
-    cleaned = normalize_persona_reminder(reminder)
-    if not cleaned or has_persona_reminder(message):
-        return message
+    return _append_marker(message, PERSONA_REMINDER_PREFIX, reminder)
 
-    note = f"{PERSONA_REMINDER_PREFIX} {cleaned}"
-    content = message.content
-    updated: str | list[str | dict[Any, Any]]
-    if isinstance(content, str):
-        updated = f"{content}\n\n{note}" if content else note
-    elif isinstance(content, list):
-        updated = [*content, {"type": "text", "text": note}]
+
+def build_time_context(
+    *,
+    last_active_at: datetime | None,
+    timezone_name: str,
+    gap_hours: float,
+    now: datetime | None = None,
+) -> str:
+    """跨天或长时间中断后，生成附在当轮用户消息上的轻量时间上下文。
+
+    只在继续已有会话且确实跨天或超过 ``gap_hours`` 时返回正文；同日短间隔内
+    返回空串，避免破坏 Prefix Cache。
+    """
+    if gap_hours <= 0 or last_active_at is None:
+        return ""
+    zone = _resolve_zone(timezone_name)
+    current = (now or datetime.now(UTC)).astimezone(zone)
+    previous = (
+        last_active_at.replace(tzinfo=UTC) if last_active_at.tzinfo is None else last_active_at
+    ).astimezone(zone)
+    elapsed_seconds = (current - previous).total_seconds()
+    if elapsed_seconds <= 0:
+        return ""
+    crossed_day = current.date() != previous.date()
+    if not crossed_day and elapsed_seconds < gap_hours * 3600:
+        return ""
+
+    days_diff = (current.date() - previous.date()).days
+    if days_diff >= 2:
+        gap_note = f"距上次对话已过 {days_diff} 天"
+    elif days_diff == 1:
+        gap_note = "距上次对话已跨天（昨天）"
     else:
-        return message
-    return message.model_copy(update={"content": updated})
+        hours = max(1, int(elapsed_seconds // 3600))
+        gap_note = f"距上次对话已过约 {hours} 小时"
+
+    weekday = _WEEKDAYS[current.weekday()]
+    tz_label = current.tzname() or ""
+    stamp = f"{current:%Y-%m-%d %H:%M} {tz_label}".strip()
+    return (
+        f"当前时间：{stamp}（周{weekday}），{gap_note}；"
+        "历史中的「今天/昨天/明天」均相对当时而言，请勿沿用旧日期。"
+    )
+
+
+def append_time_context(message: HumanMessage, time_context: str) -> HumanMessage:
+    """将时间上下文锚点附着到用户消息末尾，返回新消息副本。"""
+    return _append_marker(message, TIME_CONTEXT_PREFIX, time_context)
 
 
 def strip_persona_reminder_text(text: str) -> str:
-    """从展示文本中移除人设锚点标记，不影响未含标记的原始文本。"""
-    if PERSONA_REMINDER_PREFIX not in text:
-        return text
-    cleaned = _REMINDER_TRAILING_RE.sub("", text)
-    if PERSONA_REMINDER_PREFIX in cleaned:
-        cleaned = _REMINDER_INLINE_LINE_RE.sub("", cleaned).lstrip("\r\n")
-    return cleaned
+    """仅从文本中移除人设锚点标记（保留时间上下文，供历史摘要识别日期）。"""
+    return _strip_markers_text(text, (PERSONA_REMINDER_PREFIX,))
 
 
-def strip_persona_reminder_message(message: BaseMessage) -> BaseMessage:
-    """从历史消息中移除人设锚点以便面向用户展示（不改写原对象）。"""
-    if not isinstance(message, HumanMessage):
-        return message
+def strip_display_annotations_text(text: str) -> str:
+    """从展示文本中移除人设锚点与时间上下文标记，不影响原始业务内容。"""
+    return _strip_markers_text(text, _DISPLAY_ANNOTATION_PREFIXES)
 
-    content = message.content
-    if isinstance(content, str):
-        cleaned = strip_persona_reminder_text(content)
-        if cleaned == content:
-            return message
-        return message.model_copy(update={"content": cleaned})
 
-    if isinstance(content, list):
-        changed = False
-        new_blocks: list[str | dict[Any, Any]] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                raw = block.get("text")
-                if isinstance(raw, str) and PERSONA_REMINDER_PREFIX in raw:
-                    stripped = strip_persona_reminder_text(raw)
-                    changed = True
-                    if not stripped:
-                        continue
-                    new_blocks.append({**block, "text": stripped})
-                    continue
-            new_blocks.append(block)
-        if changed:
-            return message.model_copy(update={"content": new_blocks})
-    return message
+def strip_display_annotations_message(message: BaseMessage) -> BaseMessage:
+    """从历史消息中移除内部锚点与时间上下文标记以便面向用户展示。"""
+    return _strip_markers_message(message, _DISPLAY_ANNOTATION_PREFIXES)

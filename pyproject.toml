@@ -58,6 +58,10 @@ dependencies = [
     # Windows 上没有系统 tzdata，zoneinfo 依赖该包解析 IANA 时区名
     "tzdata>=2025.1; sys_platform == 'win32'",
     "playwright>=1.65.2",
+    "sherpa-onnx>=2.0.1",
+    "sounddevice>=0.5.6",
+    "numpy>=2.5.5",
+    "pypinyin>=0.55.0",
 ]
 
 [project.optional-dependencies]
@@ -134,7 +138,13 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 # 这几个第三方包不带 py.typed，但它们只在可选/延迟 import 里出现。
-module = ["lark_oapi.*", "langchain_mcp_adapters.*", "apscheduler.*"]
+module = [
+    "lark_oapi.*",
+    "langchain_mcp_adapters.*",
+    "apscheduler.*",
+    "sherpa_onnx.*",
+    "sounddevice.*",
+]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

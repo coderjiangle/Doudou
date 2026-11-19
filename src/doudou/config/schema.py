@@ -484,10 +484,48 @@ class WebhookChannelConfig(_Section):
     token_header: str = "X-Doudou-Token"  # noqa: S105
 
 
+class VoiceChannelConfig(_Section):
+    """本地电脑语音通道配置（sherpa-onnx 本地唤醒与断句 + DeepSeek ASR/TTS）。"""
+
+    enabled: bool = False
+    #: 唤醒词列表；只有以唤醒词开头的语音才会触发识别与执行。
+    wake_words: list[str] = Field(default_factory=lambda: ["豆豆"])
+    #: DeepSeek ASR 转写后的二次前缀校验（默认关闭：本地 KWS 已识别唤醒词，
+    #: 开启后要求唤醒词与指令连着一口气说完且出现在同一段转写开头，适合极嘈杂环境）。
+    strict_wake_prefix: bool = False
+    #: 唤醒词常见同音字容错，只在二次前缀校验与剥离前缀时使用。
+    wake_homophones: list[str] = Field(default_factory=lambda: ["豆豆", "逗逗", "都都"])
+    #: 唤醒后等待用户继续说话的最大秒数（如只喊“豆豆”后短暂停顿再说指令）。
+    command_wait_seconds: float = 4.0
+    #: 说话尾部静音超过该秒数即判定一句话说完。
+    silence_duration_seconds: float = 0.9
+    #: 单条语音指令最长录制秒数（DeepSeek ASR 上限 120s）。
+    max_record_seconds: float = 20.0
+    #: sherpa-onnx KeywordSpotter 关键词打分与触发阈值。
+    keywords_score: float = 1.5
+    keywords_threshold: float = 0.25
+    #: Silero VAD 人声判定阈值（0–1，越大越抗外放环境噪）。
+    vad_threshold: float = 0.5
+    #: 音箱播报结束后延迟恢复拾音的冷却秒数，防止自激唤醒。
+    cooldown_seconds: float = 0.5
+    #: 语音接口凭据（放 .env 的 DOUDOU_CHANNELS_VOICE_API_KEY；留空回退 DeepSeek Key）。
+    api_key: str | None = None
+    asr_url: str = "https://api.deepseek.com/v1/tools/asr"
+    tts_url: str = "https://api.deepseek.com/v1/tools/tts"
+    tts_ws_url: str = "wss://api.deepseek.com/v1/tools/tts"
+    voice_id: Literal["stella", "tide"] = "stella"
+    filter_markdown: bool = True
+    input_device: int | str | None = None
+    output_device: int | str | None = None
+    models_dir: str = "./data/models/voice"
+    auto_download_models: bool = True
+
+
 class ChannelsConfig(_Section):
     cli: CliChannelConfig = Field(default_factory=CliChannelConfig)
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
     webhook: WebhookChannelConfig = Field(default_factory=WebhookChannelConfig)
+    voice: VoiceChannelConfig = Field(default_factory=VoiceChannelConfig)
 
 
 # --------------------------------------------------------------------------- observability

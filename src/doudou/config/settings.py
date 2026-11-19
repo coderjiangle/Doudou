@@ -47,6 +47,7 @@ class Secrets(BaseModel):
     feishu_verification_token: str | None = None
     feishu_encrypt_key: str | None = None
     feishu_base_url: str | None = None
+    voice_api_key: str | None = None
 
     @classmethod
     def from_config(cls, app: AppConfig) -> Secrets:
@@ -54,6 +55,7 @@ class Secrets(BaseModel):
         primary = provider_of(app.model.primary)
         web = app.tools.web_search
         feishu = app.channels.feishu
+        voice = app.channels.voice
 
         def model_key(provider: str) -> str | None:
             key = app.model.api_keys.get(provider)
@@ -67,13 +69,16 @@ class Secrets(BaseModel):
                 return url
             return app.model.base_url if provider == primary else None
 
+        deepseek_key = model_key("deepseek") or (
+            web.api_key if web.provider == "deepseek" else None
+        )
+
         return cls(
             openai_api_key=model_key("openai"),
             openai_base_url=model_base_url("openai"),
             anthropic_api_key=model_key("anthropic"),
             anthropic_base_url=model_base_url("anthropic"),
-            deepseek_api_key=model_key("deepseek")
-            or (web.api_key if web.provider == "deepseek" else None),
+            deepseek_api_key=deepseek_key,
             deepseek_api_base=model_base_url("deepseek"),
             openrouter_api_key=model_key("openrouter"),
             openrouter_base_url=model_base_url("openrouter"),
@@ -89,6 +94,7 @@ class Secrets(BaseModel):
             feishu_verification_token=feishu.verification_token,
             feishu_encrypt_key=feishu.encrypt_key,
             feishu_base_url=feishu.base_url,
+            voice_api_key=voice.api_key or deepseek_key,
         )
 
     def as_dict(self) -> dict[str, str | None]:

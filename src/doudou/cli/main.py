@@ -45,10 +45,12 @@ tools_app = typer.Typer(help="查看已装载的工具。", no_args_is_help=True
 skills_app = typer.Typer(help="查看已发现的 Skill。", no_args_is_help=True)
 config_app = typer.Typer(help="查看与校验配置。", no_args_is_help=True)
 mcp_app = typer.Typer(help="查看与探测 MCP server。", no_args_is_help=True)
+voice_app = typer.Typer(help="本地常驻语音助手（sherpa-onnx + DeepSeek ASR/TTS）。")
 app.add_typer(tools_app, name="tools")
 app.add_typer(skills_app, name="skills")
 app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(voice_app, name="voice")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -296,6 +298,114 @@ def chat(
         asyncio.run(_run())
     except KeyboardInterrupt:  # pragma: no cover - 交互中断
         console.print("\n[dim]已中断。[/dim]")
+
+
+# --------------------------------------------------------------------------- 语音
+
+
+@voice_app.callback(invoke_without_command=True)
+def voice_listen(
+    ctx: typer.Context,
+    model: ModelOption = None,
+    conversation: Annotated[
+        str, typer.Option("--conversation", "-c", help="语音会话标识。")
+    ] = "voice-local",
+    no_confirm: Annotated[
+        bool,
+        typer.Option("--no-confirm", help="不询问，直接同意有副作用的工具执行。"),
+    ] = False,
+    config_dir: ConfigDir = None,
+    log_level: LogLevel = None,
+) -> None:
+    """启动常驻本地语音交互（以「豆豆」开头唤醒，音箱流式播报）。"""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from doudou.channels.voice.assistant import VoiceAssistant
+    from doudou.channels.voice.audio import VoiceError
+
+    settings = _load(config_dir, log_level=log_level)
+
+    async def _run() -> None:
+        prepared = await _prepare_channel(
+            settings,
+            model,
+            stream=True,
+            interactive=not no_confirm,
+            quiet=False,
+        )
+        try:
+            assistant = VoiceAssistant(
+                settings,
+                prepared.channel.runner,
+                console=console,
+                conversation_id=conversation,
+            )
+            await assistant.run()
+        finally:
+            await prepared.aclose()
+
+    try:
+        asyncio.run(_run())
+    except VoiceError as exc:
+        err_console.print(f"[bold red]语音启动失败：[/bold red]{exc}")
+        raise typer.Exit(EXIT_USAGE) from exc
+    except KeyboardInterrupt:  # pragma: no cover - 交互中断
+        console.print("\n[dim]语音监听已停止。[/dim]")
+
+
+@voice_app.command("download-models")
+def voice_download_models(config_dir: ConfigDir = None) -> None:
+    """预下载本地 sherpa-onnx 唤醒与 VAD 模型并生成唤醒词表。"""
+    from doudou.channels.voice.audio import VoiceError
+    from doudou.channels.voice.models import ensure_voice_models
+    from doudou.config.loader import resolve_path
+
+    settings = _load(config_dir)
+    voice_cfg = settings.app.channels.voice
+    models_dir = resolve_path(Path.cwd(), voice_cfg.models_dir)
+    try:
+        paths = asyncio.run(
+            ensure_voice_models(
+                models_dir,
+                wake_words=voice_cfg.wake_words,
+                auto_download=True,
+            )
+        )
+    except VoiceError as exc:
+        err_console.print(f"[bold red]下载失败：[/bold red]{exc}")
+        raise typer.Exit(EXIT_USAGE) from exc
+    console.print(f"[green]✓ 语音模型已就绪[/green]：{paths.vad_model.parent}")
+    console.print(f"  唤醒词表：{paths.kws_keywords}")
+
+
+@voice_app.command("devices")
+def voice_devices() -> None:
+    """列出当前系统可用的麦克风与音箱设备。"""
+    import sounddevice as sd
+
+    devices = sd.query_devices()
+    default_in, default_out = sd.default.device
+    table = Table(title="音频设备")
+    table.add_column("编号", justify="right", style="bold")
+    table.add_column("名称")
+    table.add_column("输入声道", justify="right")
+    table.add_column("输出声道", justify="right")
+    table.add_column("默认")
+    for idx, dev in enumerate(devices):
+        marks: list[str] = []
+        if idx == default_in:
+            marks.append("输入")
+        if idx == default_out:
+            marks.append("输出")
+        table.add_row(
+            str(idx),
+            str(dev["name"]),
+            str(dev["max_input_channels"]),
+            str(dev["max_output_channels"]),
+            "/".join(marks) or "—",
+        )
+    console.print(table)
 
 
 @app.command()

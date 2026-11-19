@@ -321,6 +321,26 @@ channels:
     enabled: false
     token_header: X-Doudou-Token
 
+  # 本地常驻语音（sherpa-onnx 本地唤醒词 + Silero VAD + DeepSeek ASR/WebSocket TTS）
+  voice:
+    enabled: true
+    wake_words: ["豆豆"]
+    strict_wake_prefix: false
+    wake_homophones: ["豆豆", "逗逗", "都都"]
+    command_wait_seconds: 4.0
+    silence_duration_seconds: 0.9
+    max_record_seconds: 20.0
+    keywords_score: 1.5
+    keywords_threshold: 0.25
+    vad_threshold: 0.5
+    cooldown_seconds: 0.5
+    voice_id: stella
+    filter_markdown: true
+    input_device: null
+    output_device: null
+    models_dir: ./data/models/voice
+    auto_download_models: true
+
 # ---------------------------------------------------------------- 可观测性
 # 审计 / 成本 / 追踪（见 docs/observability.md）
 observability:

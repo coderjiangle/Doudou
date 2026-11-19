@@ -31,8 +31,10 @@
 | HTTP API | FastAPI + SSE + 落库 + Bearer 鉴权 | `doudou.api` |
 | 会话持久化 | 消息/线程/渠道绑定落库，重启可续 | `doudou.storage` |
 | 实用工具集 | 检索 / 抓取 / 工作区文件 / 命令执行，默认拒绝 | `doudou.tools.builtin` |
+| 浏览器操控 | Playwright CDP 连接本机 Chrome：网页浏览、视频播控、窗口最大化 | `doudou.tools.builtin.browser` |
 | 配置自检 | `my` 工具按需查询模型、限制、工具清单与密钥状态（只读） | `doudou.tools.builtin.self_config` |
 | 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` |
+| 本地语音交互 | 本地 `sherpa-onnx` 唤醒断句 + DeepSeek ASR/WebSocket 流式 TTS | `doudou.channels.voice` |
 | 图片输入 | Web 选图 / 粘贴截图、飞书图片 / 富文本图片、历史回放 | `doudou.agent.messages` |
 | 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` |
 | MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` |
@@ -112,7 +114,7 @@ Doudou/
 │  ├─ tools/                  # 工具注册表与内置工具
 │  ├─ mcp/                    # MCP 客户端与生命周期
 │  ├─ skills/                 # Skill 发现与索引
-│  ├─ channels/               # 通道实现（feishu / webhook / cli）
+│  ├─ channels/               # 通道实现（feishu / webhook / cli / voice）
 │  ├─ gateway/                # 会话路由、消息总线、运行器
 │  ├─ scheduler/              # 定时任务：时间表达、投递目标、轮询触发
 │  ├─ api/                    # FastAPI 应用与路由
@@ -397,6 +399,52 @@ curl http://127.0.0.1:8000/api/v1/scheduled # 只读查看现有任务
 
 完整规则、时间写法与限制见 [`docs/scheduler.md`](docs/scheduler.md)。
 
+### 4.12 操控本机 Chrome 浏览器（可选）
+
+通过 Playwright CDP 连接本机 Google Chrome（默认关闭），支持打开网页、提取编号化可交互元素、点击填表、控制 HTML5 音视频播放以及调整浏览器窗口大小：
+
+```yaml
+# config/config.yaml
+tools:
+  browser:
+    enabled: true
+    cdp_url: http://127.0.0.1:9222
+    auto_launch: true                 # 未检测到调试端口时自动拉起独立 Chrome 窗口
+    user_data_dir: ./data/browser-profile   # 独立配置目录，保留登录态且退出豆豆不关窗
+    allowed_domains: []               # 空列表表示允许访问任意 http/https 网址
+```
+
+- **主要工具**：`browser_open`、`browser_tabs`、`browser_close_tab`、`browser_read_page`、`browser_click`、`browser_type`、`browser_scroll`、`browser_press_key`、`browser_media_control`（播放/暂停/音量/进度/倍速/视频全屏）、`browser_window`（窗口最大化/还原/最小化/F11 全屏）。
+- **免逐次确认**：`browser_click` / `browser_type` / `browser_press_key` / `browser_close_tab` 默认标记有副作用；如果希望语音或对话看视频时连续自动执行，可在 `agent.interrupt_on` 中将这几项设为 `false`。
+- 仓库内置 [`skills/browser-browsing/SKILL.md`](skills/browser-browsing/SKILL.md) 提供常见浏览与视频站操作指引，按需渐进加载。
+
+### 4.13 常驻本地语音助手（可选）
+
+使用**本地离线唤醒 + 云端精转写与流式合成**架构：平时仅在本地用 `sherpa-onnx`（3.3M Zipformer KWS + `Silero VAD`）监听唤醒词（默认「豆豆」）并判断一句话说完，**未唤醒时不上传任何音频**；唤醒后调用 DeepSeek ASR 转写指令，并通过 DeepSeek WebSocket TTS 边生成边从音箱流式播报（播报期间自动闭麦冷却，防止自激）。
+
+```yaml
+# config/config.yaml
+channels:
+  voice:
+    enabled: true
+    wake_words: ["豆豆"]
+    strict_wake_prefix: false         # 设为 true 可开启转写前缀二次校验
+    silence_duration_seconds: 0.9     # 说完话后静音超过该秒数自动断句
+    voice_id: stella                  # stella（女声）| tide（男声）
+    input_device: null                # 留空用系统默认，可用 doudou voice devices 查看编号
+    output_device: null               # 若默认输出是耳机而你想走音箱，可填对应设备编号
+    models_dir: ./data/models/voice
+```
+
+语音接口凭据可在 `.env` 中配置 `DOUDOU_CHANNELS_VOICE_API_KEY`（未单独设置时自动复用 DeepSeek 模型或搜索 Key）。
+
+```bash
+uv run doudou voice devices           # 查看可用麦克风与音箱设备编号
+uv run doudou voice download-models   # 预下载本地 VAD/KWS 模型并生成拼音唤醒词表
+uv run doudou voice                   # 启动常驻语音监听（高危工具仍需终端确认）
+uv run doudou voice --no-confirm      # 全语音免确认模式
+```
+
 飞书接入步骤见 [`docs/channels.md`](docs/channels.md)，MCP 接入见 [`docs/mcp.md`](docs/mcp.md)，
 Skill 编写见 [`docs/skills.md`](docs/skills.md)。
 
@@ -405,6 +453,9 @@ Skill 编写见 [`docs/skills.md`](docs/skills.md)。
 ```bash
 uv run doudou serve                        # 启动 HTTP 服务
 uv run doudou chat                         # 终端交互式对话
+uv run doudou voice [--no-confirm]         # 启动本地常驻语音助手
+uv run doudou voice devices                # 列出本机麦克风与音箱设备
+uv run doudou voice download-models        # 预下载本地语音唤醒与 VAD 模型
 uv run doudou ask "问题"                    # 单轮对话
 uv run doudou ask "问题" --quiet            # 单轮，只输出答复
 uv run doudou tools list [--args]          # 列出工具

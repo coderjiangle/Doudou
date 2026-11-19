@@ -40,8 +40,10 @@ See the [image input guide](docs/configuration.md#6-图片输入) for API and pe
 | HTTP API | FastAPI + SSE + persistence + Bearer auth | `doudou.api` |
 | Session persistence | Messages / threads / channel bindings stored; resume after restart | `doudou.storage` |
 | Built-in toolset | Search / fetch / workspace files / shell, deny by default | `doudou.tools.builtin` |
+| Browser control | Playwright CDP to local Chrome: browsing, media playback, window maximize | `doudou.tools.builtin.browser` |
 | Config self-check | The `my` tool answers model, limits, tool-list and key questions on demand (read-only) | `doudou.tools.builtin.self_config` |
 | Feishu channel | WebSocket events + streaming cards + shared context per group | `doudou.channels.feishu` |
+| Local voice interaction | Local `sherpa-onnx` wake/VAD + DeepSeek ASR & streaming WebSocket TTS | `doudou.channels.voice` |
 | Message bus | Serial within a conversation, concurrent across conversations, rejects backlog | `doudou.gateway.bus` |
 | MCP tools | stdio / http / sse, narrowed tool surface + graceful degradation | `doudou.mcp` |
 | Progressive skill loading | Index injected + `read_skill` on demand + hot reload | `doudou.skills` |
@@ -51,6 +53,7 @@ See the [image input guide](docs/configuration.md#6-图片输入) for API and pe
 | Audit log | Every tool call recorded (arguments redacted + truncated) | `doudou.observability.audit` |
 | Cost accounting | Tokens / spend per day × conversation, daily budget alerts | `doudou.observability.cost` |
 | Run traces | One row per run (step detail as JSON); built-in stats page for replay | `doudou.observability.traces` |
+| Scheduled tasks | Created in chat; triggered on time through the LLM and pushed to the target conversation | `doudou.scheduler` |
 
 ## 1.1 Run it right now (no API key required)
 
@@ -124,8 +127,9 @@ Doudou/
 │  ├─ tools/                  # Tool registry and built-in tools
 │  ├─ mcp/                    # MCP client and lifecycle
 │  ├─ skills/                 # Skill discovery and indexing
-│  ├─ channels/               # Channel implementations (feishu / webhook / cli)
+│  ├─ channels/               # Channel implementations (feishu / webhook / cli / voice)
 │  ├─ gateway/                # Session routing, message bus, runner
+│  ├─ scheduler/              # Scheduled tasks: time specs, delivery targets, polling
 │  ├─ api/                    # FastAPI app and routes
 │  ├─ storage/                # Persistence (typing / messages / channel bindings)
 │  ├─ observability/          # Logging, traces, metrics
@@ -401,6 +405,68 @@ curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
 uv run doudou ask "question" --quiet     # only the final answer, handy for scripts
 ```
 
+### 4.11 Scheduled tasks
+
+Ask in any channel ("remind me to check emails every day at 9am", "remind me in half an hour") and the agent creates a task. When due, the **`doudou serve` process** runs it through the LLM and delivers the result to the target conversation:
+
+- Feishu group → that group; Feishu DM → that DM; CLI / Web → Feishu DM;
+- **Tasks are not bound to a thread**; triggered runs land on the **target conversation's** thread so history flows naturally;
+- If there is **no deliverable target** when triggered (e.g., never chatted in Feishu DM) → **skipped** (no model call, no push).
+
+```bash
+uv run doudou serve                                   # hosted by the long-running service
+uv run doudou ask "Create a daily 9am standup reminder"  # or create from CLI
+curl http://127.0.0.1:8000/api/v1/scheduled           # inspect tasks (read-only)
+```
+
+Full rules, time formats and limits: [`docs/scheduler.md`](docs/scheduler.md).
+
+### 4.12 Controlling local Google Chrome (optional)
+
+Connects to your local Google Chrome via Playwright CDP (disabled by default) to open web pages, inspect numbered interactive elements, click/type, control HTML5 audio/video playback, and resize or maximize the browser window:
+
+```yaml
+# config/config.yaml
+tools:
+  browser:
+    enabled: true
+    cdp_url: http://127.0.0.1:9222
+    auto_launch: true                 # auto-launch a standalone Chrome window if the debug port isn't open
+    user_data_dir: ./data/browser-profile   # persistent profile (keeps logins; Chrome stays open when Doudou exits)
+    allowed_domains: []               # empty list allows any public http/https URL
+```
+
+- **Available tools**: `browser_open`, `browser_tabs`, `browser_close_tab`, `browser_read_page`, `browser_click`, `browser_type`, `browser_scroll`, `browser_press_key`, `browser_media_control` (play/pause/mute/volume/seek/speed/video fullscreen), `browser_window` (maximize/normal/minimize/F11 fullscreen).
+- **Skip per-step prompts**: `browser_click`, `browser_type`, `browser_press_key`, and `browser_close_tab` are marked with `side_effects=True`. For hands-free video watching or browsing, set them to `false` under `agent.interrupt_on`.
+- Built-in [`skills/browser-browsing/SKILL.md`](skills/browser-browsing/SKILL.md) provides progressive browsing and video-site tips.
+
+### 4.13 Always-on local voice assistant (optional)
+
+Uses a **local wake/VAD + cloud ASR & streaming TTS** pipeline: `sherpa-onnx` (3.3M Zipformer KWS + `Silero VAD`) listens locally for the wake word (default `"豆豆"`) and detects end-of-speech — **no audio is uploaded until awakened**. Once triggered, speech is transcribed via DeepSeek ASR and replies are streamed back to your speakers in real time via DeepSeek WebSocket TTS (with mic muting & cooldown to prevent self-triggering).
+
+```yaml
+# config/config.yaml
+channels:
+  voice:
+    enabled: true
+    wake_words: ["豆豆"]
+    strict_wake_prefix: false         # set true to also require the wake word in the ASR transcript
+    silence_duration_seconds: 0.9     # trailing silence threshold to end an utterance
+    voice_id: stella                  # stella (female) | tide (male)
+    input_device: null                # system default; run `doudou voice devices` to list IDs
+    output_device: null               # set a speaker device ID if default output goes to headphones
+    models_dir: ./data/models/voice
+```
+
+Set `DOUDOU_CHANNELS_VOICE_API_KEY` in `.env` (if unset, it falls back to your DeepSeek model or web-search key).
+
+```bash
+uv run doudou voice devices           # list available microphone & speaker devices
+uv run doudou voice download-models   # pre-download local VAD/KWS models & build keyword table
+uv run doudou voice                   # start always-on voice listener (side-effect tools still prompt)
+uv run doudou voice --no-confirm      # hands-free mode without terminal prompts
+```
+
 Feishu setup: [`docs/channels.md`](docs/channels.md); MCP: [`docs/mcp.md`](docs/mcp.md); skill
 authoring: [`docs/skills.md`](docs/skills.md).
 
@@ -409,6 +475,9 @@ authoring: [`docs/skills.md`](docs/skills.md).
 ```bash
 uv run doudou serve                        # start the HTTP service
 uv run doudou chat                         # interactive terminal chat
+uv run doudou voice [--no-confirm]         # start the always-on local voice assistant
+uv run doudou voice devices                # list microphone & speaker devices
+uv run doudou voice download-models        # pre-download local VAD/KWS models
 uv run doudou ask "question"               # single-turn chat
 uv run doudou ask "question" --quiet       # single turn, answer only
 uv run doudou tools list [--args]          # list tools
@@ -431,6 +500,7 @@ make lint / test / fmt                     # see the Makefile
 | [docs/mcp.md](docs/mcp.md) | MCP server configuration and tool assembly |
 | [docs/skills.md](docs/skills.md) | Skill directory conventions and authoring guide |
 | [docs/tools.md](docs/tools.md) | Custom tool development conventions |
+| [docs/scheduler.md](docs/scheduler.md) | Scheduled tasks: usage, delivery rules, triggers |
 | [docs/security.md](docs/security.md) | Auth, secrets, permissions and audit |
 | [CHANGELOG.md](CHANGELOG.md) | Changes, by date |
 

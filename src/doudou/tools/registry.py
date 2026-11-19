@@ -15,6 +15,7 @@ from doudou.observability.logging import get_logger
 from doudou.scheduler.store import SchedulerStore
 from doudou.skills.registry import SkillRegistry
 from doudou.tools.builtin import (
+    browser,
     clock,
     delegation,
     files,
@@ -38,6 +39,7 @@ ToolProvider = Callable[[Settings], Sequence[BaseTool]]
 BUILTIN_PROVIDERS: tuple[tuple[str, ToolProvider], ...] = (
     ("web", web_search.build_tools),
     ("http", http.build_tools),
+    ("browser", browser.build_tools),
     ("files", files.build_tools),
     ("shell", shell.build_tools),
     ("skills", skills.build_tools),
@@ -349,6 +351,11 @@ def describe_groups(settings: Settings) -> list[GroupStatus]:
                 continue
         if group == "shell":
             reason = shell.missing_requirement(settings)
+            if reason:
+                statuses.append(GroupStatus(group, False, reason))
+                continue
+        if group == "browser":
+            reason = browser.missing_requirement(settings)
             if reason:
                 statuses.append(GroupStatus(group, False, reason))
                 continue

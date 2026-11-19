@@ -142,6 +142,25 @@ class ShellToolConfig(_Section):
     )
 
 
+class BrowserToolConfig(_Section):
+    """本地 Chrome 浏览器控制工具的配置（通过 CDP 连接或按需拉起）。"""
+
+    enabled: bool = False
+    #: Chrome DevTools Protocol 地址，默认连接本机 9222 调试端口。
+    cdp_url: str = "http://127.0.0.1:9222"
+    #: 调试端口未监听时，是否自动拉起本机 Google Chrome（独立进程，退出豆豆后仍保留窗口）。
+    auto_launch: bool = True
+    #: Chrome 可执行文件路径；留空时按系统常见路径自动探测。
+    executable_path: str | None = None
+    #: 独立 Chrome 用户数据目录，用于保留登录态与 Cookie；相对路径按当前工作目录解析。
+    user_data_dir: str = "./data/browser-profile"
+    timeout: float = 30.0
+    #: 单次页面文本/元素摘要的最大字符数。
+    max_read_chars: int = 12000
+    #: 可选域名白名单；空列表表示允许访问任意 http/https 公网页面（``file://`` 等始终禁止）。
+    allowed_domains: list[str] = Field(default_factory=list)
+
+
 class ToolsConfig(_Section):
     #: 只启用这些分组；空列表表示全部启用。
     enabled_groups: list[str] = Field(default_factory=list)
@@ -151,6 +170,7 @@ class ToolsConfig(_Section):
     web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
     files: FilesToolConfig = Field(default_factory=FilesToolConfig)
     shell: ShellToolConfig = Field(default_factory=ShellToolConfig)
+    browser: BrowserToolConfig = Field(default_factory=BrowserToolConfig)
 
 
 # --------------------------------------------------------------------------- agent

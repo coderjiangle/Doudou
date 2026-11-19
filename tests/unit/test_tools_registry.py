@@ -109,6 +109,7 @@ def test_all_groups_declared() -> None:
     assert ALL_GROUPS == (
         "web",
         "http",
+        "browser",
         "files",
         "shell",
         "skills",

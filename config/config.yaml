@@ -63,6 +63,12 @@ agent:
     edit_file: true
     delete: true
     shell_exec: true
+    # 浏览器常规交互（默认有副作用）：为让上网与看视频流程连贯，这里免去逐次确认；
+    # 如需操作前询问，把对应项改成 true 或删掉即可。
+    browser_click: false
+    browser_type: false
+    browser_press_key: false
+    browser_close_tab: false
   max_steps: 20                # ReAct 循环单次运行的最大步数（模型往返次数）
   max_tool_calls_per_step: 8
   # 多轮防人设漂移：每隔 N 轮用户消息（及摘要压缩后）在用户消息后固化一次锚点并落库，
@@ -148,7 +154,7 @@ agent:
 # ---------------------------------------------------------------- 工具
 tools:
   # 空列表 = 全部启用；填分组名则只启用这些。
-  # 分组：web / http / files / shell / skills / memory / clock / delegation
+  # 分组：web / http / browser / files / shell / skills / memory / clock / delegation
   enabled_groups: []
   # 逐个禁用的工具名，优先级高于 enabled_groups
   disabled: []
@@ -190,6 +196,17 @@ tools:
     sandbox: ""
     timeout: 60
     max_output_chars: 20000
+
+  # 本机 Google Chrome 控制（CDP 连接；未启动时按需拉起独立 Chrome 窗口并保留登录态）
+  browser:
+    enabled: true
+    cdp_url: http://127.0.0.1:9222
+    auto_launch: true
+    executable_path: null
+    user_data_dir: ./data/browser-profile
+    timeout: 30
+    max_read_chars: 12000
+    allowed_domains: []
 
 # ---------------------------------------------------------------- 工作区文件系统
 filesystem:

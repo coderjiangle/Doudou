@@ -5,8 +5,10 @@
 A personal assistant agent with a **hand-rolled core** (the ReAct loop in `doudou.agent.react`).
 
 It supports custom **Tools**, **MCP** (Model Context Protocol) and **Skills** (the Agent Skills
-standard), talks to you over a **Feishu (Lark) channel**, and exposes REST / SSE endpoints through
-**FastAPI** when you need a network service.
+standard), talks to you over a **Feishu (Lark) channel**, and also ships an **always-on local
+wake-word voice channel**: say "豆豆" to start a conversation — audio never leaves your machine
+until the wake word fires, and you can interrupt playback at any time. It exposes REST / SSE
+endpoints through **FastAPI** when you need a network service.
 
 Image input is supported in the Web chat (file picker and pasted screenshots) and
 Feishu (image messages and rich-text images). Use a vision-capable model. Each message
@@ -43,7 +45,9 @@ See the [image input guide](docs/configuration.md#6-图片输入) for API and pe
 | Browser control | Playwright CDP to local Chrome: browsing, media playback, window maximize | `doudou.tools.builtin.browser` |
 | Config self-check | The `my` tool answers model, limits, tool-list and key questions on demand (read-only) | `doudou.tools.builtin.self_config` |
 | Feishu channel | WebSocket events + streaming cards + shared context per group | `doudou.channels.feishu` |
-| Local voice interaction | Local `sherpa-onnx` wake/VAD + DeepSeek ASR & streaming WebSocket TTS | `doudou.channels.voice` |
+| **Wake-word voice** | Local `sherpa-onnx` KWS + Silero VAD standby; no audio uploaded before wake | `doudou.channels.voice` |
+| Voice conversation | DeepSeek ASR after wake + WebSocket TTS streamed as text arrives | `doudou.channels.voice` |
+| Voice barge-in | Say an interrupt phrase; in a Windows terminal press Space / Enter / Esc to stop instantly | `doudou.channels.voice` |
 | Message bus | Serial within a conversation, concurrent across conversations, rejects backlog | `doudou.gateway.bus` |
 | MCP tools | stdio / http / sse, narrowed tool surface + graceful degradation | `doudou.mcp` |
 | Progressive skill loading | Index injected + `read_skill` on demand + hot reload | `doudou.skills` |
@@ -70,6 +74,25 @@ observe → converge) can be verified without any network access**. To hook up a
 `DOUDOU_MODEL_PRIMARY` and the matching API key in `.env`.
 
 ## 1.2 In action
+
+### Wake word: just say "豆豆"
+
+The default wake word is "豆豆" (Doudou). While idle **only local models listen** (3.3M Zipformer
+KWS + Silero VAD): no wake word, no recording, no upload. After waking, trailing silence segments
+the command, DeepSeek ASR transcribes it, and the same ReAct loop handles it. Replies are streamed
+to your speakers via WebSocket TTS; say "停一下" to stop playback, or press `Space` / `Enter` /
+`Esc` in a Windows terminal.
+
+```text
+$ uv run doudou voice
+豆豆语音助手已就绪 · 唤醒词：豆豆 · 播报打断词：豆豆停 / 停一下 / 别说了（或按 Space/Enter/Esc） · 音色：stella
+待机监听中，请说“豆豆，...”
+已唤醒 (豆豆)
+你（语音）› 豆豆，现在几点了？
+豆豆 › 现在是 2026 年 11 月 20 日 17 点 42 分。
+```
+
+Configuration, device selection and barge-in rules: §4.4.
 
 ### Web Chat & Dog Subagent Team
 
@@ -107,7 +130,8 @@ Design principles:
   hard-coded.
 - **Configuration-driven**: `config/*.yaml` describes the agent, subagents, MCP servers and
   channels; environment variables and secrets live in `.env`.
-- **One agent, many channels**: Feishu, webhook, CLI and the HTTP API share a single agent instance.
+- **One agent, many channels**: Feishu, webhook, CLI, the HTTP API and local voice share a single
+  agent instance.
 
 ## 3. Directory layout
 
@@ -172,7 +196,7 @@ bash scripts/dev.sh
 ```
 
 The equivalent manual steps: copy `.env.example` → `.env` and `config/config.example.yaml` →
-`config/config.yaml` (the MCP server list lives in that same file, see §4.6).
+`config/config.yaml` (the MCP server list lives in that same file, see §4.7).
 
 Then set `DOUDOU_MODEL_PRIMARY` and the matching API key in `.env`, for example:
 
@@ -241,7 +265,58 @@ uv run doudou tools list          # which tools loaded, which groups are off and
 uv run doudou config check        # one-shot check of config, credentials, tools and skills
 ```
 
-### 4.4 HTTP service
+### 4.4 Always-on local wake-word voice assistant (recommended)
+
+"豆豆" is an **always-on** voice channel: once started it stays in standby, and one wake word gives
+you the same tools as Feishu. The pipeline is **local wake/VAD + cloud ASR & streaming TTS**:
+
+1. **Standby** — only local `sherpa-onnx` (3.3M Zipformer KWS + `Silero VAD`) listens for the wake
+   word (default "豆豆"); **no audio is uploaded until it fires**.
+2. **Wake & segment** — after the wake word it starts capturing and ends the utterance after
+   `silence_duration_seconds` of trailing silence.
+3. **Transcribe & run** — DeepSeek ASR transcribes the clip, the wake prefix is stripped, and the
+   request enters the same ReAct loop, tools and approval flow.
+4. **Stream the reply** — DeepSeek WebSocket TTS synthesizes and plays to your speakers as text
+   arrives.
+5. **Barge in anytime** — during playback say "豆豆停" / "停一下" / "别说了" to stop immediately
+   and return to standby; in a Windows terminal you can also press `Space` / `Enter` / `Esc`.
+   With headphones you can set `interrupt_with_wake_word: true` so saying "豆豆" interrupts and
+   starts the next command without repeating the wake word.
+
+```yaml
+# config/config.yaml
+channels:
+  voice:
+    enabled: true
+    wake_words: ["豆豆"]
+    wake_homophones: ["豆豆", "逗逗", "都都"]  # common homophones to improve wake-up recall
+    strict_wake_prefix: false         # set true to also require the wake word in the ASR transcript
+    silence_duration_seconds: 0.9     # trailing silence threshold to end an utterance
+    barge_in_enabled: true            # allow barge-in during playback
+    interrupt_words: ["豆豆停", "停一下", "别说了"]
+    interrupt_with_wake_word: false   # keep false for speakers to avoid self-triggering; true for headphones
+    voice_id: stella                  # stella (female) | tide (male)
+    input_device: null                # system default; run `doudou voice devices` to list IDs
+    output_device: null               # set a speaker device ID if default output goes to headphones
+    models_dir: ./data/models/voice
+```
+
+Set `DOUDOU_CHANNELS_VOICE_API_KEY` in `.env` (if unset, it falls back to your DeepSeek model or
+web-search key). The local VAD/KWS models are downloaded automatically on first start, or you can
+pre-fetch them:
+
+```bash
+uv run doudou voice devices           # list available microphone & speaker devices
+uv run doudou voice download-models   # pre-download VAD/KWS models & build the wake-word table
+uv run doudou voice                   # start always-on listener (side-effect tools still prompt)
+uv run doudou voice --no-confirm      # no-prompt mode: side-effect tools run without asking
+```
+
+> With external speakers, keep `interrupt_with_wake_word: false` and raise `cooldown_seconds`
+> as needed so the speaker output does not re-trigger the wake word. With headphones, enable
+> `interrupt_with_wake_word` to interrupt and start the next command without repeating it.
+
+### 4.5 HTTP service
 
 ```bash
 uv run doudou serve                 # 127.0.0.1:8000 by default, API prefix /api/v1
@@ -286,7 +361,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
   -d '{"message":"What time is it now?"}'
 ```
 
-### 4.5 Connecting Feishu (optional)
+### 4.6 Connecting Feishu (optional)
 
 The Feishu channel uses a **WebSocket long connection**: no public address, no tunneling. For the
 result, see §1.2.
@@ -313,7 +388,7 @@ Session isolation defaults to "**one shared context per group**" (`isolate_by_th
 assistant in a group behaves like a colleague. Full steps, @-mention detection, streaming cards and
 known limitations: [`docs/channels.md`](docs/channels.md).
 
-### 4.6 Connecting MCP (optional)
+### 4.7 Connecting MCP (optional)
 
 MCP turns the tool source from "hard-coded in the code" into "declared in configuration": add an
 entry under `mcp.servers` in `config/config.yaml` (there is a copy-ready template right there), then:
@@ -333,7 +408,7 @@ Three transports: `stdio` / `http` / `sse`.
 > second each time. Prefer `http` for frequently used servers. See §4 of
 > [`docs/mcp.md`](docs/mcp.md).
 
-### 4.7 Writing a skill (optional)
+### 4.8 Writing a skill (optional)
 
 Drop a skill with frontmatter into `skills/<name>/SKILL.md` to extend the agent — no code changes
 needed:
@@ -360,7 +435,7 @@ uv run doudou skills reload               # rescan (the HTTP side hot-reloads th
 
 See [`docs/skills.md`](docs/skills.md).
 
-### 4.8 Making it remember you (long-term memory)
+### 4.9 Making it remember you (long-term memory)
 
 The files listed in `agent.memory_files` are injected into the system prompt **on every turn**;
 
@@ -381,7 +456,7 @@ conventions for coding agents): they occupy context on every turn and would get 
 assistant's own notes. If you want the assistant to know some conventions, write a separate
 preferences file and list that instead.
 
-### 4.9 Long conversations and the context budget
+### 4.10 Long conversations and the context budget
 
 Three knobs in the `context` section decide "how big the window is":
 
@@ -399,13 +474,13 @@ Compression **never deletes the original text** — the full history stays avail
 curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
 ```
 
-### 4.10 Other entry points
+### 4.11 Other entry points
 
 ```bash
 uv run doudou ask "question" --quiet     # only the final answer, handy for scripts
 ```
 
-### 4.11 Scheduled tasks
+### 4.12 Scheduled tasks
 
 Ask in any channel ("remind me to check emails every day at 9am", "remind me in half an hour") and the agent creates a task. When due, the **`doudou serve` process** runs it through the LLM and delivers the result to the target conversation:
 
@@ -421,7 +496,7 @@ curl http://127.0.0.1:8000/api/v1/scheduled           # inspect tasks (read-only
 
 Full rules, time formats and limits: [`docs/scheduler.md`](docs/scheduler.md).
 
-### 4.12 Controlling local Google Chrome (optional)
+### 4.13 Controlling local Google Chrome (optional)
 
 Connects to your local Google Chrome via Playwright CDP (disabled by default) to open web pages, inspect numbered interactive elements, click/type, control HTML5 audio/video playback, and resize or maximize the browser window:
 
@@ -440,44 +515,14 @@ tools:
 - **Skip per-step prompts**: `browser_click`, `browser_type`, `browser_press_key`, and `browser_close_tab` are marked with `side_effects=True`. For hands-free video watching or browsing, set them to `false` under `agent.interrupt_on`.
 - Built-in [`skills/browser-browsing/SKILL.md`](skills/browser-browsing/SKILL.md) provides progressive browsing and video-site tips.
 
-### 4.13 Always-on local voice assistant (optional)
-
-Uses a **local wake/VAD + cloud ASR & streaming TTS** pipeline: `sherpa-onnx` (3.3M Zipformer KWS + `Silero VAD`) listens locally for the wake word (default `"豆豆"`) and detects end-of-speech — **no audio is uploaded until awakened**. Once triggered, speech is transcribed via DeepSeek ASR and replies are streamed back to your speakers in real time via DeepSeek WebSocket TTS (with mic muting & cooldown to prevent self-triggering).
-
-```yaml
-# config/config.yaml
-channels:
-  voice:
-    enabled: true
-    wake_words: ["豆豆"]
-    strict_wake_prefix: false         # set true to also require the wake word in the ASR transcript
-    silence_duration_seconds: 0.9     # trailing silence threshold to end an utterance
-    voice_id: stella                  # stella (female) | tide (male)
-    input_device: null                # system default; run `doudou voice devices` to list IDs
-    output_device: null               # set a speaker device ID if default output goes to headphones
-    models_dir: ./data/models/voice
-```
-
-Set `DOUDOU_CHANNELS_VOICE_API_KEY` in `.env` (if unset, it falls back to your DeepSeek model or web-search key).
-
-```bash
-uv run doudou voice devices           # list available microphone & speaker devices
-uv run doudou voice download-models   # pre-download local VAD/KWS models & build keyword table
-uv run doudou voice                   # start always-on voice listener (side-effect tools still prompt)
-uv run doudou voice --no-confirm      # hands-free mode without terminal prompts
-```
-
-Feishu setup: [`docs/channels.md`](docs/channels.md); MCP: [`docs/mcp.md`](docs/mcp.md); skill
-authoring: [`docs/skills.md`](docs/skills.md).
-
 ## 5. Common commands
 
 ```bash
-uv run doudou serve                        # start the HTTP service
-uv run doudou chat                         # interactive terminal chat
-uv run doudou voice [--no-confirm]         # start the always-on local voice assistant
+uv run doudou voice [--no-confirm]         # start the always-on voice assistant (wake word: 豆豆)
 uv run doudou voice devices                # list microphone & speaker devices
 uv run doudou voice download-models        # pre-download local VAD/KWS models
+uv run doudou serve                        # start the HTTP service
+uv run doudou chat                         # interactive terminal chat
 uv run doudou ask "question"               # single-turn chat
 uv run doudou ask "question" --quiet       # single turn, answer only
 uv run doudou tools list [--args]          # list tools

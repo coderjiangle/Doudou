@@ -5,7 +5,8 @@
 **内核自研**的个人助手 Agent（`doudou.agent.react` 的 ReAct 循环）。
 
 支持自定义 **Tool**、**MCP**（Model Context Protocol）、**Skill**（Agent Skills 标准），
-并通过**飞书（Lark）通道**与用户对话；需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
+并通过**飞书（Lark）通道**与用户对话。还内置**常驻本地语音唤醒**：喊一声「豆豆」就能对话，
+唤醒前音频不出本机，播报中还能随时打断。需要网络服务时使用 **FastAPI** 对外暴露 REST / SSE 接口。
 
 > 豆豆的名字来源于我家可爱的中华田园犬，我希望这个助手像我家豆豆一样陪伴大家。
 
@@ -34,7 +35,9 @@
 | 浏览器操控 | Playwright CDP 连接本机 Chrome：网页浏览、视频播控、窗口最大化 | `doudou.tools.builtin.browser` |
 | 配置自检 | `my` 工具按需查询模型、限制、工具清单与密钥状态（只读） | `doudou.tools.builtin.self_config` |
 | 飞书通道 | 长连接收事件 + 流式卡片 + 群里共享上下文 | `doudou.channels.feishu` |
-| 本地语音交互 | 本地 `sherpa-onnx` 唤醒断句 + DeepSeek ASR/WebSocket 流式 TTS | `doudou.channels.voice` |
+| **语音唤醒** | 本地 `sherpa-onnx` KWS + Silero VAD 离线监听；未唤醒不上传音频 | `doudou.channels.voice` |
+| 语音对话 | 唤醒后 DeepSeek ASR 转写 + WebSocket TTS 边生成边播报 | `doudou.channels.voice` |
+| 语音打断 | 播报中说打断词；Windows 终端可按 Space / Enter / Esc 立即打断 | `doudou.channels.voice` |
 | 图片输入 | Web 选图 / 粘贴截图、飞书图片 / 富文本图片、历史回放 | `doudou.agent.messages` |
 | 消息总线 | 按会话串行、跨会话并发、积压拒绝 | `doudou.gateway.bus` |
 | MCP 工具 | stdio / http / sse，工具面收敛 + 失败降级 | `doudou.mcp` |
@@ -61,6 +64,24 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
 接入真实模型只需在 `.env` 里配好 `DOUDOU_MODEL_PRIMARY` 与对应 API Key。
 
 ## 1.2 效果预览
+
+### 语音唤醒：喊一声「豆豆」就能聊
+
+默认唤醒词是「豆豆」。待机时**只有本地模型在听**（3.3M Zipformer KWS + Silero VAD），
+没有唤醒词就不录音、不上传；唤醒后自动按静音断句，把这一句交给 DeepSeek ASR，
+再由同一套 ReAct 循环处理。回复通过 WebSocket TTS 边生成边从音箱播出，
+播报中可以直接说「停一下」；Windows 终端里还能按 `Space` / `Enter` / `Esc` 打断。
+
+```text
+$ uv run doudou voice
+豆豆语音助手已就绪 · 唤醒词：豆豆 · 播报打断词：豆豆停 / 停一下 / 别说了（或按 Space/Enter/Esc） · 音色：stella
+待机监听中，请说“豆豆，...”
+已唤醒 (豆豆)
+你（语音）› 豆豆，现在几点了？
+豆豆 › 现在是 2026 年 11 月 20 日 17 点 42 分。
+```
+
+配置、设备选择与打断规则见 §4.4。
 
 ### Web 对话与小狗团队（子 Agent）
 
@@ -94,7 +115,7 @@ uv run doudou chat --model scripted:demo                         # 交互式多�
 - **通道与 Agent 解耦**：通道只负责「收消息 / 发消息」，所有编排逻辑集中在 `gateway`。
 - **能力可插拔**：工具、MCP server、Skill 均通过配置声明，不写死在代码里。
 - **配置驱动**：`config/*.yaml` 描述 Agent、子 Agent、MCP、通道；环境变量与密钥走 `.env`。
-- **同一套 Agent 服务多渠道**：飞书、Webhook、CLI、HTTP API 共享同一个 Agent 实例。
+- **同一套 Agent 服务多渠道**：飞书、Webhook、CLI、HTTP API 与本地语音共享同一个 Agent 实例。
 
 ## 3. 目录结构
 
@@ -157,7 +178,7 @@ bash scripts/dev.sh
 ```
 
 手工等价步骤：复制 `.env.example` → `.env`、`config/config.example.yaml` →
-`config/config.yaml`（MCP server 清单也在这个文件里，见 §4.6）。
+`config/config.yaml`（MCP server 清单也在这个文件里，见 §4.7）。
 
 然后在 `.env` 里设置 `DOUDOU_MODEL_PRIMARY` 与对应的 API Key，例如：
 
@@ -225,7 +246,50 @@ uv run doudou tools list          # 看哪些工具已装载、哪些分组未�
 uv run doudou config check        # 一次性检查配置、凭据、工具与 Skill
 ```
 
-### 4.4 HTTP 服务
+### 4.4 常驻本地语音唤醒（推荐）
+
+「豆豆」是一条**常驻**的语音通道：启动后一直待机，喊一声就能像在飞书里一样使用全部工具。
+它采用**本地离线唤醒 + 云端精转写与流式合成**架构：
+
+1. **待机**：仅本地 `sherpa-onnx`（3.3M Zipformer KWS + `Silero VAD`）监听唤醒词（默认「豆豆」），**未唤醒时不上传任何音频**；
+2. **唤醒与断句**：听到唤醒词后进入采集态，说完后静音超过 `silence_duration_seconds` 自动断句；
+3. **识别与执行**：音频送 DeepSeek ASR 转写，剥离唤醒词后进入同一套 ReAct 循环、工具与确认机制；
+4. **流式播报**：DeepSeek WebSocket TTS 边生成边从音箱播出，首字延迟更低；
+5. **随时打断**：播报过程中说「豆豆停 / 停一下 / 别说了」立即停止并回到待机；Windows 终端里还可按
+   `Space` / `Enter` / `Esc` 打断。戴耳机时可设 `interrupt_with_wake_word: true`，喊「豆豆」直接打断并接着说下一句。
+
+```yaml
+# config/config.yaml
+channels:
+  voice:
+    enabled: true
+    wake_words: ["豆豆"]
+    wake_homophones: ["豆豆", "逗逗", "都都"]  # 常见同音/近音词，提高唤醒率
+    strict_wake_prefix: false         # 设为 true 可开启转写前缀二次校验
+    silence_duration_seconds: 0.9     # 说完话后静音超过该秒数自动断句
+    barge_in_enabled: true            # 播报期间允许打断
+    interrupt_words: ["豆豆停", "停一下", "别说了"]
+    interrupt_with_wake_word: false   # 外放音箱保持 false 防自激；戴耳机可改 true
+    voice_id: stella                  # stella（女声）| tide（男声）
+    input_device: null                # 留空用系统默认，可用 doudou voice devices 查看编号
+    output_device: null               # 若默认输出是耳机而你想走音箱，可填对应设备编号
+    models_dir: ./data/models/voice
+```
+
+语音接口凭据可在 `.env` 中配置 `DOUDOU_CHANNELS_VOICE_API_KEY`（未单独设置时自动复用 DeepSeek 模型或搜索 Key）。
+首次启动会自动下载本地 VAD/KWS 模型，也可以提前下载：
+
+```bash
+uv run doudou voice devices           # 查看可用麦克风与音箱设备编号
+uv run doudou voice download-models   # 预下载本地 VAD/KWS 模型并生成唤醒词表
+uv run doudou voice                   # 启动常驻语音监听（高危工具仍需终端确认）
+uv run doudou voice --no-confirm      # 免确认模式：有副作用的工具不再询问
+```
+
+> 外放音箱建议保持 `interrupt_with_wake_word: false` 并适当调大 `cooldown_seconds`，
+> 避免音箱自己的声音触发唤醒；戴耳机时打开 `interrupt_with_wake_word`，打断后不用再喊一遍唤醒词。
+
+### 4.5 HTTP 服务
 
 ```bash
 uv run doudou serve                 # 默认 127.0.0.1:8000，接口前缀 /api/v1
@@ -275,7 +339,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
   -d '{"message":"现在几点了？"}'
 ```
 
-### 4.5 接入飞书（可选）
+### 4.6 接入飞书（可选）
 
 飞书通道用 **WebSocket 长连接**，不需要公网地址、不需要内网穿透；接入后的效果见 §1.2。
 
@@ -299,7 +363,7 @@ DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 群里的助手像一个同事。完整步骤、@ 判定、卡片流式与已知限制见
 [`docs/channels.md`](docs/channels.md)。
 
-### 4.6 接入 MCP（可选）
+### 4.7 接入 MCP（可选）
 
 MCP 让工具来源从「写死在代码里」变成「配置声明」：在 `config/config.yaml` 的
 `mcp.servers` 里加一项（那里有可抄的模板），然后：
@@ -317,7 +381,7 @@ uv run doudou tools list        # Agent 实际装载的工具（含 MCP）
 > 对 `stdio` 就是每次调用重新拉起子进程，`npx`/`uvx` 那类会到秒级；
 > 需要频繁调用优先用 `http`。详见 [`docs/mcp.md`](docs/mcp.md) §4。
 
-### 4.7 编写 Skill（可选）
+### 4.8 编写 Skill（可选）
 
 在 `skills/<name>/SKILL.md` 写一个带 frontmatter 的技能即可扩展能力，
 无需改代码：
@@ -343,7 +407,7 @@ uv run doudou skills reload               # 重新扫描（HTTP 侧会热更新�
 
 详见 [`docs/skills.md`](docs/skills.md)。
 
-### 4.8 让它记住你（长期记忆）
+### 4.9 让它记住你（长期记忆）
 
 `agent.memory_files` 指向的文件会**每轮**注入系统提示词；**只有第一个**是助手的回写目标：
 
@@ -359,7 +423,7 @@ agent:
 项目规范那类**给人看**的文档（例如仓库根的 `AGENTS.md`）不要放进来：它每轮都会占上下文，
 还会被助手的手写笔记污染。想让助手也知道某些约定，就单独写一份用户偏好文件列进来。
 
-### 4.9 长会话与上下文预算
+### 4.10 长会话与上下文预算
 
 三个旋钮在 `context` 段，决定「窗口有多大」：
 
@@ -377,12 +441,12 @@ context:
 curl http://127.0.0.1:8000/api/v1/threads/{thread_id}/context
 ```
 
-### 4.10 其他入口
+### 4.11 其他入口
 ```bash
 uv run doudou ask "问题" --quiet     # 只输出最终答复，便于脚本调用
 ```
 
-### 4.11 定时任务
+### 4.12 定时任务
 
 在任意通道里直接说「每天 9 点提醒我看邮件」「半小时后提醒我一下」，Agent 会建好任务；
 到点由 **`doudou serve` 进程**过一遍 LLM，把结果推到目标会话：
@@ -399,7 +463,7 @@ curl http://127.0.0.1:8000/api/v1/scheduled # 只读查看现有任务
 
 完整规则、时间写法与限制见 [`docs/scheduler.md`](docs/scheduler.md)。
 
-### 4.12 操控本机 Chrome 浏览器（可选）
+### 4.13 操控本机 Chrome 浏览器（可选）
 
 通过 Playwright CDP 连接本机 Google Chrome（默认关闭），支持打开网页、提取编号化可交互元素、点击填表、控制 HTML5 音视频播放以及调整浏览器窗口大小：
 
@@ -418,44 +482,14 @@ tools:
 - **免逐次确认**：`browser_click` / `browser_type` / `browser_press_key` / `browser_close_tab` 默认标记有副作用；如果希望语音或对话看视频时连续自动执行，可在 `agent.interrupt_on` 中将这几项设为 `false`。
 - 仓库内置 [`skills/browser-browsing/SKILL.md`](skills/browser-browsing/SKILL.md) 提供常见浏览与视频站操作指引，按需渐进加载。
 
-### 4.13 常驻本地语音助手（可选）
-
-使用**本地离线唤醒 + 云端精转写与流式合成**架构：平时仅在本地用 `sherpa-onnx`（3.3M Zipformer KWS + `Silero VAD`）监听唤醒词（默认「豆豆」）并判断一句话说完，**未唤醒时不上传任何音频**；唤醒后调用 DeepSeek ASR 转写指令，并通过 DeepSeek WebSocket TTS 边生成边从音箱流式播报（播报期间自动闭麦冷却，防止自激）。
-
-```yaml
-# config/config.yaml
-channels:
-  voice:
-    enabled: true
-    wake_words: ["豆豆"]
-    strict_wake_prefix: false         # 设为 true 可开启转写前缀二次校验
-    silence_duration_seconds: 0.9     # 说完话后静音超过该秒数自动断句
-    voice_id: stella                  # stella（女声）| tide（男声）
-    input_device: null                # 留空用系统默认，可用 doudou voice devices 查看编号
-    output_device: null               # 若默认输出是耳机而你想走音箱，可填对应设备编号
-    models_dir: ./data/models/voice
-```
-
-语音接口凭据可在 `.env` 中配置 `DOUDOU_CHANNELS_VOICE_API_KEY`（未单独设置时自动复用 DeepSeek 模型或搜索 Key）。
-
-```bash
-uv run doudou voice devices           # 查看可用麦克风与音箱设备编号
-uv run doudou voice download-models   # 预下载本地 VAD/KWS 模型并生成拼音唤醒词表
-uv run doudou voice                   # 启动常驻语音监听（高危工具仍需终端确认）
-uv run doudou voice --no-confirm      # 全语音免确认模式
-```
-
-飞书接入步骤见 [`docs/channels.md`](docs/channels.md)，MCP 接入见 [`docs/mcp.md`](docs/mcp.md)，
-Skill 编写见 [`docs/skills.md`](docs/skills.md)。
-
 ## 5. 常用命令
 
 ```bash
-uv run doudou serve                        # 启动 HTTP 服务
-uv run doudou chat                         # 终端交互式对话
-uv run doudou voice [--no-confirm]         # 启动本地常驻语音助手
+uv run doudou voice [--no-confirm]         # 启动本地常驻语音助手（唤醒词：豆豆）
 uv run doudou voice devices                # 列出本机麦克风与音箱设备
 uv run doudou voice download-models        # 预下载本地语音唤醒与 VAD 模型
+uv run doudou serve                        # 启动 HTTP 服务
+uv run doudou chat                         # 终端交互式对话
 uv run doudou ask "问题"                    # 单轮对话
 uv run doudou ask "问题" --quiet            # 单轮，只输出答复
 uv run doudou tools list [--args]          # 列出工具

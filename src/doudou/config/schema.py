@@ -508,6 +508,13 @@ class VoiceChannelConfig(_Section):
     vad_threshold: float = 0.5
     #: 音箱播报结束后延迟恢复拾音的冷却秒数，防止自激唤醒。
     cooldown_seconds: float = 0.5
+    #: 是否允许在音箱播报期间打断（支持本地打断词 + 终端按键兜底）。
+    barge_in_enabled: bool = True
+    #: 播报期间识别到这些词会立刻停止播报并回到待机。
+    interrupt_words: list[str] = Field(default_factory=lambda: ["豆豆停", "停一下", "别说了"])
+    #: 播报期间是否也允许直接喊唤醒词（如「豆豆」）打断并无缝接入下一句
+    #: （外放音箱建议 false 防自激，戴耳机可设 true）。
+    interrupt_with_wake_word: bool = False
     #: 语音接口凭据（放 .env 的 DOUDOU_CHANNELS_VOICE_API_KEY；留空回退 DeepSeek Key）。
     api_key: str | None = None
     asr_url: str = "https://api.deepseek.com/v1/tools/asr"

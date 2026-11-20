@@ -107,10 +107,13 @@ def test_write_keywords_file_and_rejects_empty(tmp_path: Path) -> None:
 
 
 async def test_ensure_voice_models_downloads_and_extracts_offline(tmp_path: Path) -> None:
+    mock_tokens = (
+        "d 1\nòu 2\nou 3\nt 4\níng 5\ny 6\nī 7\nx 8\nià 9\nia 10\nb 11\nié 12\nsh 13\nuō 14\nl 15\ne 16\n"
+    ).encode()
     archive_buf = io.BytesIO()
     with tarfile.open(fileobj=archive_buf, mode="w:bz2") as tf:
         for rel, body in (
-            ("tokens.txt", b"d 1\n\xc3\xb2u 2\nou 3\n"),
+            ("tokens.txt", mock_tokens),
             ("encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx", b"enc"),
             ("decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx", b"dec"),
             ("joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx", b"joi"),
@@ -131,6 +134,7 @@ async def test_ensure_voice_models_downloads_and_extracts_offline(tmp_path: Path
         paths = await ensure_voice_models(
             tmp_path / "voice",
             wake_words=["豆豆"],
+            interrupt_words=["停一下", "别说了"],
             auto_download=True,
             client=client,
         )
@@ -138,6 +142,8 @@ async def test_ensure_voice_models_downloads_and_extracts_offline(tmp_path: Path
     assert paths.vad_model.read_bytes() == b"vad-onnx"
     assert paths.kws_encoder.read_bytes() == b"enc"
     assert "d òu d òu @豆豆" in paths.kws_keywords.read_text(encoding="utf-8")
+    assert paths.kws_interrupt_keywords is not None
+    assert "b ié sh uō l e @别说了" in paths.kws_interrupt_keywords.read_text(encoding="utf-8")
 
 
 async def test_ensure_voice_models_fails_when_auto_download_disabled(tmp_path: Path) -> None:
@@ -490,6 +496,7 @@ async def test_voice_assistant_filters_non_wake_and_speaks_response(
         mic=mic,
         speaker=speaker,
         detector=_TwoShotDetector(),
+        interrupt_kws=_FakeKws(),
         asr=asr,
         tts=tts,
         console=Console(file=io.StringIO()),
@@ -553,6 +560,7 @@ async def test_voice_assistant_executes_post_wake_command_by_default(
         mic=mic,
         speaker=speaker,
         detector=_OneShotDetector(),
+        interrupt_kws=_FakeKws(),
         asr=asr,
         tts=tts,
         console=Console(file=io.StringIO()),
@@ -562,6 +570,181 @@ async def test_voice_assistant_executes_post_wake_command_by_default(
     assert len(recorded_messages) == 1
     assert "你在干什么？" in str(recorded_messages[0][-1].content)
     assert tts.spoken_text == "我在趴着晒太阳呢。"
+
+
+class _SlowTts:
+    """挂起等待直到被取消，用于验证播报中打断。"""
+
+    async def stream_synthesize(
+        self,
+        text_chunks: AsyncIterator[str],
+        on_audio: Callable[[bytes], Awaitable[None]],
+    ) -> None:
+        import asyncio
+
+        async for _ in text_chunks:
+            pass
+        await on_audio(b"\x01\x02")
+        await asyncio.sleep(10.0)
+
+
+class _InterruptOnChunkKws:
+    def __init__(self, word: str, trigger_at: int = 1) -> None:
+        self.word = word
+        self.trigger_at = trigger_at
+        self.calls = 0
+        self.resets = 0
+
+    def accept_chunk(self, chunk: npt.NDArray[np.float32]) -> str:
+        self.calls += 1
+        return self.word if self.calls == self.trigger_at else ""
+
+    def reset(self) -> None:
+        self.resets += 1
+
+
+async def test_voice_assistant_barge_in_by_interrupt_word(
+    settings_factory: Callable[..., Settings],
+) -> None:
+    """播报途中听到打断词，应立刻中止音箱播放并回到待机。"""
+    settings = settings_factory(
+        config_yaml=(
+            "channels:\n"
+            "  voice:\n"
+            "    enabled: true\n"
+            "    cooldown_seconds: 0.0\n"
+            "    barge_in_enabled: true\n"
+            "    interrupt_words: [停一下]\n"
+        )
+    )
+    model = ScriptedChatModel(steps=[AIMessage(content="正在给你念一段很长很长的介绍……")])
+    runner = AgentRunner(build_agent(settings, model=model))
+
+    kws = _FakeKws(trigger_at_call=1)
+    vad = _FakeVad(emit_after_chunks=2, speech=True)
+
+    class _TriggerDetector(WakeCommandDetector):
+        def __init__(self) -> None:
+            super().__init__(kws, vad)
+            self._done = False
+            self.forced: list[str] = []
+
+        def feed(self, chunk: npt.NDArray[np.float32]) -> Any:
+            from doudou.channels.voice.detector import CapturedUtterance
+
+            if not self._done:
+                self._done = True
+                return CapturedUtterance(
+                    wake_word="豆豆",
+                    samples=np.ones(800, dtype=np.float32) * 0.1,
+                )
+            return None
+
+        def force_wake(self, wake_word: str) -> None:
+            self.forced.append(wake_word)
+            super().force_wake(wake_word)
+
+    chunk = np.zeros(VAD_WINDOW_SAMPLES, dtype=np.float32)
+    mic = _FakeMic([chunk, chunk, chunk])
+    speaker = _FakeSpeaker()
+    detector = _TriggerDetector()
+    interrupt_kws = _InterruptOnChunkKws("停一下", trigger_at=2)
+    asr = _FakeAsr(["介绍一下规则"])
+
+    assistant = VoiceAssistant(
+        settings,
+        runner,
+        mic=mic,
+        speaker=speaker,
+        detector=detector,
+        interrupt_kws=interrupt_kws,
+        asr=asr,
+        tts=_SlowTts(),
+        console=Console(file=io.StringIO()),
+    )
+    await assistant.run(max_turns=1)
+
+    assert speaker.aborted is True
+    assert speaker.finished is False
+    assert detector.forced == []
+
+
+async def test_voice_assistant_barge_in_by_wake_word_and_key(
+    settings_factory: Callable[..., Settings],
+) -> None:
+    """支持终端按键打断；若配置唤醒词打断则直接切入下一句采集。"""
+    settings = settings_factory(
+        config_yaml=(
+            "channels:\n"
+            "  voice:\n"
+            "    enabled: true\n"
+            "    cooldown_seconds: 0.0\n"
+            "    barge_in_enabled: true\n"
+            "    interrupt_with_wake_word: true\n"
+        )
+    )
+    model = ScriptedChatModel(
+        steps=[AIMessage(content="第一段回复"), AIMessage(content="第二段回复")]
+    )
+    runner = AgentRunner(build_agent(settings, model=model))
+
+    kws = _FakeKws()
+    vad = _FakeVad(emit_after_chunks=1, speech=True)
+
+    class _WakeDetector(WakeCommandDetector):
+        def __init__(self) -> None:
+            super().__init__(kws, vad)
+            self._count = 0
+            self.forced: list[str] = []
+
+        def feed(self, chunk: npt.NDArray[np.float32]) -> Any:
+            from doudou.channels.voice.detector import CapturedUtterance
+
+            self._count += 1
+            if self._count in (1, 2):
+                return CapturedUtterance(
+                    wake_word="豆豆",
+                    samples=np.ones(800, dtype=np.float32) * 0.1,
+                )
+            return None
+
+        def force_wake(self, wake_word: str) -> None:
+            self.forced.append(wake_word)
+            super().force_wake(wake_word)
+
+    chunk = np.zeros(VAD_WINDOW_SAMPLES, dtype=np.float32)
+    # 第 1 轮播报时被唤醒词 "豆豆" 打断并 force_wake；第 2 轮被按键打断。
+    mic = _FakeMic([chunk, chunk, chunk, chunk])
+    speaker = _FakeSpeaker()
+    detector = _WakeDetector()
+    interrupt_kws = _InterruptOnChunkKws("豆豆", trigger_at=1)
+    asr = _FakeAsr(["第一句", "第二句"])
+
+    key_calls = 0
+
+    def _key_poller() -> bool:
+        nonlocal key_calls
+        key_calls += 1
+        # 第 1 轮 prepare/清空时返回 False，第 2 轮播报监听时触发按键打断。
+        return key_calls >= 4
+
+    assistant = VoiceAssistant(
+        settings,
+        runner,
+        mic=mic,
+        speaker=speaker,
+        detector=detector,
+        interrupt_kws=interrupt_kws,
+        asr=asr,
+        tts=_SlowTts(),
+        key_poller=_key_poller,
+        console=Console(file=io.StringIO()),
+    )
+    await assistant.run(max_turns=2)
+
+    assert speaker.aborted is True
+    assert detector.forced == ["豆豆"]
+    assert asr.calls == 2
 
 
 def test_secrets_voice_api_key_falls_back_to_deepseek(

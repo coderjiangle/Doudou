@@ -6,6 +6,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
@@ -62,6 +63,7 @@ class SherpaKwsEngine:
         self,
         paths: VoiceModelPaths,
         *,
+        keywords_file: Path | None = None,
         sample_rate: int = INPUT_SAMPLE_RATE,
         keywords_score: float = 1.5,
         keywords_threshold: float = 0.25,
@@ -70,12 +72,13 @@ class SherpaKwsEngine:
         import sherpa_onnx
 
         self.sample_rate = sample_rate
+        kw_path = keywords_file or paths.kws_keywords
         self._kws = sherpa_onnx.KeywordSpotter(
             tokens=str(paths.kws_tokens),
             encoder=str(paths.kws_encoder),
             decoder=str(paths.kws_decoder),
             joiner=str(paths.kws_joiner),
-            keywords_file=str(paths.kws_keywords),
+            keywords_file=str(kw_path),
             num_threads=num_threads,
             keywords_score=keywords_score,
             keywords_threshold=keywords_threshold,
@@ -193,6 +196,11 @@ class WakeCommandDetector:
         self._saw_speech = False
         self.kws.reset()
         self.vad.reset()
+
+    def force_wake(self, wake_word: str) -> None:
+        """外部打断后直接切入录音采集态，省去再次喊唤醒词。"""
+        self._pre_roll.clear()
+        self._enter_capturing(wake_word)
 
     def feed(self, chunk: npt.NDArray[np.float32]) -> CapturedUtterance | None:
         """喂入一帧 16 kHz float32 音频；一句话说完时返回 :class:`CapturedUtterance`。"""

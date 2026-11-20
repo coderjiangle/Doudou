@@ -334,6 +334,9 @@ channels:
     keywords_threshold: 0.25
     vad_threshold: 0.5
     cooldown_seconds: 0.5
+    barge_in_enabled: true
+    interrupt_words: ["豆豆停", "停一下", "别说了"]
+    interrupt_with_wake_word: false
     voice_id: stella
     filter_markdown: true
     input_device: null

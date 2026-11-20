@@ -303,6 +303,9 @@ channels:
     keywords_threshold: 0.25
     vad_threshold: 0.5
     cooldown_seconds: 0.5         # 音箱播报结束后的闭麦冷却秒数
+    barge_in_enabled: true        # 允许播报期间打断（本地打断词 + 终端 Space/Enter/Esc）
+    interrupt_words: ["豆豆停", "停一下", "别说了"]
+    interrupt_with_wake_word: false  # 戴耳机可改 true，喊唤醒词直接打断并接新指令
     # api_key: null               # 放 .env 的 DOUDOU_CHANNELS_VOICE_API_KEY（留空回退 DeepSeek Key）
     voice_id: stella              # stella（女声）| tide（男声）
     filter_markdown: true

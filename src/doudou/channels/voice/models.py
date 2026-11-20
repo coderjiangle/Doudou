@@ -26,6 +26,7 @@ KWS_ARCHIVE_URL = (
     "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2"
 )
 KEYWORDS_FILENAME = "doudou_keywords.txt"
+INTERRUPT_KEYWORDS_FILENAME = "doudou_interrupt_keywords.txt"
 
 _ENCODER_NAME = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
 _DECODER_NAME = "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
@@ -45,6 +46,7 @@ class VoiceModelPaths:
     kws_decoder: Path
     kws_joiner: Path
     kws_keywords: Path
+    kws_interrupt_keywords: Path | None = None
 
 
 def load_token_set(tokens_path: Path) -> set[str]:
@@ -122,6 +124,7 @@ async def ensure_voice_models(
     models_dir: Path,
     *,
     wake_words: Sequence[str],
+    interrupt_words: Sequence[str] = (),
     auto_download: bool = True,
     client: httpx.AsyncClient | None = None,
 ) -> VoiceModelPaths:
@@ -161,6 +164,15 @@ async def ensure_voice_models(
         wake_words,
         tokens_path=tokens_path,
     )
+    cleaned_interrupt = [w for w in interrupt_words if w.strip()]
+    interrupt_path: Path | None = None
+    if cleaned_interrupt:
+        interrupt_path = await asyncio.to_thread(
+            write_keywords_file,
+            kws_dir / INTERRUPT_KEYWORDS_FILENAME,
+            cleaned_interrupt,
+            tokens_path=tokens_path,
+        )
     return VoiceModelPaths(
         vad_model=vad_path,
         kws_tokens=tokens_path,
@@ -168,6 +180,7 @@ async def ensure_voice_models(
         kws_decoder=decoder_path,
         kws_joiner=joiner_path,
         kws_keywords=keywords_path,
+        kws_interrupt_keywords=interrupt_path,
     )
 
 
@@ -212,6 +225,7 @@ def _extract_tar_bz2(tar_path: Path, payload: bytes, target_dir: Path) -> None:
 
 
 __all__ = [
+    "INTERRUPT_KEYWORDS_FILENAME",
     "KEYWORDS_FILENAME",
     "KWS_ARCHIVE_URL",
     "KWS_MODEL_DIRNAME",

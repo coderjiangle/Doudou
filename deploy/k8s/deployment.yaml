@@ -40,6 +40,8 @@ spec:
               value: prod
             - name: DOUDOU_SERVER_HOST
               value: 0.0.0.0
+            - name: DOUDOU_CONFIG_DIR
+              value: /app/config
             - name: DOUDOU_FILESYSTEM_ROOT_DIR
               value: /data
             - name: DOUDOU_STORAGE_DATABASE_URL

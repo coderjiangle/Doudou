@@ -15,6 +15,7 @@ from doudou.config.loader import (
     load_yaml,
     reset_settings_cache,
 )
+from doudou.config.paths import default_database_url, home_path
 from doudou.config.schema import AppConfig
 from doudou.security.secrets import mask, redact
 from tests.conftest import MINIMAL_CONFIG
@@ -31,6 +32,38 @@ def test_defaults_are_usable_without_any_file(tmp_path: Path) -> None:
     assert settings.app.server.port == 8000
     assert settings.config_file is None
     assert settings.loaded_files == ()
+
+
+def test_default_layout_is_under_doudou_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """默认配置/数据/工作区/Skill 都落在 ``~/doudou``（可被 DOUDOU_HOME 覆盖）。"""
+    monkeypatch.setenv("DOUDOU_HOME", str(tmp_path))
+
+    settings = load_settings(env_file=tmp_path / "no.env", use_env=False)
+
+    assert settings.home_dir == tmp_path
+    assert settings.config_dir == tmp_path / "config"
+    assert settings.root_dir == tmp_path / "workspace"
+    assert settings.app.storage.database_url == (
+        f"sqlite+aiosqlite:///{(tmp_path / 'data' / 'doudou.db').as_posix()}"
+    )
+    assert settings.skills_dirs == (tmp_path / "skills",)
+
+
+def test_home_can_come_from_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``DOUDOU_HOME`` 写在 .env 里也应影响默认路径。"""
+    monkeypatch.delenv("DOUDOU_HOME", raising=False)
+    home = tmp_path / "custom-doudou"
+    env_file = tmp_path / "doudou.env"
+    env_file.write_text(f"DOUDOU_HOME={home}\n", encoding="utf-8")
+
+    settings = load_settings(env_file=env_file)
+
+    assert settings.home_dir == home
+    assert settings.config_dir == home / "config"
+    assert settings.root_dir == home / "workspace"
+    assert settings.skills_dirs == (home / "skills",)
 
 
 def test_yaml_overrides_defaults(settings: Settings) -> None:
@@ -289,8 +322,12 @@ def test_app_config_defaults_are_complete() -> None:
     assert config.channels.cli.enabled is True
     assert config.mcp.enabled is True
     assert config.storage.history == "database"
-    assert config.filesystem.root_dir == "./data/workspace"
+    assert config.filesystem.root_dir == home_path("workspace")
+    assert config.storage.database_url == default_database_url()
+    assert config.agent.memory_files == []
     assert config.agent.skills == ["../skills/"]
+    assert config.tools.browser.user_data_dir == home_path("data", "browser-profile")
+    assert config.channels.voice.models_dir == home_path("data", "models", "voice")
 
 
 def test_repo_config_keeps_assistant_memory_separate() -> None:

@@ -6,7 +6,7 @@
 ## 1. 装配链路
 
 ```
-config/config.yaml 的 mcp.servers
+~/doudou/config/config.yaml 的 mcp.servers
    │  mcp.config  ── ${ENV} 替换 + 组装清单（不碰网络）
    ▼
 mcp.loader  ── 声明 → 适配器的连接字典；工具命名空间 server__tool
@@ -22,7 +22,7 @@ MCP 工具和内置工具在 Agent 眼里没有区别，都是普通 LangChain �
 
 ## 2. 清单格式
 
-清单就写在 `config/config.yaml` 的 `mcp` 段里（不再单独一个 `mcp.servers.yaml`）：
+清单就写在 `~/doudou/config/config.yaml` 的 `mcp` 段里（不再单独一个 `mcp.servers.yaml`）：
 
 ```yaml
 mcp:
@@ -38,7 +38,7 @@ mcp:
     - name: filesystem            # 唯一名，会成为工具前缀（只允许字母数字下划线连字符）
       transport: stdio            # stdio | http | sse
       command: npx
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"]
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "~/doudou/workspace"]
       env:
         NODE_NO_WARNINGS: "1"
       include_tools: []           # 白名单：非空时只暴露这些

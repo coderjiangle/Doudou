@@ -92,8 +92,17 @@ doudou = "doudou.cli.main:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/doudou"]
 
+# ``doudou init`` 的模板需要随 wheel 分发；源仓库里仍只保留一份。
+[tool.hatch.build.targets.wheel.force-include]
+"config/config.example.yaml" = "doudou/templates/config/config.example.yaml"
+"config/prompts/system.md" = "doudou/templates/config/prompts/system.md"
+".env.example" = "doudou/templates/.env.example"
+"skills" = "doudou/templates/skills"
+
 [tool.hatch.build.targets.sdist]
-include = ["src", "config", "skills", "docs", "README.md"]
+include = ["src", "config", "skills", "docs", "README.md", ".env.example"]
+# 本地配置与助手记忆属于个人数据，不进入源码分发包。
+exclude = ["config/config.yaml", "config/AGENTS.md"]
 
 # ---------------------------------------------------------------- ruff
 [tool.ruff]

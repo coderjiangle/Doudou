@@ -54,6 +54,18 @@ async def test_create_schema_creates_parent_directory(tmp_path: Path) -> None:
     await db.dispose()
 
 
+async def test_sqlite_url_expands_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """配置里写 ``~/doudou/...`` 时，SQLite 也要落到展开后的绝对路径。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    db = create_database(StorageConfig(database_url="sqlite+aiosqlite:///~/doudou/data/tilde.db"))
+
+    await db.create_schema()
+
+    assert (tmp_path / "doudou" / "data" / "tilde.db").is_file()
+    await db.dispose()
+
+
 async def test_create_schema_is_idempotent(database: Database) -> None:
     await database.create_schema()
 

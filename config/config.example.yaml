@@ -46,20 +46,20 @@ agent:
   name: Doudou
   system_prompt_file: prompts/system.md   # 相对 config/ 目录；留空则用内置默认提示词
   # 助手自己的长期记忆：可列多个（都会注入提示词），但**只有第一个**是 remember 的回写目标。
-  # 路径按进程工作目录解析（不是 config/ 目录），所以写 config/AGENTS.md。
+  # 路径按进程工作目录解析（不是 config/ 目录）；默认初始化到 ~/doudou/config/AGENTS.md。
   memory_files:
-    - config/AGENTS.md                     # 助手记忆：remember 只写这里
+    - ~/doudou/config/AGENTS.md            # 助手记忆：remember 只写这里
   skills:
-    - ../skills/                           # Agent Skills 根目录
+    - ../skills/                           # 相对 config/；初始化后即 ~/doudou/skills
   # 提示词里最多列出几个技能。索引必须**有界**：技能一多，
   # 光是索引就能把提示词顶坏（超出时会说明「另有 X 个未列出」）。
   skill_index_limit: 40
   # 手工覆盖「哪些工具需要人工确认」。通常不需要写 ——
   # 工具自己用 `side_effects=True` 声明（写文件、执行命令都会自动被拦）。
   # 这里只在两处有用：**关掉**某个工具的确认，或**额外加上**一个。
-  interrupt_on:
-    # workspace_delete: false   # 例如：删除也信任它（不推荐）
-    # shell_exec: true          # 默认已由 side_effects 覆盖，写在这里只是显式化
+  interrupt_on: {}
+  # workspace_delete: false   # 例如：删除也信任它（不推荐）
+  # shell_exec: true          # 默认已由 side_effects 覆盖，写在这里只是显式化
   # 单次运行的步数上限，防止死循环
   max_steps: 8
   # 多轮防人设漂移：每隔 N 轮用户消息（及摘要压缩后）在用户消息后固化一次锚点并落库，
@@ -183,7 +183,7 @@ tools:
     cdp_url: http://127.0.0.1:9222
     auto_launch: true          # 调试端口未监听时自动拉起独立 Chrome 进程
     executable_path: null      # 留空自动探测本机 Chrome
-    user_data_dir: ./data/browser-profile   # 独立配置目录，保留登录态
+    user_data_dir: ~/doudou/data/browser-profile   # 独立配置目录，保留登录态
     timeout: 30
     max_read_chars: 12000
     allowed_domains: []        # 空表示允许访问任意 http/https 网址
@@ -192,7 +192,8 @@ tools:
 # 所有文件类工具的读写都被钉在这个目录里
 # （`resolve()` 之后再校验，软链接也逃不出去）。
 filesystem:
-  root_dir: ./data/workspace
+  # 所有 workspace_* 文件的边界；默认在 ~/doudou/workspace
+  root_dir: ~/doudou/workspace
 
 # ---------------------------------------------------------------- 上下文管理
 context:
@@ -215,7 +216,7 @@ context:
 
 # ---------------------------------------------------------------- 存储
 storage:
-  database_url: sqlite+aiosqlite:///./data/doudou.db
+  database_url: sqlite+aiosqlite:///~/doudou/data/doudou.db
   # 会话历史存哪：database = 落库（重启可续）；memory = 只在进程内
   history: database
   # 库里保留的消息条数（**保留**，不是送进模型的窗口 —— 后者由 context 决定）
@@ -247,7 +248,7 @@ mcp:
   #   - name: filesystem
   #     transport: stdio
   #     command: npx
-  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "./data/workspace"]
+  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "~/doudou/workspace"]
   #     exclude_tools: [delete_path]
   #     read_only: false
   #     description: 本地文件读写
@@ -311,7 +312,7 @@ channels:
     filter_markdown: true
     input_device: null            # 留空用系统默认麦克风；可用 doudou voice devices 查看编号
     output_device: null           # 留空用系统默认音箱
-    models_dir: ./data/models/voice
+    models_dir: ~/doudou/data/models/voice
     auto_download_models: true
 
 # ---------------------------------------------------------------- 可观测性

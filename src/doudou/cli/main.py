@@ -691,6 +691,7 @@ def config_show(
 def config_path(config_dir: ConfigDir = None) -> None:
     """打印配置文件与关键目录的实际路径。"""
     settings = _load(config_dir)
+    console.print(f"home_dir      : {settings.home_dir}")
     console.print(f"config_dir    : {settings.config_dir}")
     console.print(f"config_file   : {settings.config_file or '（未找到，使用默认值）'}")
     console.print(f"loaded_files  : {[str(item) for item in settings.loaded_files]}")
@@ -824,6 +825,51 @@ def serve(
         workers=server.workers,
         log_config=None,
         access_log=False,
+    )
+
+
+@app.command()
+def init(
+    home: Annotated[
+        Path | None,
+        typer.Option("--home", help="初始化根目录，默认 ~/doudou。"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="覆盖已存在的配置、提示词与 Skill 模板（不覆盖 .env 与 AGENTS.md）。",
+        ),
+    ] = False,
+) -> None:
+    """初始化 ~/doudou 目录、配置、工作区与 Skill。"""
+    from doudou.config.env import read_env
+    from doudou.config.paths import doudou_home
+    from doudou.init import InitError, init_home
+
+    if home is None:
+        configured_home = read_env().get("DOUDOU_HOME")
+        home = Path(configured_home) if configured_home else doudou_home()
+    try:
+        result = init_home(home=home, force=force)
+    except (InitError, OSError) as exc:
+        err_console.print(f"[bold red]初始化失败：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    console.print(f"[green]✓ 已初始化[/green] {result.home}")
+    console.print(f"  配置   : {result.config_dir}")
+    console.print(f"  数据   : {result.data_dir}")
+    console.print(f"  工作区 : {result.workspace_dir}")
+    console.print(f"  Skill  : {result.skills_dir}")
+    if result.skipped:
+        console.print(
+            f"[dim]已跳过 {len(result.skipped)} 个已存在文件；需要覆盖请加 --force。[/dim]"
+        )
+    if home is not None:
+        console.print(f"[dim]后续命令请设置 DOUDOU_HOME={result.home}[/dim]")
+    console.print(
+        f"[dim]下一步：编辑 {result.home / '.env'} 填入模型密钥，然后运行 "
+        "doudou config check。[/dim]"
     )
 
 

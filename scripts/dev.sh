@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 初始化本地开发环境：复制配置模板、创建数据目录、同步依赖。
+# 初始化本地开发环境：同步依赖、创建 .env，并初始化 ~/doudou 默认目录。
 # 用法： bash scripts/dev.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,15 +13,16 @@ copy_if_missing() {
     fi
 }
 
+# 当前目录的 .env 优先级高于 ~/doudou/.env，便于仓库内开发时使用独立密钥。
 copy_if_missing .env.example .env
-copy_if_missing config/config.example.yaml config/config.yaml
-
-mkdir -p data/workspace
 
 printf '\n同步依赖 ...\n'
 uv sync --all-extras
 
+printf '\n初始化 ~/doudou ...\n'
+uv run doudou init
+
 printf '\n完成。下一步：\n'
-printf '  1. 编辑 .env 填入模型与飞书凭证\n'
+printf '  1. 编辑 .env 或 ~/doudou/.env 填入模型与飞书凭证\n'
 printf '  2. uv run doudou config check\n'
 printf '  3. uv run doudou chat\n'

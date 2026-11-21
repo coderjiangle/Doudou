@@ -2,6 +2,22 @@
 
 按日期记录功能变更，版本号见 `src/doudou/version.py`。
 
+## 2026-11-21
+
+### 默认运行时目录迁移到 `~/doudou`
+
+- 默认配置、数据、工作区与 Skill 目录统一放到 `~/doudou`：
+  `config/`、`data/`、`workspace/`、`skills/`；`DOUDOU_HOME` 可整体覆盖。
+- 新增 `doudou init [--home PATH] [--force]`：创建目录，复制
+  `config.example.yaml`、系统提示词、`.env.example` 与内置 Skill，并生成
+  `config/AGENTS.md`；已存在的 `.env` 与记忆文件不会被覆盖。
+- 配置加载支持从 `.env` 读取 `DOUDOU_HOME`；当前目录 `.env` 优先于
+  `~/doudou/.env`。SQLite 默认路径支持 `~` 展开。
+- Docker / Compose / K8s 显式设置 `DOUDOU_CONFIG_DIR=/app/config`，保持
+  容器内配置挂载不变。
+- 发行包名改为 `doudou-agent`，飞书/语音/浏览器依赖拆为
+  `feishu` / `voice` / `browser` extras；缺少依赖时给出安装提示。
+
 ## 2026-10-30
 
 ### 统计页：运行列表分页（页码 + 上一页/下一页）

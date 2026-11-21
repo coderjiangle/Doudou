@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import event
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -24,12 +25,37 @@ logger = get_logger(__name__)
 _SQLITE_PREFIXES = ("sqlite+aiosqlite:///", "sqlite+aiosqlite://")
 
 
+def _expand_sqlite_url(url: str) -> str:
+    """把 SQLite URL 里的 ``~`` 展开成绝对路径。
+
+    SQLAlchemy 不会展开 ``~``；默认配置写成 ``~/doudou/data/...`` 时，
+    如果原样交给引擎，SQLite 会把它当字面文件名。相对路径保持原样
+    （仍按进程 cwd 解析），只规范化绝对/``~`` 路径。
+    """
+    if not url.startswith(_SQLITE_PREFIXES):
+        return url
+    try:
+        parsed = make_url(url)
+    except Exception:
+        return url
+    database = parsed.database
+    if not database or database == ":memory:" or database.startswith(":memory:"):
+        return url
+    path = Path(database).expanduser()
+    if not path.is_absolute():
+        return url
+    # 不要用 render_as_string：它会百分号编码 Windows 盘符，而 SQLite 的
+    # 目录创建逻辑需要的是可直接 Path() 的文本路径。
+    return f"{parsed.drivername}:///{path.as_posix()}"
+
+
 def _ensure_sqlite_dir(url: str) -> None:
     """SQLite 文件所在目录不存在时先建出来。
 
     否则首次运行会以「unable to open database file」失败，而那个报错完全看不出
     是缺目录。
     """
+    url = _expand_sqlite_url(url)
     if not url.startswith(_SQLITE_PREFIXES):
         return
     raw = url.split("///", 1)[1] if "///" in url else ""
@@ -46,14 +72,15 @@ class Database:
 
     def __init__(self, config: StorageConfig) -> None:
         self.config = config
-        _ensure_sqlite_dir(config.database_url)
+        self.database_url = _expand_sqlite_url(config.database_url)
+        _ensure_sqlite_dir(self.database_url)
         self.engine: AsyncEngine = create_async_engine(
-            config.database_url,
+            self.database_url,
             echo=config.echo_sql,
             # SQLite 默认在同一条连接上复用，异步场景需要放开。
-            pool_pre_ping=not config.database_url.startswith("sqlite"),
+            pool_pre_ping=not self.database_url.startswith("sqlite"),
         )
-        if config.database_url.startswith("sqlite"):
+        if self.database_url.startswith("sqlite"):
             self._configure_sqlite()
         self.session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             self.engine, expire_on_commit=False
@@ -78,7 +105,7 @@ class Database:
         这些只对 SQLite 生效；换 Postgres 时整个方法不会执行。
         """
         pragmas = ["PRAGMA foreign_keys=ON"]
-        if ":memory:" not in self.config.database_url:
+        if ":memory:" not in self.database_url:
             pragmas += [
                 "PRAGMA journal_mode=WAL",
                 "PRAGMA synchronous=NORMAL",
@@ -100,7 +127,7 @@ class Database:
         """
         async with self.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
-        logger.info("storage.schema_ready", url=_safe_url(self.config.database_url))
+        logger.info("storage.schema_ready", url=_safe_url(self.database_url))
 
     async def dispose(self) -> None:
         await self.engine.dispose()

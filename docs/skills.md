@@ -94,9 +94,9 @@ agent:
 `skill_index_limit` 存在的理由：索引必须**有界**。技能一多，光是索引就能把
 提示词顶坏。超出时会列出前 N 个并说明「另有 X 个未列出」。
 
-## 6. 与记忆（`config/AGENTS.md`）的分工
+## 6. 与记忆（默认 `~/doudou/config/AGENTS.md`）的分工
 
-| | Skill | 记忆 `config/AGENTS.md` |
+| | Skill | 记忆 `~/doudou/config/AGENTS.md` |
 | --- | --- | --- |
 | 加载时机 | 按需（模型判断） | 每轮都注入 |
 | 内容 | 特定领域的流程与方法 | 长期偏好与事实 |
@@ -105,8 +105,8 @@ agent:
 「我喜欢用中文回复」→ 记忆；「写调研报告的标准流程」→ Skill。
 
 > `memory_files` 可以列多个文件，但**只有第一个**是 `remember` 的回写目标。
-> 本仓库把助手记忆放在 `config/AGENTS.md`；仓库根的 `AGENTS.md` 是给编码工具的
-> 项目约定，不注入助手提示词。
+> 默认初始化把助手记忆放在 `~/doudou/config/AGENTS.md`；本仓库开发配置也可指向
+> `config/AGENTS.md`。仓库根的 `AGENTS.md` 是给编码工具的项目约定，不注入助手提示词。
 
 ## 7. 调试
 

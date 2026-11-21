@@ -2,7 +2,7 @@
 
 优先级（右 > 左）::
 
-    代码内默认值 → config/config.yaml → DOUDOU_* 环境变量
+    代码内默认值 → ~/doudou/config/config.yaml → DOUDOU_* 环境变量
 
 环境变量名 = ``DOUDOU_`` + ``config.yaml`` 的路径（下划线连接），例如
 ``DOUDOU_MODEL_PRIMARY``、``DOUDOU_MODEL_MAX_TOKENS``。映射逻辑见
@@ -20,13 +20,15 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from doudou.config.env import build_overrides, read_env
+from doudou.config.paths import default_env_file, doudou_home
 from doudou.config.schema import AppConfig
 from doudou.config.settings import Secrets
 from doudou.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_CONFIG_DIR = Path("config")
+#: 兼容旧导入；实际默认值由 :func:`doudou.config.paths.default_config_dir` 计算。
+DEFAULT_CONFIG_DIR = Path("~/doudou/config")
 DEFAULT_CONFIG_NAME = "config.yaml"
 
 
@@ -69,6 +71,7 @@ class Settings(BaseModel):
 
     app: AppConfig
     secrets: Secrets
+    home_dir: Path
     config_dir: Path
     config_file: Path | None = None
     loaded_files: tuple[Path, ...] = ()
@@ -106,6 +109,7 @@ class Settings(BaseModel):
         from doudou.security.secrets import redact
 
         payload: dict[str, Any] = {
+            "home_dir": str(self.home_dir),
             "config_dir": str(self.config_dir),
             "config_file": str(self.config_file) if self.config_file else None,
             "loaded_files": [str(item) for item in self.loaded_files],
@@ -115,6 +119,26 @@ class Settings(BaseModel):
         }
         # redact 是泛型递归函数（返回类型与入参同构），这里入参是 dict，故结果为 dict。
         return cast("dict[str, Any]", redact(payload))
+
+
+def _home_defaults(home: Path) -> dict[str, Any]:
+    """Paths that follow ``DOUDOU_HOME`` even when only the ``.env`` sets it."""
+    return {
+        "tools": {
+            "browser": {
+                "user_data_dir": (home / "data" / "browser-profile").as_posix(),
+            }
+        },
+        "filesystem": {"root_dir": (home / "workspace").as_posix()},
+        "storage": {
+            "database_url": f"sqlite+aiosqlite:///{(home / 'data' / 'doudou.db').as_posix()}"
+        },
+        "channels": {
+            "voice": {
+                "models_dir": (home / "data" / "models" / "voice").as_posix(),
+            }
+        },
+    }
 
 
 def load_settings(
@@ -127,16 +151,18 @@ def load_settings(
     """加载并校验配置。
 
     Args:
-        config_dir: 配置目录，默认 ``./config``，可被 ``DOUDOU_CONFIG_DIR`` 覆盖。
+        config_dir: 配置目录，默认 ``~/doudou/config``，可被 ``DOUDOU_CONFIG_DIR`` 覆盖。
         config_file: 主配置文件（相对 ``config_dir`` 或绝对路径），
             默认 ``config.yaml``，可被 ``DOUDOU_CONFIG_FILE`` 覆盖。
-        env_file: ``.env`` 路径；默认读取当前工作目录下的 ``.env``。
+        env_file: ``.env`` 路径；默认先找当前目录，再找 ``~/doudou/.env``。
         use_env: 是否读取环境变量（测试中可关闭）。
     """
-    meta, env_overrides = build_overrides(read_env(env_file=env_file, use_env=use_env))
+    resolved_env_file = Path(env_file) if env_file is not None else default_env_file()
+    meta, env_overrides = build_overrides(read_env(env_file=resolved_env_file, use_env=use_env))
 
+    home = Path(meta.get("home") or doudou_home()).expanduser().resolve()
     resolved_config_dir = resolve_path(
-        Path.cwd(), config_dir or meta.get("config_dir") or DEFAULT_CONFIG_DIR
+        Path.cwd(), config_dir or meta.get("config_dir") or home / "config"
     )
 
     raw: dict[str, Any] = {}
@@ -150,12 +176,15 @@ def load_settings(
     else:
         logger.debug("config.file_missing", path=str(main_path))
 
+    # 把 home 下的默认路径放在最底层：配置文件与环境变量仍可逐项覆盖。
+    raw = deep_merge(_home_defaults(home), raw)
     raw = deep_merge(raw, env_overrides)
     app = AppConfig.model_validate(raw)
 
     return Settings(
         app=app,
         secrets=Secrets.from_config(app),
+        home_dir=home,
         config_dir=resolved_config_dir,
         config_file=main_path if main_path.is_file() else None,
         loaded_files=tuple(loaded),

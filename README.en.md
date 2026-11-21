@@ -164,6 +164,18 @@ Doudou/
 
 See [`docs/architecture.md`](docs/architecture.md) for what each directory is responsible for.
 
+Runtime state lives under `~/doudou` by default (override with `DOUDOU_HOME`) and is created by
+`doudou init`:
+
+```text
+~/doudou/
+├─ .env          # model / channel credentials
+├─ config/       # config.yaml, prompts/system.md, AGENTS.md
+├─ data/         # SQLite, browser profile, voice models
+├─ workspace/    # boundary for workspace_* tools
+└─ skills/       # Agent Skills
+```
+
 ## 4. Quick start
 
 ### 4.1 Zero-config first run (offline, no API key)
@@ -180,10 +192,18 @@ uv run doudou chat --model scripted:demo                  # interactive multi-tu
 tool based on keywords, so the full ReAct loop (reason → call tool → observe → converge) can be
 verified without network access.
 
+For first-time setup, initialize the default directories:
+
+```bash
+uv run doudou init
+```
+
+It creates config, data, workspace and skills under `~/doudou`.
+
 ### 4.2 Connecting a real model
 
-Start with the configuration. There is a one-shot script per platform; both do the same thing (copy
-templates, create directories, sync dependencies):
+Start with the configuration. There is a one-shot script per platform; both do the same thing
+(sync dependencies, create `.env`, initialize `~/doudou`):
 
 ```powershell
 # Windows
@@ -195,10 +215,18 @@ powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
 bash scripts/dev.sh
 ```
 
-The equivalent manual steps: copy `.env.example` → `.env` and `config/config.example.yaml` →
-`config/config.yaml` (the MCP server list lives in that same file, see §4.7).
+The equivalent manual steps:
 
-Then set `DOUDOU_MODEL_PRIMARY` and the matching API key in `.env`, for example:
+```bash
+uv sync --all-extras
+uv run doudou init
+```
+
+The config is written to `~/doudou/config/config.yaml` (the MCP server list lives in that same
+file, see §4.7), and secrets go to `~/doudou/.env`. When running inside the repository, a `.env` in
+the current directory takes precedence. Then set `DOUDOU_MODEL_PRIMARY` and the matching API key
+in `.env`, for example (to keep using the repository's `config/`, pass
+`--config-dir ./config` explicitly):
 
 ```dotenv
 DOUDOU_MODEL_PRIMARY=openai:gpt-5.5
@@ -248,7 +276,7 @@ DOUDOU_TOOLS_WEB_SEARCH_API_KEY=sk-...
 ```
 
 ```yaml
-# config/config.yaml —— domain allow-list for outbound fetching
+# ~/doudou/config/config.yaml —— domain allow-list for outbound fetching
 tools:
   http:
     allowed_domains:
@@ -299,7 +327,7 @@ The pipeline is **local wake/VAD + cloud ASR & streaming TTS**:
    starts the next command without repeating the wake word.
 
 ```yaml
-# config/config.yaml
+# ~/doudou/config/config.yaml
 channels:
   voice:
     enabled: true
@@ -313,7 +341,7 @@ channels:
     voice_id: stella                  # stella (female) | tide (male)
     input_device: null                # system default; run `doudou voice devices` to list IDs
     output_device: null               # set a speaker device ID if default output goes to headphones
-    models_dir: ./data/models/voice
+    models_dir: ~/doudou/data/models/voice
 ```
 
 Set `DOUDOU_CHANNELS_VOICE_API_KEY` in `.env` (if unset, it falls back to your DeepSeek model or
@@ -411,7 +439,7 @@ known limitations: [`docs/channels.md`](docs/channels.md).
 ### 4.7 Connecting MCP (optional)
 
 MCP turns the tool source from "hard-coded in the code" into "declared in configuration": add an
-entry under `mcp.servers` in `config/config.yaml` (there is a copy-ready template right there), then:
+entry under `mcp.servers` in `~/doudou/config/config.yaml` (there is a copy-ready template right there), then:
 
 ```bash
 uv run doudou mcp list          # what each server actually exposed
@@ -464,7 +492,7 @@ The files listed in `agent.memory_files` are injected into the system prompt **o
 ```yaml
 agent:
   memory_files:
-    - config/AGENTS.md   # assistant memory: `remember` writes here only
+    - ~/doudou/config/AGENTS.md   # assistant memory: `remember` writes here only
 ```
 
 The assistant can also write to it itself — say "remember that I dislike huge pasted source dumps"
@@ -525,13 +553,13 @@ uv sync --extra browser
 ```
 
 ```yaml
-# config/config.yaml
+# ~/doudou/config/config.yaml
 tools:
   browser:
     enabled: true
     cdp_url: http://127.0.0.1:9222
     auto_launch: true                 # auto-launch a standalone Chrome window if the debug port isn't open
-    user_data_dir: ./data/browser-profile   # persistent profile (keeps logins; Chrome stays open when Doudou exits)
+    user_data_dir: ~/doudou/data/browser-profile   # persistent profile (keeps logins; Chrome stays open when Doudou exits)
     allowed_domains: []               # empty list allows any public http/https URL
 ```
 
@@ -542,6 +570,7 @@ tools:
 ## 5. Common commands
 
 ```bash
+uv run doudou init                         # initialize ~/doudou (config/data/workspace/skills)
 uv run doudou voice [--no-confirm]         # start the always-on voice assistant (wake word: 豆豆)
 uv run doudou voice devices                # list microphone & speaker devices
 uv run doudou voice download-models        # pre-download local VAD/KWS models

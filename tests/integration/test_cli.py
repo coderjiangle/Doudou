@@ -49,8 +49,19 @@ def test_version() -> None:
 def test_help_lists_commands() -> None:
     output = invoke("--help").stdout  # type: ignore[attr-defined]
 
-    for command in ("chat", "ask", "tools", "skills", "config"):
+    for command in ("chat", "ask", "tools", "skills", "config", "init"):
         assert command in output
+
+
+def test_init_creates_home(tmp_path: Path) -> None:
+    target = tmp_path / "doudou-home"
+
+    result = invoke("init", "--home", str(target))
+
+    assert result.exit_code == 0  # type: ignore[attr-defined]
+    assert (target / "config" / "config.yaml").is_file()
+    assert (target / "workspace").is_dir()
+    assert (target / "skills" / "weather" / "SKILL.md").is_file()
 
 
 # --------------------------------------------------------------------------- 单轮对话

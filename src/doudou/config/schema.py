@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from doudou.config.paths import default_database_url, home_path
+
 PermissionMode = Literal["allow", "deny"]
 PermissionOperation = Literal["read", "write"]
 
@@ -152,8 +154,8 @@ class BrowserToolConfig(_Section):
     auto_launch: bool = True
     #: Chrome 可执行文件路径；留空时按系统常见路径自动探测。
     executable_path: str | None = None
-    #: 独立 Chrome 用户数据目录，用于保留登录态与 Cookie；相对路径按当前工作目录解析。
-    user_data_dir: str = "./data/browser-profile"
+    #: 独立 Chrome 用户数据目录，用于保留登录态与 Cookie；默认在 ``~/doudou/data``。
+    user_data_dir: str = Field(default_factory=lambda: home_path("data", "browser-profile"))
     timeout: float = 30.0
     #: 单次页面文本/元素摘要的最大字符数。
     max_read_chars: int = 12000
@@ -217,8 +219,10 @@ class SubAgentSpec(_Section):
 class AgentConfig(_Section):
     name: str = "Doudou"
     system_prompt_file: str | None = "prompts/system.md"
+    #: 记忆文件；``doudou init`` 生成的配置会指向 ``~/doudou/config/AGENTS.md``。
+    #: 默认留空，避免未初始化的环境凭空多出一个 ``remember`` 工具。
     memory_files: list[str] = Field(default_factory=list)
-    #: Skill 根目录；默认指向仓库根的 ``skills/``（相对 ``config/`` 解析）。
+    #: Skill 根目录；默认指向 ``<config>/../skills/``（安装包布局即 ``~/doudou/skills``）。
     skills: list[str] = Field(default_factory=lambda: ["../skills/"])
     #: 子 Agent 清单（不再单独一个 ``agents.yaml``）。
     subagents: list[SubAgentSpec] = Field(default_factory=list)
@@ -262,7 +266,8 @@ class AgentConfig(_Section):
 
 
 class FilesystemConfig(_Section):
-    root_dir: str = "./data/workspace"
+    #: 所有文件类工具的工作区；默认 ``~/doudou/workspace``。
+    root_dir: str = Field(default_factory=lambda: home_path("workspace"))
 
 
 # --------------------------------------------------------------------------- context
@@ -300,7 +305,8 @@ class ContextConfig(_Section):
 
 
 class StorageConfig(_Section):
-    database_url: str = "sqlite+aiosqlite:///./data/doudou.db"
+    #: 默认 SQLite 放在 ``~/doudou/data/doudou.db``。
+    database_url: str = Field(default_factory=default_database_url)
     #: 会话历史的存储位置：``database`` 落库（重启可续），``memory`` 只在进程内。
     history: Literal["memory", "database"] = "database"
     #: 单个会话在库里保留的消息条数上限（**保留**，不是送进模型的窗口 ——
@@ -524,7 +530,8 @@ class VoiceChannelConfig(_Section):
     filter_markdown: bool = True
     input_device: int | str | None = None
     output_device: int | str | None = None
-    models_dir: str = "./data/models/voice"
+    #: 本地 KWS/VAD 模型目录；默认 ``~/doudou/data/models/voice``。
+    models_dir: str = Field(default_factory=lambda: home_path("data", "models", "voice"))
     auto_download_models: bool = True
 
 

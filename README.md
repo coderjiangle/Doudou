@@ -148,6 +148,17 @@ Doudou/
 
 各目录职责详见 [`docs/architecture.md`](docs/architecture.md)。
 
+运行时默认目录由 `doudou init` 创建在 `~/doudou`（可用 `DOUDOU_HOME` 覆盖）：
+
+```text
+~/doudou/
+├─ .env          # 模型 / 通道密钥
+├─ config/       # config.yaml、prompts/system.md、AGENTS.md
+├─ data/         # SQLite、浏览器 profile、语音模型
+├─ workspace/    # workspace_* 工具的工作边界
+└─ skills/       # Agent Skills
+```
+
 ## 4. 快速开始
 
 ### 4.1 零配置先跑起来（离线，不需要 API Key）
@@ -163,9 +174,17 @@ uv run doudou chat --model scripted:demo                   # 交互式多轮
 `scripted:demo` 是内置的确定性离线模型，会按关键词决定是否调用 `now` 工具，
 因此完整的 ReAct 循环（推理 → 工具调用 → 观察 → 收敛）无需联网即可验证。
 
+首次使用建议初始化默认目录：
+
+```bash
+uv run doudou init
+```
+
+它会在 `~/doudou` 下创建配置、数据、工作区与 Skill 目录。
+
 ### 4.2 接入真实模型
 
-先准备配置。两个平台各有一键脚本，做的是同一件事（复制模板、建目录、同步依赖）：
+先准备配置。两个平台各有一键脚本，做的是同一件事（同步依赖、创建 `.env`、初始化 `~/doudou`）：
 
 ```powershell
 # Windows
@@ -177,8 +196,16 @@ powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
 bash scripts/dev.sh
 ```
 
-手工等价步骤：复制 `.env.example` → `.env`、`config/config.example.yaml` →
-`config/config.yaml`（MCP server 清单也在这个文件里，见 §4.7）。
+手工等价步骤：
+
+```bash
+uv sync --all-extras
+uv run doudou init
+```
+
+配置写入 `~/doudou/config/config.yaml`（MCP server 清单也在这个文件里，见 §4.7），
+密钥写入 `~/doudou/.env`。在仓库内运行时，当前目录的 `.env` 优先于 `~/doudou/.env`。
+如果仍想使用仓库里的 `config/`，运行时显式加 `--config-dir ./config`。
 
 然后在 `.env` 里设置 `DOUDOU_MODEL_PRIMARY` 与对应的 API Key，例如：
 
@@ -229,7 +256,7 @@ DOUDOU_TOOLS_WEB_SEARCH_API_KEY=sk-...
 ```
 
 ```yaml
-# config/config.yaml —— 出站抓取的域名白名单
+# ~/doudou/config/config.yaml —— 出站抓取的域名白名单
 tools:
   http:
     allowed_domains:
@@ -272,7 +299,7 @@ uv sync --extra voice
    `Space` / `Enter` / `Esc` 打断。戴耳机时可设 `interrupt_with_wake_word: true`，喊「豆豆」直接打断并接着说下一句。
 
 ```yaml
-# config/config.yaml
+# ~/doudou/config/config.yaml
 channels:
   voice:
     enabled: true
@@ -286,7 +313,7 @@ channels:
     voice_id: stella                  # stella（女声）| tide（男声）
     input_device: null                # 留空用系统默认，可用 doudou voice devices 查看编号
     output_device: null               # 若默认输出是耳机而你想走音箱，可填对应设备编号
-    models_dir: ./data/models/voice
+    models_dir: ~/doudou/data/models/voice
 ```
 
 语音接口凭据可在 `.env` 中配置 `DOUDOU_CHANNELS_VOICE_API_KEY`（未单独设置时自动复用 DeepSeek 模型或搜索 Key）。
@@ -383,7 +410,7 @@ DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 
 ### 4.7 接入 MCP（可选）
 
-MCP 让工具来源从「写死在代码里」变成「配置声明」：在 `config/config.yaml` 的
+MCP 让工具来源从「写死在代码里」变成「配置声明」：在 `~/doudou/config/config.yaml` 的
 `mcp.servers` 里加一项（那里有可抄的模板），然后：
 
 ```bash
@@ -432,7 +459,7 @@ uv run doudou skills reload               # 重新扫描（HTTP 侧会热更新�
 ```yaml
 agent:
   memory_files:
-    - config/AGENTS.md   # 助手记忆：remember 只写这里
+    - ~/doudou/config/AGENTS.md   # 助手记忆：remember 只写这里
 ```
 
 助手也能自己记 —— 说「记住我不喜欢大段贴原文」时它会调用 `remember` 工具追加到**第一个**文件，
@@ -491,13 +518,13 @@ uv sync --extra browser
 ```
 
 ```yaml
-# config/config.yaml
+# ~/doudou/config/config.yaml
 tools:
   browser:
     enabled: true
     cdp_url: http://127.0.0.1:9222
     auto_launch: true                 # 未检测到调试端口时自动拉起独立 Chrome 窗口
-    user_data_dir: ./data/browser-profile   # 独立配置目录，保留登录态且退出豆豆不关窗
+    user_data_dir: ~/doudou/data/browser-profile   # 独立配置目录，保留登录态且退出豆豆不关窗
     allowed_domains: []               # 空列表表示允许访问任意 http/https 网址
 ```
 
@@ -508,6 +535,7 @@ tools:
 ## 5. 常用命令
 
 ```bash
+uv run doudou init                         # 初始化 ~/doudou（配置/数据/工作区/Skill）
 uv run doudou voice [--no-confirm]         # 启动本地常驻语音助手（唤醒词：豆豆）
 uv run doudou voice devices                # 列出本机麦克风与音箱设备
 uv run doudou voice download-models        # 预下载本地语音唤醒与 VAD 模型

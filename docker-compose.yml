@@ -16,6 +16,7 @@ services:
       DOUDOU_SERVER_WORKERS: "1"
       DOUDOU_SERVER_HOST: 0.0.0.0
       DOUDOU_SERVER_PORT: "8000"
+      DOUDOU_CONFIG_DIR: /app/config
       DOUDOU_FILESYSTEM_ROOT_DIR: /data
       DOUDOU_STORAGE_DATABASE_URL: ${DOUDOU_STORAGE_DATABASE_URL:-sqlite+aiosqlite:////data/doudou.db}
     ports:

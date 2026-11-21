@@ -41,6 +41,9 @@ META_ENV: dict[str, str] = {
     "DOUDOU_CONFIG_DIR": "config_dir",
     "DOUDOU_CONFIG_FILE": "config_file",
     "DOUDOU_API_TOKEN": "api_token",
+    # 只用于路径解析，不是 AppConfig 字段；登记在这里避免被当成拼写错误告警。
+    "DOUDOU_HOME": "home",
+    "DOUDOU_ENV_FILE": "env_file",
 }
 
 

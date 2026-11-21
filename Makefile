@@ -11,7 +11,7 @@ help: ## 显示所有可用目标
 
 # ---------------------------------------------------------------- 安装
 .PHONY: install
-install: ## 安装全部依赖（含各 provider 与 dev）
+install: ## 安装全部依赖（含能力 extras、provider 与 dev）
 	uv sync --all-extras
 
 .PHONY: lock

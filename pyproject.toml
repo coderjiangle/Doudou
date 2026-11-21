@@ -6,9 +6,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "doudou"
+name = "doudou-agent"
 version = "0.1.0"
-description = "Doudou - 自研 ReAct 内核的个人助手 Agent，支持 Tool / MCP / Skill 与飞书通道"
+description = "Doudou - 自研 ReAct 内核的个人助手 Agent，支持本地语音唤醒（「豆豆」）、Tool / MCP / Skill 与飞书通道"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -36,8 +36,6 @@ dependencies = [
     "uvicorn[standard]>=0.54,<1",
     "sse-starlette>=3.5,<4",
     "python-multipart>=0.0.32",
-    # ---- 飞书通道 ----
-    "lark-oapi>=1.7.5,<2",
     # ---- 配置 ----
     "pydantic>=2.12",
     "pydantic-settings>=2.16,<3",
@@ -57,14 +55,20 @@ dependencies = [
     "apscheduler>=3.11,<4",
     # Windows 上没有系统 tzdata，zoneinfo 依赖该包解析 IANA 时区名
     "tzdata>=2025.1; sys_platform == 'win32'",
-    "playwright>=1.65.2",
+]
+
+[project.optional-dependencies]
+# 飞书通道：lark-oapi 只在 channels.feishu 启用时 import。
+feishu = ["lark-oapi>=1.7.5,<2"]
+# 本地语音：sherpa-onnx / sounddevice 带平台相关原生依赖，按需安装。
+voice = [
     "sherpa-onnx>=2.0.1",
     "sounddevice>=0.5.6",
     "numpy>=2.5.5",
     "pypinyin>=0.55.0",
 ]
-
-[project.optional-dependencies]
+# 浏览器操控：需要 Playwright 客户端（连接本机 Chrome，无需额外下载浏览器）。
+browser = ["playwright>=1.65.2"]
 anthropic = ["langchain-anthropic>=1.7,<2"]
 deepseek = ["langchain-deepseek>=1.1,<2"]
 postgres = ["asyncpg>=0.30", "psycopg[binary]>=3.2"]

@@ -32,6 +32,10 @@ class Channel(Protocol):
 
 ## 2. 飞书（Lark）通道
 
+> 飞书依赖是可选的：先运行 `uv sync --extra feishu`（发布包用
+> `pip install "doudou-agent[feishu]"`）。启用 `channels.feishu` 但缺少依赖时，
+> `doudou config check` 会报错，服务日志也会给出安装提示。
+
 **当前实现：WebSocket 长连接**（`channels.feishu.mode: websocket`）。
 好处是不需要公网地址、不需要内网穿透，本地开发与内网部署都能直接跑。
 

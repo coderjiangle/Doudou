@@ -13,6 +13,7 @@ from typing import Any, Protocol
 import numpy as np
 import numpy.typing as npt
 
+from doudou.channels.voice.errors import VoiceError
 from doudou.observability.logging import get_logger
 
 logger = get_logger(__name__)
@@ -22,10 +23,6 @@ VAD_WINDOW_SAMPLES = 512
 TTS_SAMPLE_RATE = 24000
 PCM_CHANNELS = 1
 PCM_SAMPLE_WIDTH = 2  # 16-bit
-
-
-class VoiceError(RuntimeError):
-    """语音采集、唤醒模型或 ASR/TTS 调用失败。"""
 
 
 class AudioInputStream(Protocol):
@@ -102,10 +99,13 @@ class SoundDeviceMic:
         self._running = False
 
     async def start(self) -> None:
-        import sounddevice as sd
-
         if self._running:
             return
+        try:
+            import sounddevice as sd
+        except Exception as exc:
+            raise VoiceError(f"无法加载 sounddevice/PortAudio：{exc}") from exc
+
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue(maxsize=self._max_queue_chunks)
         self._running = True
@@ -205,10 +205,10 @@ class SoundDeviceSpeaker:
         self._thread.start()
 
     def _run_worker(self) -> None:
-        import sounddevice as sd
-
         stream: Any | None = None
         try:
+            import sounddevice as sd
+
             stream = sd.RawOutputStream(
                 samplerate=self.sample_rate,
                 channels=PCM_CHANNELS,

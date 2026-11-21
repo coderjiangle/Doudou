@@ -215,6 +215,14 @@ uv run doudou chat
 
 Non-OpenAI vendors need their integration package: `uv sync --extra anthropic` / `--extra deepseek`.
 
+Feishu, local voice and browser control are optional capabilities with their dependencies split
+into extras. The dev scripts and `make install` include everything; for a manual sync pick what
+you need:
+
+```bash
+uv sync --extra feishu --extra voice --extra browser
+```
+
 **Gateways that speak the OpenAI protocol** (self-hosted services, aggregators) all use the
 `openai:` prefix plus a `base_url`, so no extra provider package is required:
 
@@ -268,7 +276,14 @@ uv run doudou config check        # one-shot check of config, credentials, tools
 ### 4.4 Always-on local wake-word voice assistant (recommended)
 
 "豆豆" is an **always-on** voice channel: once started it stays in standby, and one wake word gives
-you the same tools as Feishu. The pipeline is **local wake/VAD + cloud ASR & streaming TTS**:
+you the same tools as Feishu. Install the optional voice dependencies first (for a published
+package: `pip install "doudou-agent[voice]"`):
+
+```bash
+uv sync --extra voice
+```
+
+The pipeline is **local wake/VAD + cloud ASR & streaming TTS**:
 
 1. **Standby** — only local `sherpa-onnx` (3.3M Zipformer KWS + `Silero VAD`) listens for the wake
    word (default "豆豆"); **no audio is uploaded until it fires**.
@@ -364,7 +379,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
 ### 4.6 Connecting Feishu (optional)
 
 The Feishu channel uses a **WebSocket long connection**: no public address, no tunneling. For the
-result, see §1.2.
+result, see §1.2. Install the optional Feishu dependency first (for a published package:
+`pip install "doudou-agent[feishu]"`):
+
+```bash
+uv sync --extra feishu
+```
 
 ```dotenv
 # .env
@@ -498,7 +518,11 @@ Full rules, time formats and limits: [`docs/scheduler.md`](docs/scheduler.md).
 
 ### 4.13 Controlling local Google Chrome (optional)
 
-Connects to your local Google Chrome via Playwright CDP (disabled by default) to open web pages, inspect numbered interactive elements, click/type, control HTML5 audio/video playback, and resize or maximize the browser window:
+Connects to your local Google Chrome via Playwright CDP (disabled by default) to open web pages, inspect numbered interactive elements, click/type, control HTML5 audio/video playback, and resize or maximize the browser window. Install the optional browser dependency first (for a published package: `pip install "doudou-agent[browser]"`):
+
+```bash
+uv sync --extra browser
+```
 
 ```yaml
 # config/config.yaml

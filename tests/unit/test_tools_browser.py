@@ -112,6 +112,7 @@ def test_skipped_when_playwright_missing(
     reason = missing_requirement(settings)
     assert reason is not None
     assert "playwright" in reason
+    assert "doudou-agent[browser]" in reason
 
 
 def test_tools_registered_and_annotated_when_enabled(

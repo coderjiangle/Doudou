@@ -22,7 +22,6 @@ from doudou.channels.voice.audio import (
     AudioPlayer,
     SoundDeviceMic,
     SoundDeviceSpeaker,
-    VoiceError,
     float32_to_wav_bytes,
 )
 from doudou.channels.voice.deepseek_speech import (
@@ -30,6 +29,7 @@ from doudou.channels.voice.deepseek_speech import (
     DeepSeekTtsClient,
     strip_wake_prefix,
 )
+from doudou.channels.voice.deps import ensure_voice_dependencies
 from doudou.channels.voice.detector import (
     CapturedUtterance,
     KwsEngine,
@@ -37,6 +37,7 @@ from doudou.channels.voice.detector import (
     SherpaVadEngine,
     WakeCommandDetector,
 )
+from doudou.channels.voice.errors import VoiceError
 from doudou.channels.voice.models import ensure_voice_models
 from doudou.config.loader import Settings, resolve_path
 from doudou.gateway.runner import AgentRunner
@@ -129,6 +130,7 @@ class VoiceAssistant:
 
     async def prepare(self) -> None:
         """加载本地 ``sherpa-onnx`` 模型并初始化唤醒与打断检测器。"""
+        ensure_voice_dependencies()
         if self._detector is not None and (
             not self.config.barge_in_enabled or self._interrupt_kws is not None
         ):

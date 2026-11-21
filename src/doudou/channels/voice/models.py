@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from doudou.channels.voice.audio import VoiceError
+from doudou.channels.voice.errors import VoiceError
 from doudou.observability.logging import get_logger
 from doudou.utils.async_utils import retry_async
 

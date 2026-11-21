@@ -14,6 +14,8 @@
 2. **配置**：`config/config.yaml` 用 ConfigMap 挂载到 `/app/config`（只读）；
    MCP server 清单也在它里面（`mcp.servers`），不需要额外的清单文件。
 3. **Skill**：`skills/` 用 ConfigMap 或镜像内置挂载到 `/app/skills`。
+   镜像默认安装 `feishu` / `anthropic` / `postgres` extras；如需语音或浏览器，
+   在 `Dockerfile` 的 `uv sync` 命令追加 `--extra voice` / `--extra browser`。
 4. **持久化**：工作区与数据库挂 PVC 到 `/data`；数据库改用 Postgres 时把 `DOUDOU_STORAGE_DATABASE_URL` 换成 `asyncpg`。
 5. **探针**：liveness 用 `/api/v1/health`，readiness 用 `/api/v1/health/ready`；均不调用模型。
 6. **进程与副本数**：保持 **1 worker、1 副本**。历史与会话绑定可落库，但会话锁、消息总线、

@@ -16,11 +16,12 @@ WORKDIR /app
 # 先只拷贝依赖描述，最大化利用层缓存
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --extra anthropic --extra postgres
+    uv sync --frozen --no-install-project --no-dev \
+    --extra feishu --extra anthropic --extra postgres
 
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra anthropic --extra postgres
+    uv sync --frozen --no-dev --extra feishu --extra anthropic --extra postgres
 
 # ---------------------------------------------------------------- runtime
 FROM python:${PYTHON_VERSION}-slim AS runtime

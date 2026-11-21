@@ -9,6 +9,7 @@ from doudou.channels.base import Channel
 from doudou.config.loader import Settings
 from doudou.gateway.router import MessageRouter
 from doudou.observability.logging import get_logger
+from doudou.utils.optional import install_hint, module_available
 
 logger = get_logger(__name__)
 
@@ -34,15 +35,24 @@ def build_enabled_channels(
 
     feishu = settings.app.channels.feishu
     if feishu.enabled:
-        from doudou.channels.feishu import FeishuChannel
-
-        if feishu.mode != "websocket":
-            logger.warning(
-                "channels.feishu_mode_unsupported",
-                mode=feishu.mode,
-                hint="目前只实现了 websocket 长连接模式，callback 模式仍会按长连接启动",
+        if not module_available("lark_oapi"):
+            # 配置启用了飞书但基础安装不含可选依赖：明确报错并跳过，
+            # 不让整个 HTTP 服务因为一个通道缺失而起不来。
+            logger.error(
+                "channels.feishu_dependency_missing",
+                dependency="lark_oapi",
+                hint=install_hint("feishu"),
             )
-        channels.append(FeishuChannel(settings, router, broker=broker))
+        else:
+            from doudou.channels.feishu import FeishuChannel
+
+            if feishu.mode != "websocket":
+                logger.warning(
+                    "channels.feishu_mode_unsupported",
+                    mode=feishu.mode,
+                    hint="目前只实现了 websocket 长连接模式，callback 模式仍会按长连接启动",
+                )
+            channels.append(FeishuChannel(settings, router, broker=broker))
     else:
         logger.debug("channels.feishu_disabled")
 

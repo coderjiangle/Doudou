@@ -197,6 +197,13 @@ uv run doudou chat
 
 非 OpenAI 厂商需要装对应集成包：`uv sync --extra anthropic` / `--extra deepseek`。
 
+飞书、本地语音与浏览器操控是可选的，依赖也拆成了 extras；开发脚本和 `make install`
+默认装全部，手工同步时按需选择：
+
+```bash
+uv sync --extra feishu --extra voice --extra browser
+```
+
 **兼容 OpenAI 协议的网关**（自建服务、聚合平台）统一用 `openai:` 前缀 + `base_url`，
 不需要额外的 provider 包：
 
@@ -249,6 +256,12 @@ uv run doudou config check        # 一次性检查配置、凭据、工具与 S
 ### 4.4 常驻本地语音唤醒（推荐）
 
 「豆豆」是一条**常驻**的语音通道：启动后一直待机，喊一声就能像在飞书里一样使用全部工具。
+先安装语音可选依赖（发布包用 `pip install "doudou-agent[voice]"`）：
+
+```bash
+uv sync --extra voice
+```
+
 它采用**本地离线唤醒 + 云端精转写与流式合成**架构：
 
 1. **待机**：仅本地 `sherpa-onnx`（3.3M Zipformer KWS + `Silero VAD`）监听唤醒词（默认「豆豆」），**未唤醒时不上传任何音频**；
@@ -342,6 +355,11 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
 ### 4.6 接入飞书（可选）
 
 飞书通道用 **WebSocket 长连接**，不需要公网地址、不需要内网穿透；接入后的效果见 §1.2。
+先安装飞书可选依赖（发布包用 `pip install "doudou-agent[feishu]"`）：
+
+```bash
+uv sync --extra feishu
+```
 
 ```dotenv
 # .env
@@ -465,7 +483,12 @@ curl http://127.0.0.1:8000/api/v1/scheduled # 只读查看现有任务
 
 ### 4.13 操控本机 Chrome 浏览器（可选）
 
-通过 Playwright CDP 连接本机 Google Chrome（默认关闭），支持打开网页、提取编号化可交互元素、点击填表、控制 HTML5 音视频播放以及调整浏览器窗口大小：
+通过 Playwright CDP 连接本机 Google Chrome（默认关闭），支持打开网页、提取编号化可交互元素、点击填表、控制 HTML5 音视频播放以及调整浏览器窗口大小。
+先安装浏览器可选依赖（发布包用 `pip install "doudou-agent[browser]"`）：
+
+```bash
+uv sync --extra browser
+```
 
 ```yaml
 # config/config.yaml

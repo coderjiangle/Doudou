@@ -36,6 +36,7 @@ from doudou.config.schema import BrowserToolConfig
 from doudou.observability.logging import get_logger
 from doudou.tools.builtin.http import domain_allowed
 from doudou.tools.decorators import annotate
+from doudou.utils.optional import install_hint
 from doudou.utils.text import truncate
 
 if TYPE_CHECKING:
@@ -121,7 +122,7 @@ def missing_requirement(settings: Settings) -> str | None:
     if not config.enabled:
         return "tools.browser.enabled 为 false（默认关闭）"
     if not playwright_available():
-        return "未安装 playwright 依赖（请运行 uv add playwright 或 uv sync）"
+        return f"未安装 playwright 依赖。{install_hint('browser')}"
     return None
 
 

@@ -12,6 +12,7 @@ from typing import Annotated, Any
 import typer
 from langchain_core.tools import BaseTool
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from doudou.agent.factory import AgentBundle, build_agent
@@ -30,6 +31,7 @@ from doudou.storage.database import Database, create_database
 from doudou.storage.scheduled import SqlSchedulerStore
 from doudou.tools.registry import build_tools, describe_groups, tool_infos
 from doudou.utils.console import configure_stdio
+from doudou.utils.optional import install_hint, missing_modules, module_available
 from doudou.utils.text import truncate
 from doudou.version import __version__
 
@@ -321,8 +323,16 @@ def voice_listen(
     if ctx.invoked_subcommand is not None:
         return
 
+    from doudou.channels.voice.deps import ensure_voice_dependencies
+    from doudou.channels.voice.errors import VoiceError
+
+    try:
+        ensure_voice_dependencies()
+    except VoiceError as exc:
+        err_console.print(f"[bold red]语音启动失败：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
+
     from doudou.channels.voice.assistant import VoiceAssistant
-    from doudou.channels.voice.audio import VoiceError
 
     settings = _load(config_dir, log_level=log_level)
 
@@ -357,7 +367,15 @@ def voice_listen(
 @voice_app.command("download-models")
 def voice_download_models(config_dir: ConfigDir = None) -> None:
     """预下载本地 sherpa-onnx 唤醒与 VAD 模型并生成唤醒词表。"""
-    from doudou.channels.voice.audio import VoiceError
+    from doudou.channels.voice.deps import VOICE_MODEL_MODULES, ensure_voice_dependencies
+    from doudou.channels.voice.errors import VoiceError
+
+    try:
+        ensure_voice_dependencies(VOICE_MODEL_MODULES)
+    except VoiceError as exc:
+        err_console.print(f"[bold red]下载失败：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
+
     from doudou.channels.voice.models import ensure_voice_models
     from doudou.config.loader import resolve_path
 
@@ -382,10 +400,23 @@ def voice_download_models(config_dir: ConfigDir = None) -> None:
 @voice_app.command("devices")
 def voice_devices() -> None:
     """列出当前系统可用的麦克风与音箱设备。"""
-    import sounddevice as sd
+    from doudou.channels.voice.deps import VOICE_DEVICE_MODULES, ensure_voice_dependencies
+    from doudou.channels.voice.errors import VoiceError
 
-    devices = sd.query_devices()
-    default_in, default_out = sd.default.device
+    try:
+        ensure_voice_dependencies(VOICE_DEVICE_MODULES)
+    except VoiceError as exc:
+        err_console.print(f"[bold red]无法列出音频设备：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
+
+    try:
+        import sounddevice as sd
+
+        devices = sd.query_devices()
+        default_in, default_out = sd.default.device
+    except Exception as exc:
+        err_console.print(f"[bold red]无法读取音频设备：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
     table = Table(title="音频设备")
     table.add_column("编号", justify="right", style="bold")
     table.add_column("名称")
@@ -513,7 +544,7 @@ def tools_list(
         for status in skipped:
             label = "被配置关闭" if status.reason.startswith("未列入") else "依赖不满足"
             console.print(
-                f"  [yellow]{status.name}[/yellow] [dim]（{label}：{status.reason}）[/dim]"
+                f"  [yellow]{status.name}[/yellow] [dim]（{label}：{escape(status.reason)}）[/dim]"
             )
 
     if show_args:
@@ -701,6 +732,24 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
                     "飞书未配置 DOUDOU_CHANNELS_FEISHU_ENCRYPT_KEY，生产环境应启用加密",
                 )
             )
+        if not module_available("lark_oapi"):
+            problems.append(
+                ("error", f"飞书通道已启用但未安装 lark-oapi。{install_hint('feishu')}")
+            )
+
+    voice = settings.app.channels.voice
+    if voice.enabled:
+        from doudou.channels.voice.deps import VOICE_MODULES
+
+        missing_voice = missing_modules(VOICE_MODULES)
+        if missing_voice:
+            problems.append(
+                (
+                    "error",
+                    f"语音通道已启用但缺少可选依赖：{', '.join(missing_voice)}。"
+                    f"{install_hint('voice')}",
+                )
+            )
 
     skill_registry = SkillRegistry.from_settings(settings)
     for message in skill_registry.errors:
@@ -730,7 +779,7 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
     for level, message in problems:
         style = {"error": "red", "warn": "yellow", "info": "dim"}[level]
         marker = {"error": "!", "warn": "!", "info": "·"}[level]
-        console.print(f"[{style}]  {marker} {message}[/]")
+        console.print(f"[{style}]  {marker} {escape(message)}[/]")
 
     if any(level == "error" for level, _ in problems):
         raise typer.Exit(EXIT_USAGE)
@@ -910,5 +959,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":  # pragma: no cover
-    # main()
-    serve()
+    main()

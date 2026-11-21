@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 
 from doudou.channels.voice.audio import INPUT_SAMPLE_RATE, VAD_WINDOW_SAMPLES
+from doudou.channels.voice.errors import VoiceError
 from doudou.channels.voice.models import VoiceModelPaths
 from doudou.observability.logging import get_logger
 
@@ -69,7 +70,10 @@ class SherpaKwsEngine:
         keywords_threshold: float = 0.25,
         num_threads: int = 1,
     ) -> None:
-        import sherpa_onnx
+        try:
+            import sherpa_onnx
+        except Exception as exc:
+            raise VoiceError(f"无法加载 sherpa-onnx，请确认已安装语音依赖：{exc}") from exc
 
         self.sample_rate = sample_rate
         kw_path = keywords_file or paths.kws_keywords
@@ -114,7 +118,10 @@ class SherpaVadEngine:
         max_speech_duration: float = 20.0,
         window_size: int = VAD_WINDOW_SAMPLES,
     ) -> None:
-        import sherpa_onnx
+        try:
+            import sherpa_onnx
+        except Exception as exc:
+            raise VoiceError(f"无法加载 sherpa-onnx，请确认已安装语音依赖：{exc}") from exc
 
         config = sherpa_onnx.VadModelConfig(
             silero_vad=sherpa_onnx.SileroVadModelConfig(

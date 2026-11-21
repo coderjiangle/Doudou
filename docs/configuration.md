@@ -28,6 +28,26 @@
 - 旧写法（`DOUDOU_MODEL__PRIMARY`、无前缀的 `OPENAI_API_KEY`）**不再读取**，
   迁移表见 §2.7。
 
+### 1.1 可选依赖（extras）
+
+飞书、本地语音、浏览器操控不是基础安装的必选项，依赖通过 extras 安装：
+
+| extra | 能力 | 主要依赖 |
+| --- | --- | --- |
+| `feishu` | 飞书长连接通道 | `lark-oapi` |
+| `voice` | 本地唤醒 + ASR/TTS | `sherpa-onnx`、`sounddevice`、`numpy`、`pypinyin` |
+| `browser` | 本机 Chrome 操控 | `playwright` |
+
+```bash
+uv sync --extra feishu --extra voice --extra browser
+# 或安装发布包：
+pip install "doudou-agent[feishu,voice,browser]"
+```
+
+`make install` 与仓库的 `scripts/dev.*` 使用 `uv sync --all-extras`，会一次装齐。
+启用功能但缺少依赖时，`doudou config check` 会给出对应的安装命令；浏览器工具则会
+直接跳过注册，并在 `doudou tools list` 里显示原因。
+
 ## 2. 环境变量
 
 下表列出常用项；没有列出的字段按同一规则推导即可（`config show` 能看到完整路径）。

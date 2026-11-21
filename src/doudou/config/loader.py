@@ -27,8 +27,6 @@ from doudou.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: 兼容旧导入；实际默认值由 :func:`doudou.config.paths.default_config_dir` 计算。
-DEFAULT_CONFIG_DIR = Path("~/doudou/config")
 DEFAULT_CONFIG_NAME = "config.yaml"
 
 
@@ -213,7 +211,6 @@ def env_var(name: str) -> str | None:
 
 
 __all__ = [
-    "DEFAULT_CONFIG_DIR",
     "Settings",
     "deep_merge",
     "get_settings",

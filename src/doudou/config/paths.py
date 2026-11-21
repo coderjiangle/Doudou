@@ -30,25 +30,9 @@ def home_path(*parts: str) -> str:
     return doudou_home().joinpath(*parts).as_posix()
 
 
-def default_config_dir() -> Path:
-    return doudou_home() / "config"
-
-
-def default_data_dir() -> Path:
-    return doudou_home() / "data"
-
-
-def default_workspace_dir() -> Path:
-    return doudou_home() / "workspace"
-
-
-def default_skills_dir() -> Path:
-    return doudou_home() / "skills"
-
-
 def default_database_url() -> str:
     """Default SQLite URL under ``<home>/data`` (absolute, no ``~`` in URL)."""
-    database = default_data_dir() / "doudou.db"
+    database = doudou_home() / "data" / "doudou.db"
     return f"sqlite+aiosqlite:///{database.as_posix()}"
 
 
@@ -68,15 +52,8 @@ def default_env_file() -> Path:
 
 
 __all__ = [
-    "DEFAULT_HOME",
-    "ENV_FILE_ENV",
-    "HOME_ENV",
-    "default_config_dir",
-    "default_data_dir",
     "default_database_url",
     "default_env_file",
-    "default_skills_dir",
-    "default_workspace_dir",
     "doudou_home",
     "home_path",
 ]

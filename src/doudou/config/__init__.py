@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from doudou.config.loader import (
-    DEFAULT_CONFIG_DIR,
     Settings,
     get_settings,
     load_settings,
@@ -13,7 +12,6 @@ from doudou.config.schema import AppConfig
 from doudou.config.settings import Secrets
 
 __all__ = [
-    "DEFAULT_CONFIG_DIR",
     "AppConfig",
     "Secrets",
     "Settings",

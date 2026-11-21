@@ -735,7 +735,6 @@ wheels = [
 
 [[package]]
 name = "doudou-agent"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -831,7 +830,7 @@ requires-dist = [
     { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2025.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54,<1" },
 ]
-provides-extras = ["feishu", "voice", "browser", "anthropic", "deepseek", "postgres"]
+provides-extras = ["anthropic", "browser", "deepseek", "feishu", "postgres", "voice"]
 
 [package.metadata.requires-dev]
 dev = [

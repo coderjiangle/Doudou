@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "doudou-agent"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Doudou - 自研 ReAct 内核的个人助手 Agent，支持本地语音唤醒（「豆豆」）、Tool / MCP / Skill 与飞书通道"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -88,6 +88,10 @@ dev = [
 
 [project.scripts]
 doudou = "doudou.cli.main:main"
+
+[tool.hatch.version]
+# 版本号唯一来源；发布新版本只改 src/doudou/version.py。
+path = "src/doudou/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/doudou"]

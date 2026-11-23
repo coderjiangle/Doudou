@@ -3,28 +3,31 @@
 ## 1. 分层
 
 ```
-┌───────────────────────────── 入口层 ─────────────────────────────┐
-│  channels/{feishu,webhook}       api/routes · cli/ · voice      │
-└───────────────┬────────────────────────┬────────────────────────┘
-                │  InboundMessage        │  RunRequest
-                ▼                        ▼
-┌─────────────────────────── gateway ──────────────────────────────┐
-│  session（会话↔thread 映射）  bus（并发队列）                      │
-│  router（分发）  runner（执行 + 事件回流）                        │
-└───────────────────────────────┬──────────────────────────────────┘
+┌───────────────────────────── 入口层 ────────────────────────────────┐
+│  [doudou serve 常驻进程]             [独立本地进程]                 │
+│  channels/{feishu,webhook}           cli/ (channels.cli_channel)    │
+│  api/{app,routes} (/ui, /stats)      voice/ (channels.voice)        │
+└──────────────┬──────────────┬─────────────────┬──────────────┬──────┘
+               │ InboundMsg   │ RunRequest      │ RunRequest   │ RunRequest /
+               ▼              ▼                 ▼              ▼ RunEvent
+┌──────────────────────── gateway & scheduler ────────────────────────┐
+│  scheduler.runtime（定时轮询 → router.run_now → 通道推送）          │
+│  session（会话↔thread 映射）  bus（并发队列）                       │
+│  router（分发）  runner（执行 + 事件回流 + 历史落库）               │
+└───────────────────────────────┬─────────────────────────────────────┘
                                 ▼ agent 调用
-┌──────────────────────────── agent ───────────────────────────────┐
-│  factory（AgentBundle 组装）  react（ReAct 循环）  events          │
-│  models  context  memory  subagents  permissions  approvals      │
-└───────┬──────────────────────────────────────────┬───────────────┘
-        │ tools=                                   │ 依赖
-        ▼                                          ▼
-┌────────────────────┐              ┌──────────────────────────────┐
-│ tools.registry     │              │ storage   observability      │
-│  ├─ tools.builtin  │              │ security  utils              │
-│  └─ mcp.client     │              └──────────────────────────────┘
-│ skills.registry    │
-└────────────────────┘
+┌────────────────────────────── agent ────────────────────────────────┐
+│  factory（AgentBundle 组装）  react（ReAct 循环）  events           │
+│  models  messages  context  memory  subagents  permissions approvals│
+└───────┬──────────────────────────────────────────────┬──────────────┘
+        │ tools=                                       │ 依赖
+        ▼                                              ▼
+┌─────────────────────┐                 ┌─────────────────────────────┐
+│ tools.registry      │                 │ storage   observability     │
+│  ├─ tools.builtin   │                 │ security  utils             │
+│  └─ mcp.client      │                 │ config                      │
+│ skills.registry     │                 └─────────────────────────────┘
+└─────────────────────┘
 ```
 
 ## 2. 模块职责
@@ -59,7 +62,7 @@ run_start
 | `channels.webhook` | 通用入站 webhook，便于对接其他 IM / 自动化平台。 |
 | `channels.cli_channel` | 终端交互，本地开发不依赖任何外部平台。 |
 | `channels.voice` | `doudou voice` 启动常驻监听。本地唤醒并断句，唤醒后用 DeepSeek ASR 转写，再直接向 `AgentRunner` 提交文本。返回的文本增量经 DeepSeek WebSocket TTS 流式播报，支持打断。 |
-| `api.app` | FastAPI 应用工厂：路由、中间件、异常处理、CORS。 |
+| `api.app` | FastAPI 应用工厂：路由、中间件、异常处理、CORS，以及内置聊天页（`/`、`/ui`）与统计页（`/stats`）。 |
 | `api.lifespan` | 进程级单例（agent / 数据库）的创建与释放，中间件与日志在此初始化。 |
 | `api.deps` | 依赖注入：运行期状态、runner、Bearer 鉴权。 |
 | `api.errors` | 领域异常 → 统一错误响应的翻译层。 |
@@ -112,7 +115,7 @@ run_start
 
 设计取舍见 `docs/observability.md`，容量数据见 `docs/performance.md`。
 
-### 2.3.1 定时任务
+### 2.3.2 定时任务
 
 | 模块 | 职责 |
 | --- | --- |

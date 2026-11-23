@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="960" viewBox="0 0 1360 960" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', 'Source Han Sans SC', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="960" viewBox="0 0 1360 960" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', 'Source Han Sans SC', sans-serif" role="img" aria-labelledby="title description">
+  <title id="title">Doudou 架构总览</title>
+  <desc id="description">飞书、Webhook、CLI、HTTP API 和本地语音复用 gateway 与 ReAct 引擎。语音在本地唤醒和断句，唤醒后用 DeepSeek ASR 转写，直接向 AgentRunner 发送文本请求，再将返回的文本增量交给 DeepSeek 流式合成。</desc>
   <defs>
     <marker id="arrow-sky" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/>
@@ -25,29 +27,41 @@
   <text x="60" y="142" font-size="13" font-weight="600" fill="#0369a1">入口层 · channels / api / cli</text>
 
   <g>
-    <rect x="60" y="158" width="290" height="72" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="76" y="190" font-size="16" font-weight="600" fill="#0f172a">飞书通道</text>
-    <text x="76" y="214" font-size="12.5" fill="#475569">channels.feishu · 长连接 + 流式卡片</text>
+    <g font-size="12.5" fill="#475569">
+      <rect x="60" y="158" width="205" height="80" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+      <text x="76" y="182" font-size="16" font-weight="600" fill="#0f172a">飞书通道</text>
+      <text x="76" y="202">channels.feishu</text>
+      <text x="76" y="222">长连接 + 流式卡片</text>
 
-    <rect x="370" y="158" width="290" height="72" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="386" y="190" font-size="16" font-weight="600" fill="#0f172a">Webhook</text>
-    <text x="386" y="214" font-size="12.5" fill="#475569">channels.webhook · X-Doudou-Token</text>
+      <rect x="280" y="158" width="205" height="80" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+      <text x="296" y="182" font-size="16" font-weight="600" fill="#0f172a">Webhook</text>
+      <text x="296" y="202">channels.webhook</text>
+      <text x="296" y="222">X-Doudou-Token</text>
 
-    <rect x="680" y="158" width="290" height="72" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="696" y="190" font-size="16" font-weight="600" fill="#0f172a">CLI</text>
-    <text x="696" y="214" font-size="12.5" fill="#475569">channels.cli · chat / ask / tools</text>
+      <rect x="500" y="158" width="205" height="80" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+      <text x="516" y="182" font-size="16" font-weight="600" fill="#0f172a">CLI</text>
+      <text x="516" y="202">channels.cli_channel</text>
+      <text x="516" y="222">chat / ask / tools</text>
 
-    <rect x="990" y="158" width="290" height="72" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="1006" y="190" font-size="16" font-weight="600" fill="#0f172a">HTTP API</text>
-    <text x="1006" y="214" font-size="12.5" fill="#475569">api.routes · REST / SSE / Bearer</text>
+      <rect x="720" y="158" width="205" height="80" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+      <text x="736" y="182" font-size="16" font-weight="600" fill="#0f172a">HTTP API / Web</text>
+      <text x="736" y="202">api.routes</text>
+      <text x="736" y="222">REST / SSE / Bearer</text>
+
+      <rect x="940" y="158" width="360" height="80" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+      <text x="956" y="182" font-size="16" font-weight="600" fill="#0f172a">本地语音</text>
+      <text x="1036" y="182">channels.voice · doudou voice</text>
+      <text x="956" y="202">本地唤醒与断句（KWS + VAD）→ DeepSeek ASR</text>
+      <text x="956" y="222">DeepSeek WebSocket TTS → 流式播报（支持打断）</text>
+    </g>
   </g>
 
   <!-- 入口 → gateway：汇流 -->
-  <path d="M205,230 L205,270 M515,230 L515,270 M825,230 L825,270 M1135,230 L1135,270"
+  <path d="M162.5,238 V270 M382.5,238 V270 M602.5,238 V270 M822.5,238 V270"
         stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
-  <path d="M205,270 L1135,270" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M162.5,270 H822.5" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
   <line x1="680" y1="270" x2="680" y2="296" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-sky)"/>
-  <text x="694" y="260" font-size="11.5" fill="#0369a1">InboundMessage / RunRequest</text>
+  <text x="694" y="290" font-size="11.5" fill="#0369a1">InboundMessage / RunRequest</text>
 
   <!-- ==================== gateway ==================== -->
   <rect x="40" y="300" width="1280" height="140" rx="16" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
@@ -67,9 +81,15 @@
     <text x="676" y="404" font-size="12.5" fill="#475569">InboundMessage → Agent 输入</text>
 
     <rect x="960" y="348" width="300" height="72" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
-    <text x="976" y="380" font-size="16" font-weight="600" fill="#0f172a">runner</text>
+    <text x="976" y="380" font-size="16" font-weight="600" fill="#0f172a">runner · AgentRunner</text>
     <text x="976" y="404" font-size="12.5" fill="#475569">执行 + 事件回流 + 历史落库</text>
   </g>
+
+  <!-- 语音直接调用 runner，返回文本增量用于流式合成 -->
+  <line x1="1110" y1="242" x2="1110" y2="344" stroke="#38bdf8" stroke-width="2"
+        marker-start="url(#arrow-sky)" marker-end="url(#arrow-sky)"/>
+  <text x="1124" y="269" font-size="11.5" fill="#0369a1">↓ RunRequest（转写文本）</text>
+  <text x="1124" y="288" font-size="11.5" fill="#0369a1">↑ RunEvent（文本增量）</text>
 
   <line x1="680" y1="440" x2="680" y2="466" stroke="#22c55e" stroke-width="2.5" marker-end="url(#arrow-green)"/>
   <text x="694" y="460" font-size="11.5" fill="#15803d">agent 调用</text>
@@ -89,7 +109,7 @@
     <text x="78" y="656">权限规则 + 人工确认：ApprovalBroker（超时按拒绝）</text>
 
     <rect x="60" y="682" width="700" height="44" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
-    <text x="78" y="710">事件流 RunEvent → CLI / SSE / 飞书卡片各自渲染</text>
+    <text x="78" y="710">事件流 RunEvent → CLI / SSE / 飞书卡片 / 语音播报</text>
   </g>
 
   <!-- Tool Registry -->

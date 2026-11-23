@@ -106,7 +106,7 @@ $ uv run doudou voice
 
 ## 2. 架构总览
 
-![Doudou 架构总览](docs/assets/architecture.png)
+![Doudou 架构总览，包含本地语音唤醒、转写与流式播报](docs/assets/architecture.png)
 
 > 可编辑的矢量源文件：[`docs/assets/architecture.svg`](docs/assets/architecture.svg)。
 
@@ -115,7 +115,7 @@ $ uv run doudou voice
 - **通道与 Agent 解耦**：通道只负责「收消息 / 发消息」，所有编排逻辑集中在 `gateway`。
 - **能力可插拔**：工具、MCP server、Skill 均通过配置声明，不写死在代码里。
 - **配置驱动**：`config/*.yaml` 描述 Agent、子 Agent、MCP、通道；环境变量与密钥走 `.env`。
-- **同一套 Agent 服务多渠道**：飞书、Webhook、CLI、HTTP API 与本地语音共享同一个 Agent 实例。
+- **同一套 Agent 引擎服务多渠道**：飞书、Webhook、CLI、HTTP API 与本地语音复用 gateway 和 ReAct 引擎。本地语音由 `doudou voice` 进程运行。
 
 ## 3. 目录结构
 

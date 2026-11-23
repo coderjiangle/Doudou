@@ -118,7 +118,7 @@ Operations with side effects pop a separate confirmation card — nothing runs u
 
 ## 2. Architecture at a glance
 
-![Doudou architecture](docs/assets/architecture.png)
+![Doudou architecture with local voice wake, transcription and streaming playback](docs/assets/architecture.png)
 
 > Editable vector source: [`docs/assets/architecture.svg`](docs/assets/architecture.svg).
 
@@ -130,8 +130,8 @@ Design principles:
   hard-coded.
 - **Configuration-driven**: `config/*.yaml` describes the agent, subagents, MCP servers and
   channels; environment variables and secrets live in `.env`.
-- **One agent, many channels**: Feishu, webhook, CLI, the HTTP API and local voice share a single
-  agent instance.
+- **One agent engine, many channels**: Feishu, webhook, CLI, the HTTP API and local voice reuse the
+  gateway and ReAct engine. Local voice runs in the `doudou voice` process.
 
 ## 3. Directory layout
 

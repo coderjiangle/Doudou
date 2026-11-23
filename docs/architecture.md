@@ -4,7 +4,7 @@
 
 ```
 ┌───────────────────────────── 入口层 ─────────────────────────────┐
-│  channels/{feishu,webhook,cli}     api/{routes}     cli/         │
+│  channels/{feishu,webhook}       api/routes · cli/ · voice      │
 └───────────────┬────────────────────────┬────────────────────────┘
                 │  InboundMessage        │  RunRequest
                 ▼                        ▼
@@ -43,7 +43,7 @@ run_start
 
 关键设计：
 
-- **事件化**：输出统一为 `RunEvent`（`agent/events.py`），CLI / SSE / 飞书卡片各自决定怎么渲染。
+- **事件化**：输出统一为 `RunEvent`（`agent/events.py`），供 CLI、SSE、飞书卡片和语音播报消费。
 - **工具调用按 index 手工累积**：只依赖 `tool_call_chunks` 协议，对 OpenAI / Anthropic / 兼容网关都成立，不假定 provider 的返回形态。
 - **单步失败不中断**：工具异常、工具不存在、参数 JSON 坏了，都转成错误 `ToolMessage` 回填给模型，让它换一种做法。
 - **人在回路**：`interrupt_on` 登记的工具在执行前调用 `approval_hook`；没有回调时**拒绝执行**而不是静默放行。
@@ -58,6 +58,7 @@ run_start
 | `channels.feishu` | 飞书长连接接入，去重与卡片渲染。 |
 | `channels.webhook` | 通用入站 webhook，便于对接其他 IM / 自动化平台。 |
 | `channels.cli_channel` | 终端交互，本地开发不依赖任何外部平台。 |
+| `channels.voice` | `doudou voice` 启动常驻监听。本地唤醒并断句，唤醒后用 DeepSeek ASR 转写，再直接向 `AgentRunner` 提交文本。返回的文本增量经 DeepSeek WebSocket TTS 流式播报，支持打断。 |
 | `api.app` | FastAPI 应用工厂：路由、中间件、异常处理、CORS。 |
 | `api.lifespan` | 进程级单例（agent / 数据库）的创建与释放，中间件与日志在此初始化。 |
 | `api.deps` | 依赖注入：运行期状态、runner、Bearer 鉴权。 |

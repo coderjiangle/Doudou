@@ -15,7 +15,7 @@ install: ## 安装全部依赖（含能力 extras、provider 与 dev）
 	uv sync --all-extras
 
 .PHONY: init
-init: ## 初始化 ~/doudou 配置、工作区与 Skill
+init: ## 初始化 ~/.doudou 配置、工作区与 Skill
 	$(PY) doudou init
 
 .PHONY: lock

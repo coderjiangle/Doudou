@@ -2,7 +2,7 @@
 
 优先级（右 > 左）::
 
-    代码内默认值 → ~/doudou/config/config.yaml → DOUDOU_* 环境变量
+    代码内默认值 → ~/.doudou/config/config.yaml → DOUDOU_* 环境变量
 
 环境变量名 = ``DOUDOU_`` + ``config.yaml`` 的路径（下划线连接），例如
 ``DOUDOU_MODEL_PRIMARY``、``DOUDOU_MODEL_MAX_TOKENS``。映射逻辑见
@@ -149,10 +149,10 @@ def load_settings(
     """加载并校验配置。
 
     Args:
-        config_dir: 配置目录，默认 ``~/doudou/config``，可被 ``DOUDOU_CONFIG_DIR`` 覆盖。
+        config_dir: 配置目录，默认 ``~/.doudou/config``，可被 ``DOUDOU_CONFIG_DIR`` 覆盖。
         config_file: 主配置文件（相对 ``config_dir`` 或绝对路径），
             默认 ``config.yaml``，可被 ``DOUDOU_CONFIG_FILE`` 覆盖。
-        env_file: ``.env`` 路径；默认先找当前目录，再找 ``~/doudou/.env``。
+        env_file: ``.env`` 路径；默认先找当前目录，再找 ``~/.doudou/.env``。
         use_env: 是否读取环境变量（测试中可关闭）。
     """
     resolved_env_file = Path(env_file) if env_file is not None else default_env_file()

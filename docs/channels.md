@@ -80,7 +80,7 @@ DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 ```
 
 ```yaml
-# ~/doudou/config/config.yaml
+# ~/.doudou/config/config.yaml
 channels:
   feishu:
     enabled: true

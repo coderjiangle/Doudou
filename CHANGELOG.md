@@ -2,6 +2,14 @@
 
 按日期记录功能变更，版本号见 `src/doudou/version.py`。
 
+## 2026-11-24
+
+### 默认运行时目录改为 `~/.doudou`
+
+- 默认运行时根目录从 `~/doudou` 调整为隐藏目录 `~/.doudou`（`DEFAULT_HOME = "~/.doudou"`），
+  覆盖 `config/`、`data/`、`workspace/`、`skills/`、`.env` 与 SQLite 默认路径；仍支持通过 `DOUDOU_HOME` 覆盖。
+- 同步更新 `doudou init` 模板替换规则、配置示例、文档与架构图。
+
 ## 2026-11-21
 
 ### 默认运行时目录迁移到 `~/doudou`

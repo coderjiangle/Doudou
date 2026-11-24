@@ -1,4 +1,4 @@
-"""Default runtime layout rooted at ``~/doudou``.
+"""Default runtime layout rooted at ``~/.doudou``.
 
 The packaged/installed app keeps user state outside the current working
 directory so that running ``doudou`` from any project does not scatter
@@ -14,7 +14,7 @@ from pathlib import Path
 
 #: Override the whole layout (process environment; also usable in tests).
 HOME_ENV = "DOUDOU_HOME"
-DEFAULT_HOME = "~/doudou"
+DEFAULT_HOME = "~/.doudou"
 #: Optional explicit env-file path; otherwise ``./.env`` wins over the home one.
 ENV_FILE_ENV = "DOUDOU_ENV_FILE"
 
@@ -40,7 +40,7 @@ def default_env_file() -> Path:
     """Pick the env file: explicit env override > cwd ``.env`` > home ``.env``.
 
     The cwd-first rule keeps the repository development workflow intact, while
-    an installed app can keep everything in ``~/doudou``.
+    an installed app can keep everything in ``~/.doudou``.
     """
     explicit = os.environ.get(ENV_FILE_ENV)
     if explicit:

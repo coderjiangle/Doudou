@@ -20,7 +20,7 @@ def test_init_creates_default_layout(tmp_path: Path) -> None:
     assert config.is_file()
     text = config.read_text(encoding="utf-8")
     assert tmp_path.as_posix() in text
-    assert "~/doudou" not in text
+    assert "~/.doudou" not in text
 
     assert (tmp_path / "config" / "prompts" / "system.md").is_file()
     assert (tmp_path / "config" / "AGENTS.md").read_text(encoding="utf-8") == (DEFAULT_MEMORY_FILE)

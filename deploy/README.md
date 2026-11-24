@@ -13,7 +13,7 @@
 1. **密钥**：`DOUDOU_CHANNELS_FEISHU_APP_SECRET`、`DOUDOU_API_TOKEN`、模型 API Key 通过 Secret 注入，不要写进 ConfigMap。
 2. **配置**：`config/config.yaml` 用 ConfigMap 挂载到 `/app/config`（只读）；
    镜像与 Compose/K8s 已设置 `DOUDOU_CONFIG_DIR=/app/config`。本地默认目录是
-   `~/doudou`；MCP server 清单也在配置里（`mcp.servers`），不需要额外文件。
+   `~/.doudou`；MCP server 清单也在配置里（`mcp.servers`），不需要额外文件。
 3. **Skill**：`skills/` 用 ConfigMap 或镜像内置挂载到 `/app/skills`。
    镜像默认安装 `feishu` / `anthropic` / `postgres` extras；如需语音或浏览器，
    在 `Dockerfile` 的 `uv sync` 命令追加 `--extra voice` / `--extra browser`。

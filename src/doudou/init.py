@@ -1,4 +1,4 @@
-"""Bootstrap the default ``~/doudou`` layout (config, data, workspace, skills)."""
+"""Bootstrap the default ``~/.doudou`` layout (config, data, workspace, skills)."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def init_home(home: Path | str | None = None, *, force: bool = False) -> InitRes
 
     created: list[Path] = []
     skipped: list[Path] = []
-    replacements = {"~/doudou": target.as_posix()}
+    replacements = {"~/.doudou": target.as_posix()}
 
     _copy_text(
         template_root.joinpath("config", "config.example.yaml"),

@@ -28,7 +28,7 @@ _SQLITE_PREFIXES = ("sqlite+aiosqlite:///", "sqlite+aiosqlite://")
 def _expand_sqlite_url(url: str) -> str:
     """把 SQLite URL 里的 ``~`` 展开成绝对路径。
 
-    SQLAlchemy 不会展开 ``~``；默认配置写成 ``~/doudou/data/...`` 时，
+    SQLAlchemy 不会展开 ``~``；默认配置写成 ``~/.doudou/data/...`` 时，
     如果原样交给引擎，SQLite 会把它当字面文件名。相对路径保持原样
     （仍按进程 cwd 解析），只规范化绝对/``~`` 路径。
     """

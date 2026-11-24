@@ -5,7 +5,7 @@
 | 来源 | 位置 | 状态 |
 | --- | --- | --- |
 | 内置工具 | `src/doudou/tools/builtin/` | ✅ `clock` / `files` / `http` / `web_search` / `shell` / `skills` / `memory` / `delegation` / `self_config` |
-| MCP 工具 | `~/doudou/config/config.yaml` 的 `mcp.servers` | ✅ 通过 `build_tools(extra=...)` 注入 |
+| MCP 工具 | `~/.doudou/config/config.yaml` 的 `mcp.servers` | ✅ 通过 `build_tools(extra=...)` 注入 |
 | deepagents / LangGraph 内置工具 | 框架提供 | ❌ 不采用：自研循环已覆盖 Skill / 上下文 / 子 Agent / 确认 |
 | 沙箱执行 | 容器 / 沙箱后端 | ⏳ 待评估；当前 `shell_exec` 自带，默认禁用 |
 
@@ -129,7 +129,7 @@ provider 只决定调哪家服务，换 provider 不必换字段名。
 ### 子 Agent（`task` 工具）
 
 子 Agent 的价值是**上下文隔离**：主 Agent 把检索/比对/试错丢出去，只取回一段结论。
-定义写在 `~/doudou/config/config.yaml` 的 `agent.subagents` 段（见该文件的注释）。
+定义写在 `~/.doudou/config/config.yaml` 的 `agent.subagents` 段（见该文件的注释）。
 
 三条刻意的约束：
 

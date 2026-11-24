@@ -3,7 +3,7 @@
 ## 1. 优先级与命名
 
 ```
-代码内默认值  <  ~/doudou/config/config.yaml  <  环境变量
+代码内默认值  <  ~/.doudou/config/config.yaml  <  环境变量
 ```
 
 环境变量只有一条规则：
@@ -50,14 +50,14 @@ pip install "doudou-agent[feishu,voice,browser]"
 
 ### 1.2 默认运行时目录
 
-`doudou init` 会在 `~/doudou` 下创建完整运行时目录：
+`doudou init` 会在 `~/.doudou` 下创建完整运行时目录：
 
 | 目录 | 内容 |
 | --- | --- |
-| `~/doudou/config/` | `config.yaml`、`prompts/system.md`、`AGENTS.md` |
-| `~/doudou/data/` | SQLite、浏览器 profile、语音模型 |
-| `~/doudou/workspace/` | `workspace_*` 文件工具的工作边界 |
-| `~/doudou/skills/` | Agent Skills |
+| `~/.doudou/config/` | `config.yaml`、`prompts/system.md`、`AGENTS.md` |
+| `~/.doudou/data/` | SQLite、浏览器 profile、语音模型 |
+| `~/.doudou/workspace/` | `workspace_*` 文件工具的工作边界 |
+| `~/.doudou/skills/` | Agent Skills |
 
 ```bash
 uv run doudou init
@@ -66,7 +66,7 @@ uv run doudou init --home /opt/doudou
 ```
 
 `DOUDOU_HOME` 可整体覆盖根目录；`doudou init --home` 生成的配置已经把路径写成该目录。
-当前目录存在 `.env` 时优先使用它，否则读取 `~/doudou/.env`。
+当前目录存在 `.env` 时优先使用它，否则读取 `~/.doudou/.env`。
 
 ## 2. 环境变量
 
@@ -84,10 +84,10 @@ uv run doudou init --home /opt/doudou
 | `DOUDOU_SERVER_HOST` / `DOUDOU_SERVER_PORT` | `127.0.0.1` / `8000` | 监听地址 |
 | `DOUDOU_SERVER_BASE_PATH` | `/api/v1` | API 前缀 |
 | `DOUDOU_SERVER_WORKERS` | `1` | 当前仅支持 1；其它值会在配置校验时拒绝 |
-| `DOUDOU_HOME` | `~/doudou` | 运行时根目录（config/data/workspace/skills） |
-| `DOUDOU_FILESYSTEM_ROOT_DIR` | `~/doudou/workspace` | 工作区根目录 |
-| `DOUDOU_CONFIG_DIR` / `DOUDOU_CONFIG_FILE` | `~/doudou/config` / `config.yaml` | 配置位置 |
-| `DOUDOU_ENV_FILE` | `./.env`（存在时）否则 `~/doudou/.env` | 显式指定 env 文件 |
+| `DOUDOU_HOME` | `~/.doudou` | 运行时根目录（config/data/workspace/skills） |
+| `DOUDOU_FILESYSTEM_ROOT_DIR` | `~/.doudou/workspace` | 工作区根目录 |
+| `DOUDOU_CONFIG_DIR` / `DOUDOU_CONFIG_FILE` | `~/.doudou/config` / `config.yaml` | 配置位置 |
+| `DOUDOU_ENV_FILE` | `./.env`（存在时）否则 `~/.doudou/.env` | 显式指定 env 文件 |
 
 ### 2.2 模型
 
@@ -113,7 +113,7 @@ uv run doudou init --home /opt/doudou
 #### 接入兼容 OpenAI 协议的网关
 
 ```yaml
-# ~/doudou/config/config.yaml
+# ~/.doudou/config/config.yaml
 model:
   primary: openai:<网关上的模型名>
   base_url: https://<网关域名>/v1
@@ -155,7 +155,7 @@ DOUDOU_MODEL_API_KEY=<网关签发的 Key>
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `DOUDOU_STORAGE_DATABASE_URL` | `sqlite+aiosqlite:///~/doudou/data/doudou.db` | 业务库 |
+| `DOUDOU_STORAGE_DATABASE_URL` | `sqlite+aiosqlite:///~/.doudou/data/doudou.db` | 业务库 |
 | `DOUDOU_STORAGE_HISTORY` | `database` | `database`（重启可续）/ `memory` |
 | `DOUDOU_STORAGE_MAX_MESSAGES_PER_THREAD` | `500` | 单会话保留的消息条数 |
 | `DOUDOU_MCP_ENABLED` | `true` | MCP 总开关（server 清单在 `config.yaml` 的 `mcp.servers`） |
@@ -262,7 +262,7 @@ agent:
 
 ## 4. MCP 清单
 
-清单写在 `~/doudou/config/config.yaml` 的 `mcp.servers` 里（不再单独一个 `mcp.servers.yaml`），
+清单写在 `~/.doudou/config/config.yaml` 的 `mcp.servers` 里（不再单独一个 `mcp.servers.yaml`），
 格式与要点见 [`mcp.md`](mcp.md) §2。摘要：
 
 - 支持 `${ENV_VAR}` 占位，启动时从环境变量替换；**变量缺失会报错**（而不是发出去换 401）。

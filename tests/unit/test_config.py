@@ -37,7 +37,7 @@ def test_defaults_are_usable_without_any_file(tmp_path: Path) -> None:
 def test_default_layout_is_under_doudou_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """默认配置/数据/工作区/Skill 都落在 ``~/doudou``（可被 DOUDOU_HOME 覆盖）。"""
+    """默认配置/数据/工作区/Skill 都落在 ``~/.doudou``（可被 DOUDOU_HOME 覆盖）。"""
     monkeypatch.setenv("DOUDOU_HOME", str(tmp_path))
 
     settings = load_settings(env_file=tmp_path / "no.env", use_env=False)

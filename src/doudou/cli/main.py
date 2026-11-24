@@ -832,7 +832,7 @@ def serve(
 def init(
     home: Annotated[
         Path | None,
-        typer.Option("--home", help="初始化根目录，默认 ~/doudou。"),
+        typer.Option("--home", help="初始化根目录，默认 ~/.doudou。"),
     ] = None,
     force: Annotated[
         bool,
@@ -842,7 +842,7 @@ def init(
         ),
     ] = False,
 ) -> None:
-    """初始化 ~/doudou 目录、配置、工作区与 Skill。"""
+    """初始化 ~/.doudou 目录、配置、工作区与 Skill。"""
     from doudou.config.env import read_env
     from doudou.config.paths import doudou_home
     from doudou.init import InitError, init_home

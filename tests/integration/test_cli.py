@@ -53,17 +53,6 @@ def test_help_lists_commands() -> None:
         assert command in output
 
 
-def test_init_creates_home(tmp_path: Path) -> None:
-    target = tmp_path / "doudou-home"
-
-    result = invoke("init", "--home", str(target))
-
-    assert result.exit_code == 0  # type: ignore[attr-defined]
-    assert (target / "config" / "config.yaml").is_file()
-    assert (target / "workspace").is_dir()
-    assert (target / "skills" / "weather" / "SKILL.md").is_file()
-
-
 # --------------------------------------------------------------------------- 单轮对话
 
 

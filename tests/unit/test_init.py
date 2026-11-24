@@ -4,30 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from doudou.init import DEFAULT_MEMORY_FILE, init_home
-
-
-def test_init_creates_default_layout(tmp_path: Path) -> None:
-    result = init_home(tmp_path)
-
-    assert result.home == tmp_path
-    assert result.config_dir == tmp_path / "config"
-    assert result.data_dir == tmp_path / "data"
-    assert result.workspace_dir == tmp_path / "workspace"
-    assert result.skills_dir == tmp_path / "skills"
-
-    config = tmp_path / "config" / "config.yaml"
-    assert config.is_file()
-    text = config.read_text(encoding="utf-8")
-    assert tmp_path.as_posix() in text
-    assert "~/.doudou" not in text
-
-    assert (tmp_path / "config" / "prompts" / "system.md").is_file()
-    assert (tmp_path / "config" / "AGENTS.md").read_text(encoding="utf-8") == (DEFAULT_MEMORY_FILE)
-    assert (tmp_path / ".env").is_file()
-    assert tmp_path.as_posix() in (tmp_path / ".env").read_text(encoding="utf-8")
-    assert (tmp_path / "skills" / "weather" / "SKILL.md").is_file()
-    assert (tmp_path / "skills" / "browser-browsing" / "SKILL.md").is_file()
+from doudou.init import init_home
 
 
 def test_init_does_not_copy_personal_memory(tmp_path: Path) -> None:

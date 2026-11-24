@@ -453,6 +453,8 @@ class McpConfig(_Section):
 
 class CliChannelConfig(_Section):
     enabled: bool = True
+    #: 是否用 rich Markdown 渲染终端回复（非 TTY、--quiet 或 --raw 时自动回退纯文本）。
+    render_markdown: bool = True
 
 
 class FeishuChannelConfig(_Section):

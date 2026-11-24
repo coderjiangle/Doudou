@@ -264,6 +264,7 @@ mcp:
 channels:
   cli:
     enabled: true
+    render_markdown: true    # 终端以 Markdown 渲染回复（非 TTY / --raw 自动回退纯文本）
 
   feishu:
     enabled: false

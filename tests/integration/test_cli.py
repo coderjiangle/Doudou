@@ -88,6 +88,48 @@ def test_ask_without_tool(config_dir: Path) -> None:
     assert "[offline] 收到你的消息：你好" in result.stdout  # type: ignore[attr-defined]
 
 
+def test_ask_raw_option_prints_plain_text(config_dir: Path) -> None:
+    result = invoke(
+        "ask",
+        "你好",
+        "--model",
+        "scripted:demo",
+        "--config-dir",
+        str(config_dir),
+        "--raw",
+    )
+
+    assert result.exit_code == 0  # type: ignore[attr-defined]
+    assert "[offline] 收到你的消息：你好" in result.stdout  # type: ignore[attr-defined]
+
+
+def test_ask_defaults_log_level_to_warning_unless_explicit(tmp_path: Path) -> None:
+    """即使配置里 runtime.log_level=INFO，交互 CLI 默认也应压到 WARNING；显式 --log-level INFO 可恢复。"""
+    root = tmp_path / "cfg"
+    root.mkdir()
+    (root / "config.yaml").write_text(
+        CONFIG.replace("log_level: ERROR", "log_level: INFO"),
+        encoding="utf-8",
+    )
+
+    quiet_logs = invoke("ask", "你好", "--model", "scripted:demo", "--config-dir", str(root))
+    assert quiet_logs.exit_code == 0  # type: ignore[attr-defined]
+    assert "runner.run_finished" not in quiet_logs.output  # type: ignore[attr-defined]
+
+    verbose_logs = invoke(
+        "ask",
+        "你好",
+        "--model",
+        "scripted:demo",
+        "--config-dir",
+        str(root),
+        "--log-level",
+        "INFO",
+    )
+    assert verbose_logs.exit_code == 0  # type: ignore[attr-defined]
+    assert "runner.run_finished" in verbose_logs.output  # type: ignore[attr-defined]
+
+
 def test_ask_stream_and_non_stream_agree(config_dir: Path) -> None:
     """流式与非流式的**答复结构**应当一致。
 

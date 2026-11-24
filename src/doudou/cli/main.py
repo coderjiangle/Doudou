@@ -77,11 +77,16 @@ EXIT_USAGE = 2
 # --------------------------------------------------------------------------- 内部工具
 
 
-def _load(config_dir: Path | None, *, log_level: str | None = None) -> Settings:
+def _load(
+    config_dir: Path | None,
+    *,
+    log_level: str | None = None,
+    default_log_level: str | None = None,
+) -> Settings:
     """加载配置并按需初始化日志。"""
     # 先做一次最小初始化：否则配置加载阶段（如「配置文件不存在」）的日志
     # 会绕过统一出口打到默认 stderr。
-    configure_logging(level=log_level or "INFO")
+    configure_logging(level=log_level or default_log_level or "INFO")
 
     try:
         settings = load_settings(config_dir=config_dir)
@@ -89,8 +94,11 @@ def _load(config_dir: Path | None, *, log_level: str | None = None) -> Settings:
         err_console.print(f"[bold red]配置加载失败：[/bold red]{exc}")
         raise typer.Exit(EXIT_USAGE) from exc
 
+    # 交互对话命令（chat / ask / voice）默认压低到 WARNING，避免 INFO 日志穿插进对话输出；
+    # 显式传入 --log-level 时仍以用户指定为准。
+    effective_level = log_level or default_log_level or settings.app.runtime.log_level
     configure_logging(
-        level=log_level or settings.app.runtime.log_level,
+        level=effective_level,
         json_logs=settings.app.runtime.log_json,
         timezone=settings.app.runtime.timezone,
     )
@@ -160,6 +168,7 @@ async def _prepare_channel(
     stream: bool,
     interactive: bool,
     quiet: bool,
+    render_markdown: bool = True,
 ) -> CliSession:
     """组装 agent + runner + CLI 通道，并拉取 MCP 工具。
 
@@ -200,6 +209,7 @@ async def _prepare_channel(
         echo_text=not quiet,
         console=target,
         show_tool_calls=not quiet,
+        render_markdown=settings.app.channels.cli.render_markdown and render_markdown,
     )
     return CliSession(channel=channel, mcp=mcp if mcp.enabled else None, database=database)
 
@@ -211,6 +221,7 @@ def _make_channel(
     stream: bool,
     interactive: bool,
     quiet: bool,
+    render_markdown: bool = True,
 ) -> CliChannel:
     """同步构造通道（不含 MCP）。
 
@@ -234,6 +245,7 @@ def _make_channel(
         echo_text=not quiet,
         console=target,
         show_tool_calls=not quiet,
+        render_markdown=settings.app.channels.cli.render_markdown and render_markdown,
     )
 
 
@@ -277,11 +289,12 @@ def chat(
         bool,
         typer.Option("--no-confirm", help="不询问，直接同意有副作用的工具执行。"),
     ] = False,
+    raw: Annotated[bool, typer.Option("--raw", help="关闭 Markdown 渲染，按纯文本输出。")] = False,
     config_dir: ConfigDir = None,
     log_level: LogLevel = None,
 ) -> None:
     """交互式对话（多轮，历史保存在内存中）。"""
-    settings = _load(config_dir, log_level=log_level)
+    settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
 
     async def _run() -> None:
         prepared = await _prepare_channel(
@@ -290,6 +303,7 @@ def chat(
             stream=not no_stream,
             interactive=not no_confirm,
             quiet=False,
+            render_markdown=not raw,
         )
         try:
             await prepared.channel.repl(conversation_id=conversation)
@@ -334,7 +348,7 @@ def voice_listen(
 
     from doudou.channels.voice.assistant import VoiceAssistant
 
-    settings = _load(config_dir, log_level=log_level)
+    settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
 
     async def _run() -> None:
         prepared = await _prepare_channel(
@@ -452,11 +466,12 @@ def ask(
     quiet: Annotated[
         bool, typer.Option("--quiet", "-q", help="只输出最终答复，适合脚本调用。")
     ] = False,
+    raw: Annotated[bool, typer.Option("--raw", help="关闭 Markdown 渲染，按纯文本输出。")] = False,
     config_dir: ConfigDir = None,
     log_level: LogLevel = None,
 ) -> None:
     """单轮对话：提问 → 执行 ReAct 循环 → 输出答复 → 退出。"""
-    settings = _load(config_dir, log_level=log_level)
+    settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
 
     async def _run() -> RunResult:
         prepared = await _prepare_channel(
@@ -465,6 +480,7 @@ def ask(
             stream=not no_stream,
             interactive=not no_confirm and not quiet,
             quiet=quiet,
+            render_markdown=not raw,
         )
         try:
             return await prepared.channel.ask(question, conversation_id=conversation)

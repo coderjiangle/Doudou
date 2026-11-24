@@ -240,7 +240,7 @@ Body:   { "conversation_id": "...", "user_id": "...", "text": "..." }
 | `/exit` | 退出 |
 
 单轮场景用 `uv run doudou ask "问题"`；`--quiet` 只输出最终答复（便于脚本调用），
-`--no-stream` 关闭流式，`--no-confirm` 关闭工具执行前的人工确认。
+`--no-stream` 关闭流式，`--no-confirm` 关闭工具执行前的人工确认，`--raw` 关闭终端 Markdown 渲染（默认在交互式终端自动启用富文本渲染，非 TTY 或重定向时自动回退纯文本；也可在配置 `channels.cli.render_markdown` 控制）。
 
 ## 5. 新增通道步骤
 

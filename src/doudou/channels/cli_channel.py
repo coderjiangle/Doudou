@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
 from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
 from rich.prompt import Confirm
 from rich.table import Table
 
@@ -41,9 +44,21 @@ class _RenderState:
     """渲染过程中的临时状态。"""
 
     text_started: bool = False
+    buffer: str = ""
+    live: Live | None = None
+    rendered_any: bool = False
+    last_refresh: float = 0.0
 
     def reset(self) -> None:
         self.text_started = False
+        self.buffer = ""
+        self.live = None
+        self.rendered_any = False
+        self.last_refresh = 0.0
+
+
+#: 流式 ``Live`` 刷新的最小间隔（秒），兼顾跟手度与大代码块重绘开销。
+_LIVE_REFRESH_INTERVAL = 0.04
 
 
 class CliChannel:
@@ -65,6 +80,7 @@ class CliChannel:
         console: Console | None = None,
         show_tool_calls: bool = True,
         max_tool_result_chars: int = MAX_TOOL_RESULT_CHARS,
+        render_markdown: bool = True,
     ) -> None:
         self.runner = runner
         self.stream = stream
@@ -75,6 +91,7 @@ class CliChannel:
         self.console = console or Console()
         self.show_tool_calls = show_tool_calls
         self.max_tool_result_chars = max_tool_result_chars
+        self.render_markdown = render_markdown
         self._state = _RenderState()
 
     # ---------------------------------------------------------------- Channel 协议
@@ -162,16 +179,20 @@ class CliChannel:
         usage: dict[str, int] = {}
         error: str | None = None
 
-        async for event in stream:
-            events.append(event)
-            self._render(event)
-            if event.type == "run_end":
-                text = event.text
-                steps = event.step
-                usage = event.usage
-            elif event.type == "error":
-                error = event.text
-                steps = event.step
+        try:
+            async for event in stream:
+                events.append(event)
+                self._render(event)
+                if event.type == "run_end":
+                    text = event.text
+                    steps = event.step
+                    usage = event.usage
+                elif event.type == "error":
+                    error = event.text
+                    steps = event.step
+        finally:
+            # 确保异常或中断退出时也会停掉 Live，恢复终端光标。
+            self._stop_live()
 
         return RunResult(
             text=text,
@@ -183,18 +204,75 @@ class CliChannel:
             error=error,
         )
 
+    def _should_render_markdown(self) -> bool:
+        """仅在启用渲染、输出正文且处于交互式终端时启用 Markdown。"""
+        return self.render_markdown and self.echo_text and self.console.is_terminal
+
+    def _stop_live(self) -> None:
+        if self._state.live is not None:
+            try:
+                self._state.live.stop()
+            finally:
+                self._state.live = None
+                self._state.last_refresh = 0.0
+
+    def _flush_markdown(self) -> None:
+        """停掉动态预览，把缓冲里剩余文本以 Markdown 固化打印。"""
+        self._stop_live()
+        remaining = self._state.buffer
+        self._state.buffer = ""
+        if remaining.strip():
+            self.console.print(Markdown(remaining))
+            self._state.rendered_any = True
+        self._state.text_started = False
+
+    def _stream_markdown_delta(self, delta: str) -> None:
+        self._state.text_started = True
+        self._state.buffer += delta
+
+        committed, tail = _split_completed_blocks(self._state.buffer)
+        if committed:
+            self._stop_live()
+            if committed.strip():
+                self.console.print(Markdown(committed))
+                self._state.rendered_any = True
+            self._state.buffer = tail
+
+        if not self._state.buffer.strip():
+            return
+
+        now = time.monotonic()
+        if self._state.live is None:
+            self._state.live = Live(
+                Markdown(self._state.buffer),
+                console=self.console,
+                transient=True,
+                vertical_overflow="visible",
+                auto_refresh=False,
+            )
+            self._state.live.start()
+            self._state.last_refresh = now
+        elif committed or now - self._state.last_refresh >= _LIVE_REFRESH_INTERVAL:
+            self._state.live.update(Markdown(self._state.buffer), refresh=True)
+            self._state.last_refresh = now
+
     def _render(self, event: RunEvent) -> None:
         if event.type == "text_delta":
             if not self.echo_text:
                 return
-            self._state.text_started = True
-            self.console.print(event.text, end="", markup=False, highlight=False)
+            if self._should_render_markdown():
+                self._stream_markdown_delta(event.text)
+            else:
+                self._state.text_started = True
+                self.console.print(event.text, end="", markup=False, highlight=False)
             return
 
-        if event.type == "tool_call" and self.show_tool_calls:
+        if event.type == "tool_call":
+            # 无论是否展示工具日志，都要在工具执行（含人工确认 Confirm.ask）前收口流式输出。
             self._break_line()
-            args = _format_args(event.tool_args or {})
-            self.console.print(f"[dim]· 调用工具 [b]{event.tool_name}[/b]{args}[/dim]")
+            if self.show_tool_calls:
+                args = _format_args(event.tool_args or {})
+                self.console.print(f"[dim]· 调用工具 [b]{event.tool_name}[/b]{args}[/dim]")
             return
 
         if event.type == "tool_result" and self.show_tool_calls:
@@ -207,9 +285,26 @@ class CliChannel:
         if event.type == "error":
             self._break_line()
             self.console.print(f"[bold red]✗ {event.text}[/]")
+            return
+
+        if event.type == "run_end":
+            # AgentRunner.astream 在 yield run_end 之后、退出前会在 finally 打
+            # runner.run_finished 日志；必须先停掉 Live 并固化正文，避免 stderr
+            # 日志打断 Live 光标回退导致正文重复渲染。
+            if self._should_render_markdown():
+                self._flush_markdown()
+            elif self._state.text_started:
+                self.console.print()
+                self._state.text_started = False
+            self._state.rendered_any = self._state.rendered_any or bool(event.text)
 
     def _finish(self, result: RunResult) -> None:
         if not self.echo_text:
+            return
+        if self._should_render_markdown():
+            self._flush_markdown()
+            if not self._state.rendered_any and result.text:
+                self.console.print(Markdown(result.text))
             return
         if self._state.text_started:
             self.console.print()
@@ -218,10 +313,14 @@ class CliChannel:
             self.console.print(result.text, markup=False, highlight=False)
 
     def _break_line(self) -> None:
-        """如果已经输出过正文，先换行，避免工具日志和正文粘在一起。"""
+        """如果已经输出过正文，先收口当前段，避免工具日志或确认提示与正文粘在一起。"""
+        if self._should_render_markdown():
+            if self._state.live is not None or self._state.buffer or self._state.text_started:
+                self._flush_markdown()
+            return
         if self._state.text_started:
             self.console.print()
-            self._state.reset()
+            self._state.text_started = False
 
     # ---------------------------------------------------------------- 人工确认
 
@@ -341,6 +440,69 @@ def make_auto_approve_hook(console: Console) -> ApprovalHook:
         return True
 
     return _approve
+
+
+def _fence_marker(stripped: str) -> tuple[str, int] | None:
+    """识别 CommonMark 围栏代码块起始/结束行，返回 ``(字符, 长度)``。"""
+    if not stripped or stripped[0] not in ("`", "~"):
+        return None
+    char = stripped[0]
+    length = 0
+    while length < len(stripped) and stripped[length] == char:
+        length += 1
+    if length < 3:
+        return None
+    return char, length
+
+
+def _split_completed_blocks(text: str) -> tuple[str, str]:
+    """切出已完结、可安全固化打印的 Markdown 顶层块，保留末尾仍在流式输出的块。
+
+    只在不处于围栏代码块内部、且遇到空行时切分，避免把代码块、列表或表格从中间截断。
+    """
+    lines = text.splitlines(keepends=True)
+    fence_char: str | None = None
+    fence_len = 0
+    seen_content = False
+    split_pos = 0
+    pos = 0
+
+    for line in lines:
+        pos += len(line)
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        marker = _fence_marker(stripped) if indent <= 3 else None
+        if marker is not None:
+            char, length = marker
+            rest = stripped[length:]
+            if fence_char is None:
+                # CommonMark 规则：反引号围栏的 info string 不能包含反引号（避免误判行内代码）。
+                if char == "`" and "`" in rest:
+                    seen_content = True
+                    continue
+                fence_char = char
+                fence_len = length
+                seen_content = True
+                continue
+            if char == fence_char and length >= fence_len and rest.strip() == "":
+                fence_char = None
+                fence_len = 0
+                seen_content = True
+                continue
+
+        if fence_char is not None:
+            seen_content = True
+            continue
+
+        if line.strip() == "":
+            if seen_content:
+                split_pos = pos
+        else:
+            seen_content = True
+
+    if split_pos == 0:
+        return "", text
+    return text[:split_pos], text[split_pos:]
 
 
 def _summary(text: str, limit: int = 44) -> str:

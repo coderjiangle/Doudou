@@ -97,6 +97,17 @@ def _build_message(raw: dict[str, Any]) -> BaseMessage:
     return HumanMessage(content=content)
 
 
+def _decode_sse_payload(data_lines: list[str]) -> dict[str, Any] | None:
+    if not data_lines:
+        return None
+    joined = "\n".join(data_lines)
+    try:
+        payload = json.loads(joined)
+    except json.JSONDecodeError:
+        payload = {"raw": joined}
+    return payload if isinstance(payload, dict) else None
+
+
 async def _iter_sse_events(
     lines: AsyncIterator[str],
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
@@ -107,14 +118,9 @@ async def _iter_sse_events(
     async for raw_line in lines:
         line = raw_line.rstrip("\r\n")
         if line == "":
-            if data_lines:
-                joined = "\n".join(data_lines)
-                try:
-                    payload = json.loads(joined)
-                except json.JSONDecodeError:
-                    payload = {"raw": joined}
-                if isinstance(payload, dict):
-                    yield event_name, payload
+            payload = _decode_sse_payload(data_lines)
+            if payload is not None:
+                yield event_name, payload
             event_name = "message"
             data_lines.clear()
             continue
@@ -125,14 +131,9 @@ async def _iter_sse_events(
         elif line.startswith("data:"):
             data_lines.append(line.split(":", 1)[1].lstrip())
 
-    if data_lines:
-        joined = "\n".join(data_lines)
-        try:
-            payload = json.loads(joined)
-        except json.JSONDecodeError:
-            payload = {"raw": joined}
-        if isinstance(payload, dict):
-            yield event_name, payload
+    payload = _decode_sse_payload(data_lines)
+    if payload is not None:
+        yield event_name, payload
 
 
 class RemoteAgentRunner:

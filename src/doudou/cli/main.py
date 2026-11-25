@@ -172,6 +172,16 @@ async def _open_scheduler_store(
     return SqlSchedulerStore(database), database
 
 
+def _select_approval_hook(
+    target: Console, *, interactive: bool, quiet: bool
+) -> ApprovalHook | None:
+    if quiet:
+        return None
+    if interactive:
+        return make_approval_hook(target)
+    return make_auto_approve_hook(target)
+
+
 async def _prepare_channel(
     settings: Settings,
     model_spec: str | None,
@@ -194,12 +204,7 @@ async def _prepare_channel(
       这适合脚本场景：没有人在场就不能替用户同意写操作。
     """
     target = err_console if quiet else console
-    if quiet:
-        hook: ApprovalHook | None = None
-    elif interactive:
-        hook = make_approval_hook(target)
-    else:
-        hook = make_auto_approve_hook(target)
+    hook = _select_approval_hook(target, interactive=interactive, quiet=quiet)
 
     mcp = McpRuntime(settings)
     mcp_tools = await mcp.start()
@@ -244,12 +249,7 @@ async def _prepare_remote_channel(
 ) -> CliSession:
     """连向现有或随用随关的临时 ``doudou serve``，构造纯客户端会话。"""
     target = err_console if quiet else console
-    if quiet:
-        hook: ApprovalHook | None = None
-    elif interactive:
-        hook = make_approval_hook(target)
-    else:
-        hook = make_auto_approve_hook(target)
+    hook = _select_approval_hook(target, interactive=interactive, quiet=quiet)
 
     serve_proc = await EphemeralServeProcess.attach_or_spawn(
         settings,
@@ -280,57 +280,6 @@ async def _prepare_remote_channel(
         render_markdown=settings.app.channels.cli.render_markdown and render_markdown,
     )
     return CliSession(channel=channel, remote_runner=remote, ephemeral_serve=serve_proc)
-
-
-def _make_channel(
-    settings: Settings,
-    model_spec: str | None,
-    *,
-    stream: bool,
-    interactive: bool,
-    quiet: bool,
-    render_markdown: bool = True,
-) -> CliChannel:
-    """同步构造通道（不含 MCP）。
-
-    保留它是因为 ``doudou chat`` 之外还有少量同步调用点；新代码请用
-    :func:`_prepare_channel`，否则 MCP 工具不会生效。
-    """
-    target = err_console if quiet else console
-    if quiet:
-        hook: ApprovalHook | None = None
-    elif interactive:
-        hook = make_approval_hook(target)
-    else:
-        hook = make_auto_approve_hook(target)
-
-    bundle = _build_bundle(settings, model_spec, approval_hook=hook)
-    runner = AgentRunner(bundle)
-    return CliChannel(
-        runner,
-        stream=stream,
-        interactive=interactive,
-        echo_text=not quiet,
-        console=target,
-        show_tool_calls=not quiet,
-        render_markdown=settings.app.channels.cli.render_markdown and render_markdown,
-    )
-
-
-def _cli_channel(
-    runner: AgentRunner,
-    *,
-    stream: bool,
-    interactive: bool,
-    quiet: bool,
-) -> CliChannel:
-    return CliChannel(
-        runner,
-        stream=stream,
-        interactive=interactive,
-        console=err_console if quiet else console,
-        show_tool_calls=not quiet,
-    )
 
 
 def _summary(text: str, limit: int = 44) -> str:
@@ -1130,7 +1079,6 @@ def mcp_check(
         console.print(f"  服务端 : {info[server]}")
     if not entry.ok:
         raise typer.Exit(EXIT_USAGE)
-    console.print(__version__)
 
 
 @app.callback(invoke_without_command=True)

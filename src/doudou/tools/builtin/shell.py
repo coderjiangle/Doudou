@@ -267,12 +267,4 @@ def _shape_output(output: str, limit: int) -> str:
     return f"{head}\n…（已截断 {len(text) - limit} 字）…\n{tail}"
 
 
-def default_shell_hint() -> str:
-    """给 ``config check`` 用的提示（默认不开时告知怎么开）。"""
-    return (
-        "shell_exec 默认禁用；需要时在 config.yaml 里设 tools.shell.enabled: true"
-        f"（当前平台 {sys.platform}）。Linux 上可再加 tools.shell.sandbox: bwrap 隔离文件系统。"
-    )
-
-
 __all__ = ["GROUP", "ShellError", "build_tools", "missing_requirement", "shell_dialect"]

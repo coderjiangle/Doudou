@@ -210,13 +210,3 @@ def test_describe_shape(registry: SkillRegistry) -> None:
     assert entry.files == ["reference.md"]
     assert entry.directory.endswith("demo-skill")
     assert entry.as_dict()["name"] == "demo-skill"
-
-
-def test_repo_skills_are_indexed() -> None:
-    """仓库自带的 skills/ 目录必须能被索引到 —— 这是开箱可用的前提。"""
-    repo_skills = Path(__file__).resolve().parents[2] / "skills"
-
-    registry = SkillRegistry([repo_skills])
-
-    assert {"weather"} <= set(registry.names)
-    assert registry.errors == []

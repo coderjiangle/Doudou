@@ -135,6 +135,7 @@ class CliSession:
     database: Database | None = None
 
     async def aclose(self) -> None:
+        await self.channel.runner.bundle.aclose()
         if self.mcp is not None:
             await self.mcp.stop()
         if self.database is not None:

@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlsplit
@@ -223,6 +224,21 @@ class PlaywrightBrowserBackend:
     @property
     def _timeout_ms(self) -> float:
         return max(1.0, float(self.config.timeout)) * 1000.0
+
+    async def aclose(self) -> None:
+        """在所属事件循环停止 Playwright 驱动，释放子进程管道。"""
+        async with self._lock:
+            try:
+                if self._playwright is not None:
+                    # Chrome 是独立进程，只停止 Playwright 的 CDP 客户端。
+                    await self._playwright.stop()
+            except Exception as exc:
+                logger.warning("tools.browser_shutdown_failed", error=str(exc))
+            finally:
+                self._active_page = None
+                self._browser = None
+                self._playwright = None
+                self._loop = None
 
     # ------------------------------------------------------------------ 连接与生命周期
 
@@ -608,6 +624,7 @@ def build_tools(
     settings: Settings,
     *,
     backend: BrowserBackend | None = None,
+    exit_stack: AsyncExitStack | None = None,
 ) -> Sequence[BaseTool]:
     """构造 Chrome 浏览器控制工具；未启用或缺少 playwright 时返回空列表。"""
     reason = missing_requirement(settings)
@@ -616,7 +633,14 @@ def build_tools(
         return []
 
     config = settings.app.tools.browser
-    runtime: BrowserBackend = backend or PlaywrightBrowserBackend(config)
+    runtime: BrowserBackend
+    if backend is None:
+        owned_backend = PlaywrightBrowserBackend(config)
+        if exit_stack is not None:
+            exit_stack.push_async_callback(owned_backend.aclose)
+        runtime = owned_backend
+    else:
+        runtime = backend
     tool_timeout = config.timeout + 15.0
 
     @tool

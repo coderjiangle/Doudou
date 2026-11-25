@@ -220,12 +220,13 @@ def build_scheduler_runtime(
 
 
 async def dispose_state(state: AppState) -> None:
-    """释放资源。先停调度与通道（停止收新消息），再停 bus / MCP / 观测，最后关数据库。"""
+    """先停调度、通道和 bus，再关闭工具、MCP、观测与数据库。"""
     if state.scheduler is not None:
         await state.scheduler.stop()
     await stop_channels(state.channels)
     if state.bus is not None:
         await state.bus.stop()
+    await state.bundle.aclose()
     if state.mcp is not None:
         await state.mcp.stop()
     # 观测放在数据库之前关：轨迹还要 flush 一次，而 flush 可能读库。

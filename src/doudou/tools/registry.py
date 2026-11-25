@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Any
 
@@ -109,6 +110,7 @@ def build_tools(
     model: BaseChatModel | None = None,
     fallback_models: Sequence[BaseChatModel] = (),
     approval_hook: Any | None = None,
+    exit_stack: AsyncExitStack | None = None,
 ) -> list[BaseTool]:
     """汇总所有工具，做分组开关、禁用名单与重名检测。
 
@@ -123,6 +125,7 @@ def build_tools(
         model: 主模型；``task`` 工具需要它来驱动子 Agent。
         approval_hook: 主 Agent 的确认回调，**必须传给 ``task``** ——
             否则子 Agent 调用有副作用的工具时无人可问。
+        exit_stack: Agent 的资源退出栈，用于登记工具后端的清理回调。
 
     Returns:
         工具列表，顺序为「内置 → extra → 委派」。被配置禁用的、
@@ -137,7 +140,12 @@ def build_tools(
         if not group_enabled(settings, group):
             logger.debug("tools.group_disabled", group=group)
             continue
-        for item in provider(settings):
+        items = (
+            browser.build_tools(settings, exit_stack=exit_stack)
+            if group == browser.GROUP
+            else provider(settings)
+        )
+        for item in items:
             _add(collected, seen, item, source=f"builtin:{group}", settings=settings)
 
     for item in extra:

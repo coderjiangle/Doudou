@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,11 @@ class AgentBundle:
     memory: MemoryStore | None = None
     context: ContextManager | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    _tool_resources: AsyncExitStack = field(default_factory=AsyncExitStack, repr=False)
+
+    async def aclose(self) -> None:
+        """在运行 Agent 的事件循环中释放工具资源。"""
+        await self._tool_resources.aclose()
 
     @property
     def system_prompt(self) -> str:
@@ -137,6 +143,7 @@ def build_agent(
     # Skill 索引只建一次，提示词与 read_skill 工具共用它 ——
     # 否则「提示词里列出的技能」与「能读到的技能」可能对不上。
     skills_registry = SkillRegistry.from_settings(resolved)
+    tool_resources = AsyncExitStack()
     if tools is None:
         tools = build_tools(
             resolved,
@@ -148,6 +155,7 @@ def build_agent(
             model=model,
             fallback_models=fallback_models,
             approval_hook=approval_hook,
+            exit_stack=tool_resources,
         )
 
     system_prompt = _compose_prompt(resolved, skills_registry, memory)
@@ -195,6 +203,7 @@ def build_agent(
         memory=memory,
         context=context,
         metadata=metadata,
+        _tool_resources=tool_resources,
     )
     # remember 工具写回记忆后，让 Agent 立刻用上新提示词 ——
     # 否则用户会看到「它说记住了，但下一轮还是不知道」。

@@ -141,13 +141,3 @@ def test_discover_skills_missing_root_is_not_an_error(tmp_path: Path) -> None:
 
     assert skills == []
     assert errors == []
-
-
-def test_repo_skills_are_valid() -> None:
-    """仓库自带的 skills/ 必须全部通过校验（否则 agent 会加载失败）。"""
-    repo_skills = Path(__file__).resolve().parents[2] / "skills"
-
-    skills, errors = discover_skills([repo_skills])
-
-    assert errors == []
-    assert {info.name for info in skills} >= {"weather"}

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
 
+from doudou.channels.cli_channel import CliChannel
 from doudou.cli.main import app
+from doudou.tools.builtin import browser
 
 runner = CliRunner()
 
@@ -51,6 +55,45 @@ def test_help_lists_commands() -> None:
 
     for command in ("chat", "ask", "tools", "skills", "config", "init"):
         assert command in output
+
+
+def test_chat_exit_stops_browser_driver(config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """实际走 /exit，验证在创建驱动的事件循环中等待 stop() 完成。"""
+    monkeypatch.chdir(config_dir.parent)
+    monkeypatch.setenv("DOUDOU_HOME", str(config_dir.parent))
+    monkeypatch.setenv("DOUDOU_TOOLS_BROWSER_ENABLED", "true")
+    monkeypatch.setenv("DOUDOU_MCP_ENABLED", "false")
+    monkeypatch.setenv("DOUDOU_SCHEDULER_ENABLED", "false")
+    monkeypatch.setattr(browser, "playwright_available", lambda: True)
+    started: list[asyncio.AbstractEventLoop] = []
+    stopped: list[asyncio.AbstractEventLoop] = []
+
+    async def stop() -> None:
+        await asyncio.sleep(0)
+        stopped.append(asyncio.get_running_loop())
+
+    async def list_tabs(backend: browser.PlaywrightBrowserBackend) -> str:
+        started.append(asyncio.get_running_loop())
+        monkeypatch.setattr(backend, "_playwright", SimpleNamespace(stop=stop))
+        return "test tab"
+
+    original_repl = CliChannel.repl
+
+    async def repl(channel: CliChannel, *, conversation_id: str) -> None:
+        tool = next(tool for tool in channel.runner.bundle.tools if tool.name == "browser_tabs")
+        assert await tool.ainvoke({}) == "test tab"
+        await original_repl(channel, conversation_id=conversation_id)
+
+    monkeypatch.setattr(browser.PlaywrightBrowserBackend, "list_tabs", list_tabs)
+    monkeypatch.setattr(CliChannel, "repl", repl)
+    result = runner.invoke(
+        app, ["chat", "--model", "scripted:demo", "--config-dir", str(config_dir)], input="/exit\n"
+    )
+
+    assert result.exit_code == 0
+    assert "再见。" in result.output
+    assert len(started) == 1
+    assert stopped == started
 
 
 # --------------------------------------------------------------------------- 单轮对话

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import io
 from collections.abc import AsyncIterator
+from unittest.mock import patch
 
+import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from rich.console import Console
+from rich.markdown import Markdown
 
 from doudou.agent.events import RunEvent
 from doudou.agent.factory import build_agent
@@ -71,7 +74,7 @@ async def test_cli_channel_renders_markdown_on_tty_stream(settings: Settings) ->
     bundle = build_agent(settings, model=model, extra_tools=())
     runner = AgentRunner(bundle)
     console, buf = _make_tty_console()
-    channel = CliChannel(runner, stream=True, console=console, interactive=False)
+    channel = CliChannel(runner, stream=True, console=console)
 
     result = await channel.ask("测试")
 
@@ -91,7 +94,7 @@ async def test_cli_channel_renders_markdown_on_tty_non_stream(settings: Settings
     bundle = build_agent(settings, model=model, extra_tools=())
     runner = AgentRunner(bundle)
     console, buf = _make_tty_console()
-    channel = CliChannel(runner, stream=False, console=console, interactive=False)
+    channel = CliChannel(runner, stream=False, console=console)
 
     result = await channel.ask("测试")
 
@@ -116,12 +119,11 @@ async def test_cli_channel_falls_back_to_raw_when_disabled_or_non_tty(
         AgentRunner(bundle_raw),
         stream=True,
         console=tty_console,
-        interactive=False,
         render_markdown=False,
     )
     await channel_raw.ask("测试")
     assert "**加粗**" in tty_buf.getvalue()
-    assert "# 标题" in tty_buf.getvalue()
+    assert tty_buf.getvalue().count("# 标题") == 1
 
     # 2. 非 TTY（重定向/管道/测试捕获）自动回退纯文本
     model_pipe = ScriptedChatModel(steps=[AIMessage(content=md)])
@@ -131,12 +133,11 @@ async def test_cli_channel_falls_back_to_raw_when_disabled_or_non_tty(
         AgentRunner(bundle_pipe),
         stream=True,
         console=plain_console,
-        interactive=False,
         render_markdown=True,
     )
     await channel_pipe.ask("测试")
     assert "**加粗**" in plain_buf.getvalue()
-    assert "# 标题" in plain_buf.getvalue()
+    assert plain_buf.getvalue().count("# 标题") == 1
 
 
 async def test_cli_channel_flushes_live_before_tool_call_and_approval(
@@ -178,7 +179,7 @@ async def test_cli_channel_flushes_live_before_tool_call_and_approval(
         extra_tools=[echo_tool],
         approval_hook=approval_hook,
     )
-    channel = CliChannel(AgentRunner(bundle), stream=True, console=console, interactive=True)
+    channel = CliChannel(AgentRunner(bundle), stream=True, console=console)
     channel_ref.append(channel)
 
     result = await channel.ask("执行")
@@ -199,7 +200,7 @@ async def test_cli_channel_stops_live_on_stream_exception(settings: Settings) ->
     model = ScriptedChatModel(steps=[AIMessage(content="ok")])
     bundle = build_agent(settings, model=model, extra_tools=())
     console, _buf = _make_tty_console()
-    channel = CliChannel(AgentRunner(bundle), stream=True, console=console, interactive=False)
+    channel = CliChannel(AgentRunner(bundle), stream=True, console=console)
 
     async def broken_stream() -> AsyncIterator[RunEvent]:
         yield RunEvent.text_delta("正在生成 **半段**", step=1)
@@ -213,29 +214,38 @@ async def test_cli_channel_stops_live_on_stream_exception(settings: Settings) ->
     assert channel._state.live is None
 
 
+@pytest.mark.parametrize("send_deltas", [True, False])
 async def test_cli_channel_stops_live_on_run_end_before_runner_finally(
     settings: Settings,
+    send_deltas: bool,
 ) -> None:
     """收到 run_end 时就必须停掉 Live，避免 runner.finally 打日志时穿插并造成重复输出。"""
     model = ScriptedChatModel(steps=[AIMessage(content="行吧，**起来抖抖毛**。")])
     bundle = build_agent(settings, model=model, extra_tools=())
     console, buf = _make_tty_console()
-    channel = CliChannel(AgentRunner(bundle), stream=True, console=console, interactive=False)
+    channel = CliChannel(AgentRunner(bundle), stream=True, console=console)
 
     live_at_post_run_end: list[bool] = []
 
     async def stream_with_post_log() -> AsyncIterator[RunEvent]:
-        yield RunEvent.text_delta("行吧，", step=1)
-        yield RunEvent.text_delta("**起来抖抖毛**。", step=1)
+        if send_deltas:
+            yield RunEvent.text_delta("行吧，", step=1)
+            yield RunEvent.text_delta("**起来抖抖毛**。", step=1)
         yield RunEvent.run_end("行吧，**起来抖抖毛**。", step=1)
         # 模拟 AgentRunner.astream finally 阶段（run_end 之后、迭代器退出之前）
         live_at_post_run_end.append(channel._state.live is None)
 
-    result = await channel._consume(stream_with_post_log(), thread_id="t-end")
-    channel._finish(result)
+    with patch.object(console, "print", wraps=console.print) as printed:
+        result = await channel._consume(stream_with_post_log(), thread_id="t-end")
+        channel._finish(result)
 
     assert live_at_post_run_end == [True]
-    rendered = buf.getvalue()
-    assert rendered.count("起来抖抖毛") >= 1
-    # 不应在 _finish 时再重复固化输出一遍
-    assert rendered.count("行吧，") == 2  # 1 次 Live 预览 + 1 次固化 Markdown（非 2 次固化）
+    assert "起来抖抖毛" in buf.getvalue()
+    # Rich 的临时预览随平台变化，这里只统计实际固化的 Markdown。
+    assert (
+        sum(
+            bool(call.args) and isinstance(call.args[0], Markdown)
+            for call in printed.call_args_list
+        )
+        == 1
+    )

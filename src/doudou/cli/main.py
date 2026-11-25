@@ -19,7 +19,12 @@ from rich.table import Table
 from doudou.agent.factory import AgentBundle, build_agent
 from doudou.agent.models import ModelBuildError, credential_hint, has_credential, parse_spec
 from doudou.agent.react import ApprovalHook, RunResult
-from doudou.channels.cli_channel import CliChannel, make_approval_hook, make_auto_approve_hook
+from doudou.channels.cli_channel import (
+    CliChannel,
+    description_summary,
+    make_approval_hook,
+    make_auto_approve_hook,
+)
 from doudou.cli.remote import EphemeralServeProcess, RemoteAgentRunner, RemoteServerError
 from doudou.config.loader import Settings, load_settings
 from doudou.gateway.runner import AgentRunner
@@ -173,7 +178,7 @@ async def _open_scheduler_store(
 
 
 def _select_approval_hook(
-    target: Console, *, interactive: bool, quiet: bool
+    target: Console, *, interactive: bool, quiet: bool = False
 ) -> ApprovalHook | None:
     if quiet:
         return None
@@ -221,7 +226,6 @@ async def _prepare_channel(
     channel = CliChannel(
         runner,
         stream=stream,
-        interactive=interactive,
         echo_text=not quiet,
         console=target,
         show_tool_calls=not quiet,
@@ -243,13 +247,11 @@ async def _prepare_remote_channel(
     server_url: str | None,
     stream: bool,
     interactive: bool,
-    quiet: bool,
     render_markdown: bool = True,
     new_session: bool = False,
 ) -> CliSession:
     """连向现有或随用随关的临时 ``doudou serve``，构造纯客户端会话。"""
-    target = err_console if quiet else console
-    hook = _select_approval_hook(target, interactive=interactive, quiet=quiet)
+    hook = _select_approval_hook(console, interactive=interactive)
 
     serve_proc = await EphemeralServeProcess.attach_or_spawn(
         settings,
@@ -273,25 +275,10 @@ async def _prepare_remote_channel(
     channel = CliChannel(
         remote,
         stream=stream,
-        interactive=interactive,
-        echo_text=not quiet,
-        console=target,
-        show_tool_calls=not quiet,
+        console=console,
         render_markdown=settings.app.channels.cli.render_markdown and render_markdown,
     )
     return CliSession(channel=channel, remote_runner=remote, ephemeral_serve=serve_proc)
-
-
-def _summary(text: str, limit: int = 44) -> str:
-    """把工具的 docstring 压成表格可用的单行摘要。
-
-    只取**首行**：工具的 docstring 首行本来就是一句话说明，
-    后面的 ``Args:`` / ``Returns:`` 是给模型看的，塞进表格只会把行高撑爆。
-    """
-    stripped = text.strip()
-    if not stripped:
-        return ""
-    return truncate(stripped.splitlines()[0].strip(), limit)
 
 
 # --------------------------------------------------------------------------- 对话
@@ -340,7 +327,6 @@ def chat(
                 server_url=server,
                 stream=not no_stream,
                 interactive=not no_confirm,
-                quiet=False,
                 render_markdown=not raw,
                 new_session=not resume,
             )
@@ -415,8 +401,6 @@ def voice_listen(
                 server_url=server,
                 stream=True,
                 interactive=not no_confirm,
-                quiet=False,
-                new_session=False,
             )
         try:
             assistant = VoiceAssistant(
@@ -613,7 +597,7 @@ def tools_list(
             info.source,
             "是" if info.side_effects else "—",
             "是" if info.requires_approval else "—",
-            _summary(info.description),
+            description_summary(info.description),
         )
     console.print(table)
 
@@ -681,7 +665,7 @@ def skills_list(config_dir: ConfigDir = None) -> None:
             entry.name,
             str(entry.body_chars),
             str(len(entry.files)),
-            _summary(entry.description),
+            description_summary(entry.description),
         )
     console.print(table)
 

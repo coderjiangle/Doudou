@@ -154,7 +154,7 @@ async def chat_stream(
     request = _to_request(payload)
     # 先解析 thread，保证客户端在第一个事件里就拿到会话 id。
     thread_id = await runner.resolve_thread(request)
-    broker = getattr(state, "broker", None)
+    broker = state.broker
 
     async def event_source() -> AsyncIterator[dict[str, str]]:
         yield _pack("start", StreamStart(thread_id=thread_id, channel=request.channel).model_dump())

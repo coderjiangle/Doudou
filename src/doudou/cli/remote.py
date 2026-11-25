@@ -162,7 +162,6 @@ class RemoteAgentRunner:
         self._tool_count = 0
         self._threads: dict[tuple[str, str], str] = {}
         self._pending_new: set[tuple[str, str]] = set()
-        self._initialized_keys: set[tuple[str, str]] = set()
 
     @property
     def model_label(self) -> str:
@@ -191,10 +190,9 @@ class RemoteAgentRunner:
     async def resolve_thread(self, request: RunRequest) -> str:
         if request.thread_id:
             return request.thread_id
-        key = (request.channel, request.conversation_id)
-        if not request.new_thread and key not in self._pending_new and key in self._threads:
-            return self._threads[key]
-        return ""
+        if request.new_thread:
+            return ""
+        return self._threads.get((request.channel, request.conversation_id), "")
 
     async def start_new_thread(self, conversation_id: str, *, channel: str = "cli") -> str:
         key = (channel, conversation_id)
@@ -252,12 +250,11 @@ class RemoteAgentRunner:
         self, request: RunRequest, *, thread_id: str | None = None
     ) -> AsyncIterator[RunEvent]:
         key = (request.channel, request.conversation_id)
-        pending_new = key in self._pending_new
-        effective_thread = thread_id or (None if pending_new else self._threads.get(key))
+        effective_thread = thread_id or self._threads.get(key)
         want_new = (
             request.new_thread
-            or pending_new
-            or (self.new_session and key not in self._initialized_keys and not effective_thread)
+            or key in self._pending_new
+            or (self.new_session and not effective_thread)
         )
 
         payload: dict[str, Any] = {
@@ -280,12 +277,12 @@ class RemoteAgentRunner:
                 raise RemoteServerError(f"服务端返回 HTTP {response.status_code}：{detail}")
 
             async for event_name, data in _iter_sse_events(response.aiter_lines()):
-                if event_name == "start":
+                if event_name in {"start", "done"}:
                     resolved_thread = str(data.get("thread_id") or resolved_thread or "")
                     if resolved_thread:
                         self._threads[key] = resolved_thread
                         self._pending_new.discard(key)
-                        self._initialized_keys.add(key)
+                if event_name == "start":
                     yield RunEvent.run_start(thread_id=resolved_thread or None)
                 elif event_name == "delta":
                     yield RunEvent.text_delta(
@@ -315,11 +312,6 @@ class RemoteAgentRunner:
                         thread_id=resolved_thread or None,
                     )
                 elif event_name == "done":
-                    final_thread = str(data.get("thread_id") or resolved_thread or "")
-                    if final_thread:
-                        self._threads[key] = final_thread
-                        self._pending_new.discard(key)
-                        self._initialized_keys.add(key)
                     usage = {
                         str(k): int(v)
                         for k, v in (data.get("usage") or {}).items()
@@ -329,7 +321,7 @@ class RemoteAgentRunner:
                         str(data.get("text") or ""),
                         step=int(data.get("steps") or 0),
                         usage=usage,
-                        thread_id=final_thread or None,
+                        thread_id=resolved_thread or None,
                     )
                 elif event_name == "error":
                     yield RunEvent.error(
@@ -458,9 +450,6 @@ class EphemeralServeProcess:
             str(port),
             "--ephemeral-stdin-exit",
         ]
-        if config_dir is not None:
-            cmd.extend(["--config-dir", str(config_dir)])
-
         env = os.environ.copy()
         env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"

@@ -74,7 +74,6 @@ class CliChannel:
         runner: RunnerLike,
         *,
         stream: bool = True,
-        interactive: bool = True,
         echo_text: bool = True,
         console: Console | None = None,
         show_tool_calls: bool = True,
@@ -83,7 +82,6 @@ class CliChannel:
     ) -> None:
         self.runner = runner
         self.stream = stream
-        self.interactive = interactive
         #: 是否把模型输出的增量正文渲染到 ``console``。
         #: ``False`` 时只聚合不渲染，由调用方决定怎么输出最终答复（``--quiet``）。
         self.echo_text = echo_text
@@ -251,13 +249,13 @@ class CliChannel:
             )
             self._state.live.start()
             self._state.last_refresh = now
-        elif committed or now - self._state.last_refresh >= _LIVE_REFRESH_INTERVAL:
+        elif now - self._state.last_refresh >= _LIVE_REFRESH_INTERVAL:
             self._state.live.update(Markdown(self._state.buffer), refresh=True)
             self._state.last_refresh = now
 
     def _render(self, event: RunEvent) -> None:
         if event.type == "text_delta":
-            if not self.echo_text:
+            if not self.echo_text or not event.text:
                 return
             if self._should_render_markdown():
                 self._stream_markdown_delta(event.text)
@@ -295,7 +293,7 @@ class CliChannel:
             elif self._state.text_started:
                 self.console.print()
                 self._state.text_started = False
-            self._state.rendered_any = self._state.rendered_any or bool(event.text)
+                self._state.rendered_any = True
 
     def _finish(self, result: RunResult) -> None:
         if not self.echo_text:
@@ -307,7 +305,7 @@ class CliChannel:
             return
         if self._state.text_started:
             self.console.print()
-        elif result.text:
+        elif result.text and not self._state.rendered_any:
             # 非流式（或模型一次性返回）时补上正文。
             self.console.print(result.text, markup=False, highlight=False)
 
@@ -320,18 +318,6 @@ class CliChannel:
         if self._state.text_started:
             self.console.print()
             self._state.text_started = False
-
-    # ---------------------------------------------------------------- 人工确认
-
-    def approval_hook(self) -> ApprovalHook | None:
-        """需要人工确认的工具回调；非交互模式下返回 ``None``。
-
-        返回 ``None`` 时，``interrupt_on`` 中登记的工具会被拒绝执行，
-        并把原因作为工具结果回填给模型（见 ``ReactAgent._execute_tool``）。
-        """
-        if not self.interactive:
-            return None
-        return make_approval_hook(self.console)
 
     # ---------------------------------------------------------------- REPL 命令
 
@@ -391,7 +377,7 @@ class CliChannel:
                 info.group,
                 "是" if info.side_effects else "—",
                 "是" if info.requires_approval else "—",
-                _summary(info.description),
+                description_summary(info.description),
             )
         self.console.print(table)
 
@@ -485,11 +471,9 @@ def _split_completed_blocks(text: str) -> tuple[str, str]:
             if char == fence_char and length >= fence_len and rest.strip() == "":
                 fence_char = None
                 fence_len = 0
-                seen_content = True
                 continue
 
         if fence_char is not None:
-            seen_content = True
             continue
 
         if line.strip() == "":
@@ -503,8 +487,8 @@ def _split_completed_blocks(text: str) -> tuple[str, str]:
     return text[:split_pos], text[split_pos:]
 
 
-def _summary(text: str, limit: int = 44) -> str:
-    """把工具 docstring 压成表格可用的单行摘要（只取首行，避免撑爆行高）。"""
+def description_summary(text: str, limit: int = 44) -> str:
+    """取说明首行并截断，供终端表格显示。"""
     stripped = text.strip()
     if not stripped:
         return ""
@@ -523,4 +507,10 @@ def _usage_text(usage: dict[str, int]) -> str:
     return "、".join(parts) if parts else "无用量统计"
 
 
-__all__ = ["DEFAULT_CONVERSATION", "CliChannel", "make_approval_hook", "make_auto_approve_hook"]
+__all__ = [
+    "DEFAULT_CONVERSATION",
+    "CliChannel",
+    "description_summary",
+    "make_approval_hook",
+    "make_auto_approve_hook",
+]

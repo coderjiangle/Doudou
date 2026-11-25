@@ -2,22 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 from doudou.agent.messages import MAX_IMAGES, ImageInput
-
-#: SSE 事件名。与 ``RunEvent`` 及确认请求一一对应，客户端只需认这一组名字。
-StreamEventName = Literal[
-    "start",
-    "delta",
-    "tool_call",
-    "approval_required",
-    "tool_result",
-    "done",
-    "error",
-]
 
 
 class ChatRequest(BaseModel):
@@ -141,7 +130,6 @@ __all__ = [
     "StreamApprovalRequired",
     "StreamDone",
     "StreamError",
-    "StreamEventName",
     "StreamStart",
     "StreamTextDelta",
     "StreamToolCall",

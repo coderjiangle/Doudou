@@ -104,6 +104,8 @@ async def test_remote_runner_streams_tools_threads_and_new(
         info1 = await runner.get_thread(tid1)
         assert info1 is not None
         assert info1.message_count >= 2
+        follow_up = RunRequest(text="你好", conversation_id="local", channel="cli")
+        assert (await runner.ainvoke(follow_up)).events[-1].thread_id == tid1
 
         await runner.start_new_thread("local", channel="cli")
         assert await runner.resolve_thread(req1) == ""

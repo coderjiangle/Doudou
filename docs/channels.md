@@ -229,7 +229,13 @@ Body:   { "conversation_id": "...", "user_id": "...", "text": "..." }
 
 ## 4. CLI 通道
 
-`uv run doudou chat` 启动交互式多轮对话，支持：
+`uv run doudou chat` 启动交互式多轮对话（默认按「随用随关」模式自动探测或静默拉起一个临时 `doudou serve` 子进程，退出 `/exit` 时自动关闭该子进程，既隔离后台日志又共享数据库历史与 `/stats`；若已有手动启动的 `doudou serve` 在运行则直接复用，退出时不关闭它）。常用选项：
+
+- `--resume`：续接同 `--conversation` 上次的持久化会话（默认每次启动开新会话）；
+- `--server <url>`：显式连向指定的 `doudou serve`；
+- `--local`：单进程本地运行，不拉起后台 `serve`。
+
+交互内置命令：
 
 | 命令 | 作用 |
 | --- | --- |

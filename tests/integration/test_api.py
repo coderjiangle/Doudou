@@ -326,6 +326,95 @@ async def test_chat_stream_emits_expected_events(settings_for_api: Settings) -> 
     assert deltas == done["text"]
 
 
+async def test_chat_stream_pushes_approval_required_and_resumes_on_decide(
+    tmp_path: Path, settings_factory
+) -> None:  # type: ignore[no-untyped-def]
+    """SSE 流遇到需确认工具时应推送 approval_required，收到 POST /approvals/{id} 后继续完成。"""
+    import socket
+    from contextlib import suppress
+
+    import uvicorn
+
+    db_path = (tmp_path / "approval-sse.db").as_posix()
+    ws_dir = (tmp_path / "ws").as_posix()
+    (tmp_path / "ws").mkdir()
+    settings = settings_factory(
+        config_yaml=f"""\
+version: 1
+runtime:
+  log_level: ERROR
+agent:
+  name: SseApprovalTest
+  system_prompt_file: null
+  skills: []
+  approval_timeout_seconds: 10
+  interrupt_on:
+    now: true
+filesystem:
+  root_dir: {ws_dir}
+storage:
+  database_url: sqlite+aiosqlite:///{db_path}
+  history: database
+mcp:
+  enabled: false
+scheduler:
+  enabled: false
+""",
+        env={"DOUDOU_MODEL_PRIMARY": "scripted:demo"},
+    )
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(16)
+    port = sock.getsockname()[1]
+    app = create_app(settings)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
+    serve_task = asyncio.create_task(server.serve(sockets=[sock]))
+
+    events: list[tuple[str, dict]] = []
+    try:
+        for _ in range(500):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise RuntimeError("uvicorn test server did not start")
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}", trust_env=False
+        ) as client:
+            async with client.stream(
+                "POST", "/api/v1/chat/stream", json={"message": "现在几点了？"}
+            ) as response:
+                assert response.status_code == 200
+                name: str | None = None
+                async for line in response.aiter_lines():
+                    if line.startswith("event:"):
+                        name = line.split(":", 1)[1].strip()
+                    elif line.startswith("data:") and name:
+                        payload = json.loads(line.split(":", 1)[1].strip())
+                        events.append((name, payload))
+                        if name == "approval_required":
+                            ap_id = payload["approval_id"]
+                            decided = await client.post(
+                                f"/api/v1/approvals/{ap_id}", json={"approved": True}
+                            )
+                            assert decided.status_code == 200
+                        name = None
+    finally:
+        server.should_exit = True
+        await serve_task
+        with suppress(OSError):
+            sock.close()
+
+    names = [name for name, _ in events]
+    assert "approval_required" in names
+    assert "tool_result" in names
+    assert names[-1] == "done"
+    tool_res = next(payload for name, payload in events if name == "tool_result")
+    assert tool_res["ok"] is True
+
+
 async def test_map_event_translates_run_end(settings_for_api: Settings) -> None:
     """映射逻辑是纯函数，可以脱离 SSE 连接直接断言。"""
     from doudou.agent.events import RunEvent

@@ -78,6 +78,8 @@ class ApprovalRequest:
 DecisionRecorder = Callable[[ApprovalRequest], Awaitable[None]]
 #: 决策查询：按 tool_call_id 找已有决策（跨运行复用）。
 DecisionLookup = Callable[[str], Awaitable[ApprovalOutcome | None]]
+#: 按会话（thread_id）订阅待确认通知的回调，供 SSE 流式接口把确认请求推给远程客户端。
+ApprovalListener = Callable[[ApprovalRequest], Awaitable[None]]
 
 
 class ApprovalBroker:
@@ -98,7 +100,25 @@ class ApprovalBroker:
         self._lookup = lookup
         self._pending: dict[str, ApprovalRequest] = {}
         self._decisions: dict[str, ApprovalOutcome] = {}
+        self._thread_listeners: dict[str, list[ApprovalListener]] = {}
         self._counter = 0
+
+    def subscribe_thread(self, thread_id: str, listener: ApprovalListener) -> None:
+        """为指定 ``thread_id`` 注册待确认回调（例如活跃的 SSE 连接）。"""
+        listeners = self._thread_listeners.setdefault(thread_id, [])
+        if listener not in listeners:
+            listeners.append(listener)
+
+    def unsubscribe_thread(self, thread_id: str, listener: ApprovalListener) -> None:
+        """移除指定 ``thread_id`` 的待确认回调。"""
+        listeners = self._thread_listeners.get(thread_id)
+        if not listeners:
+            return
+        with_removed = [item for item in listeners if item != listener]
+        if with_removed:
+            self._thread_listeners[thread_id] = with_removed
+        else:
+            self._thread_listeners.pop(thread_id, None)
 
     # ---------------------------------------------------------------- 查询
 
@@ -160,12 +180,19 @@ class ApprovalBroker:
             timeout=self.timeout,
         )
 
+        thread_listeners = list(self._thread_listeners.get(thread_id, ())) if thread_id else []
+        for listener in thread_listeners:
+            try:
+                await listener(request)
+            except Exception as exc:
+                logger.warning("approval.thread_notify_failed", error=str(exc), exc_info=True)
+
         if self.on_request is not None:
             try:
                 await self.on_request(request)
             except Exception as exc:
                 logger.warning("approval.notify_failed", error=str(exc), exc_info=True)
-        else:
+        elif not thread_listeners:
             # 没有任何人负责「把这件事告诉用户」时必须自己喊一声 ——
             # 否则这次运行只会静静等到超时，用户以为卡住了、运维也不知道它在等什么。
             logger.warning(
@@ -281,10 +308,12 @@ class ApprovalBroker:
         """生成可以直接给 ``ReactAgent`` 用的确认回调。"""
 
         async def _approve(request: Any) -> bool:
+            raw_thread_id = getattr(request, "thread_id", None)
             outcome = await self.request(
                 tool_name=str(getattr(request, "tool_name", "")),
                 args=dict(getattr(request, "args", {}) or {}),
                 call_id=str(getattr(request, "call_id", "")),
+                thread_id=str(raw_thread_id) if raw_thread_id else None,
                 step=int(getattr(request, "step", 0) or 0),
             )
             return outcome.approved

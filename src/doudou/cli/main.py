@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ from doudou.agent.factory import AgentBundle, build_agent
 from doudou.agent.models import ModelBuildError, credential_hint, has_credential, parse_spec
 from doudou.agent.react import ApprovalHook, RunResult
 from doudou.channels.cli_channel import CliChannel, make_approval_hook, make_auto_approve_hook
+from doudou.cli.remote import EphemeralServeProcess, RemoteAgentRunner, RemoteServerError
 from doudou.config.loader import Settings, load_settings
 from doudou.gateway.runner import AgentRunner
 from doudou.mcp.client import ServerOverview
@@ -128,14 +130,22 @@ def _build_bundle(
 
 @dataclass
 class CliSession:
-    """CLI 一次会话持有的资源：通道 +（可选）MCP 运行期与调度存储的数据库。"""
+    """CLI 一次会话持有的资源：通道 + 本地或远程运行器资源。"""
 
     channel: CliChannel
+    bundle: AgentBundle | None = None
     mcp: McpRuntime | None = None
     database: Database | None = None
+    remote_runner: RemoteAgentRunner | None = None
+    ephemeral_serve: EphemeralServeProcess | None = None
 
     async def aclose(self) -> None:
-        await self.channel.runner.bundle.aclose()
+        if self.bundle is not None:
+            await self.bundle.aclose()
+        if self.remote_runner is not None:
+            await self.remote_runner.aclose()
+        if self.ephemeral_serve is not None:
+            await self.ephemeral_serve.aclose()
         if self.mcp is not None:
             await self.mcp.stop()
         if self.database is not None:
@@ -212,7 +222,64 @@ async def _prepare_channel(
         show_tool_calls=not quiet,
         render_markdown=settings.app.channels.cli.render_markdown and render_markdown,
     )
-    return CliSession(channel=channel, mcp=mcp if mcp.enabled else None, database=database)
+    return CliSession(
+        channel=channel,
+        bundle=bundle,
+        mcp=mcp if mcp.enabled else None,
+        database=database,
+    )
+
+
+async def _prepare_remote_channel(
+    settings: Settings,
+    model_spec: str | None,
+    *,
+    config_dir: Path | None,
+    server_url: str | None,
+    stream: bool,
+    interactive: bool,
+    quiet: bool,
+    render_markdown: bool = True,
+    new_session: bool = False,
+) -> CliSession:
+    """连向现有或随用随关的临时 ``doudou serve``，构造纯客户端会话。"""
+    target = err_console if quiet else console
+    if quiet:
+        hook: ApprovalHook | None = None
+    elif interactive:
+        hook = make_approval_hook(target)
+    else:
+        hook = make_auto_approve_hook(target)
+
+    serve_proc = await EphemeralServeProcess.attach_or_spawn(
+        settings,
+        server_url=server_url,
+        config_dir=config_dir,
+        model_spec=model_spec,
+    )
+    remote = RemoteAgentRunner(
+        settings,
+        base_url=serve_proc.base_url,
+        approval_hook=hook,
+        new_session=new_session,
+    )
+    try:
+        await remote.connect()
+    except Exception:
+        await remote.aclose()
+        await serve_proc.aclose()
+        raise
+
+    channel = CliChannel(
+        remote,
+        stream=stream,
+        interactive=interactive,
+        echo_text=not quiet,
+        console=target,
+        show_tool_calls=not quiet,
+        render_markdown=settings.app.channels.cli.render_markdown and render_markdown,
+    )
+    return CliSession(channel=channel, remote_runner=remote, ephemeral_serve=serve_proc)
 
 
 def _make_channel(
@@ -291,21 +358,43 @@ def chat(
         typer.Option("--no-confirm", help="不询问，直接同意有副作用的工具执行。"),
     ] = False,
     raw: Annotated[bool, typer.Option("--raw", help="关闭 Markdown 渲染，按纯文本输出。")] = False,
+    resume: Annotated[
+        bool, typer.Option("--resume", help="续接该会话标识上次的持久化对话。")
+    ] = False,
+    local: Annotated[
+        bool, typer.Option("--local", help="单进程本地运行（不拉起后台 serve）。")
+    ] = False,
+    server: Annotated[
+        str | None, typer.Option("--server", help="连接到已运行的 doudou serve 地址。")
+    ] = None,
     config_dir: ConfigDir = None,
     log_level: LogLevel = None,
 ) -> None:
-    """交互式对话（多轮，历史保存在内存中）。"""
+    """交互式对话（默认自动拉起随用随关的后台 serve，退出即清理）。"""
     settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
 
     async def _run() -> None:
-        prepared = await _prepare_channel(
-            settings,
-            model,
-            stream=not no_stream,
-            interactive=not no_confirm,
-            quiet=False,
-            render_markdown=not raw,
-        )
+        if local:
+            prepared = await _prepare_channel(
+                settings,
+                model,
+                stream=not no_stream,
+                interactive=not no_confirm,
+                quiet=False,
+                render_markdown=not raw,
+            )
+        else:
+            prepared = await _prepare_remote_channel(
+                settings,
+                model,
+                config_dir=config_dir,
+                server_url=server,
+                stream=not no_stream,
+                interactive=not no_confirm,
+                quiet=False,
+                render_markdown=not raw,
+                new_session=not resume,
+            )
         try:
             await prepared.channel.repl(conversation_id=conversation)
         finally:
@@ -313,6 +402,9 @@ def chat(
 
     try:
         asyncio.run(_run())
+    except RemoteServerError as exc:
+        err_console.print(f"[bold red]连接后台服务失败：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
     except KeyboardInterrupt:  # pragma: no cover - 交互中断
         console.print("\n[dim]已中断。[/dim]")
 
@@ -331,10 +423,16 @@ def voice_listen(
         bool,
         typer.Option("--no-confirm", help="不询问，直接同意有副作用的工具执行。"),
     ] = False,
+    local: Annotated[
+        bool, typer.Option("--local", help="单进程本地运行（不拉起后台 serve）。")
+    ] = False,
+    server: Annotated[
+        str | None, typer.Option("--server", help="连接到已运行的 doudou serve 地址。")
+    ] = None,
     config_dir: ConfigDir = None,
     log_level: LogLevel = None,
 ) -> None:
-    """启动常驻本地语音交互（以「豆豆」开头唤醒，音箱流式播报）。"""
+    """启动常驻本地语音交互（默认自动拉起随用随关的后台 serve，退出即清理）。"""
     if ctx.invoked_subcommand is not None:
         return
 
@@ -352,13 +450,25 @@ def voice_listen(
     settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
 
     async def _run() -> None:
-        prepared = await _prepare_channel(
-            settings,
-            model,
-            stream=True,
-            interactive=not no_confirm,
-            quiet=False,
-        )
+        if local:
+            prepared = await _prepare_channel(
+                settings,
+                model,
+                stream=True,
+                interactive=not no_confirm,
+                quiet=False,
+            )
+        else:
+            prepared = await _prepare_remote_channel(
+                settings,
+                model,
+                config_dir=config_dir,
+                server_url=server,
+                stream=True,
+                interactive=not no_confirm,
+                quiet=False,
+                new_session=False,
+            )
         try:
             assistant = VoiceAssistant(
                 settings,
@@ -372,6 +482,9 @@ def voice_listen(
 
     try:
         asyncio.run(_run())
+    except RemoteServerError as exc:
+        err_console.print(f"[bold red]连接后台服务失败：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
     except VoiceError as exc:
         err_console.print(f"[bold red]语音启动失败：[/bold red]{exc}")
         raise typer.Exit(EXIT_USAGE) from exc
@@ -813,6 +926,10 @@ def serve(
     host: Annotated[str | None, typer.Option("--host", help="覆盖监听地址。")] = None,
     port: Annotated[int | None, typer.Option("--port", help="覆盖监听端口。")] = None,
     log_level: LogLevel = None,
+    ephemeral_stdin_exit: Annotated[
+        bool,
+        typer.Option("--ephemeral-stdin-exit", hidden=True, help="父进程关闭 stdin 时自动退出。"),
+    ] = False,
 ) -> None:
     """启动 FastAPI 服务。"""
     settings = _load(config_dir, log_level=log_level)
@@ -821,6 +938,23 @@ def serve(
     resolved_port = port or server.port
 
     import uvicorn
+
+    if ephemeral_stdin_exit:
+        import signal
+        import threading
+
+        def _watch_parent_stdin() -> None:
+            try:
+                sys.stdin.buffer.read(1)
+            except OSError:
+                pass
+            signal.raise_signal(signal.SIGINT)
+
+        threading.Thread(
+            target=_watch_parent_stdin,
+            name="doudou-ephemeral-stdin-watch",
+            daemon=True,
+        ).start()
 
     console.print(
         f"[green]启动 [bold]{settings.app.agent.name}[/bold][/green] "

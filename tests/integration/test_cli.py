@@ -44,10 +44,12 @@ def invoke(*args: str) -> object:
 
 
 def test_version() -> None:
+    from doudou.version import __version__
+
     result = invoke("version")
 
     assert result.exit_code == 0  # type: ignore[attr-defined]
-    assert "0.1.0" in result.stdout  # type: ignore[attr-defined]
+    assert __version__ in result.stdout  # type: ignore[attr-defined]
 
 
 def test_help_lists_commands() -> None:
@@ -87,13 +89,79 @@ def test_chat_exit_stops_browser_driver(config_dir: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(browser.PlaywrightBrowserBackend, "list_tabs", list_tabs)
     monkeypatch.setattr(CliChannel, "repl", repl)
     result = runner.invoke(
-        app, ["chat", "--model", "scripted:demo", "--config-dir", str(config_dir)], input="/exit\n"
+        app,
+        ["chat", "--local", "--model", "scripted:demo", "--config-dir", str(config_dir)],
+        input="/exit\n",
     )
 
     assert result.exit_code == 0
     assert "再见。" in result.output
     assert len(started) == 1
     assert stopped == started
+
+
+def test_chat_ephemeral_serve_starts_replies_and_stops_on_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """默认 doudou chat 会拉起临时 serve 并在 /exit 时关闭，不留常驻进程。"""
+    home = tmp_path / "home"
+    cfg = home / "config"
+    cfg.mkdir(parents=True)
+    db_path = (home / "data" / "doudou.db").as_posix()
+    (cfg / "config.yaml").write_text(
+        f"""\
+version: 1
+runtime:
+  log_level: ERROR
+  timezone: Asia/Shanghai
+server:
+  host: 127.0.0.1
+  port: 18931
+agent:
+  name: EphemeralTest
+  system_prompt_file: null
+  skills: []
+storage:
+  database_url: sqlite+aiosqlite:///{db_path}
+  history: database
+mcp:
+  enabled: false
+scheduler:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DOUDOU_HOME", str(home))
+    monkeypatch.setenv("DOUDOU_MODEL_PRIMARY", "scripted:demo")
+
+    from doudou.cli.remote import EphemeralServeProcess
+
+    seen_owned: list[bool] = []
+    seen_procs: list[object] = []
+    orig_attach = EphemeralServeProcess.attach_or_spawn
+
+    async def tracked_attach(cls, *args, **kwargs):  # type: ignore[no-untyped-def]
+        proc = await orig_attach(*args, **kwargs)
+        seen_owned.append(proc.owned)
+        seen_procs.append(proc._process)
+        return proc
+
+    monkeypatch.setattr(EphemeralServeProcess, "attach_or_spawn", classmethod(tracked_attach))
+
+    result = runner.invoke(
+        app,
+        ["chat", "--model", "scripted:demo", "--config-dir", str(cfg)],
+        input="你好\n/history\n/exit\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "[offline] 收到你的消息：你好" in result.output
+    assert "历史 2 条消息" in result.output
+    assert "再见。" in result.output
+    assert "runner.run_finished" not in result.output
+    assert seen_owned == [True]
+    assert len(seen_procs) == 1
+    assert seen_procs[0].poll() is not None  # type: ignore[attr-defined]
 
 
 # --------------------------------------------------------------------------- 单轮对话

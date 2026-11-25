@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
+from doudou.agent.approvals import ApprovalRequest
 from doudou.agent.events import RunEvent
-from doudou.api.deps import RunnerDep
+from doudou.api.deps import RunnerDep, StateDep
 from doudou.api.schemas import (
     ChatRequest,
     ChatResponse,
+    StreamApprovalRequired,
     StreamDone,
     StreamError,
     StreamStart,
@@ -137,39 +141,91 @@ async def chat(payload: ChatRequest, runner: RunnerDep) -> ChatResponse:
 
 
 @router.post("/chat/stream", summary="单轮对话（SSE 流式）")
-async def chat_stream(payload: ChatRequest, runner: RunnerDep) -> EventSourceResponse:
+async def chat_stream(
+    payload: ChatRequest, runner: RunnerDep, state: StateDep
+) -> EventSourceResponse:
     """以 SSE 推送一轮对话。
 
     事件序列::
 
-        start → (delta | tool_call | tool_result)* → done
-                                              \\→ error（异常终止时）
+        start → (delta | tool_call | approval_required | tool_result)* → done
+                                                                     \\→ error（异常终止时）
     """
     request = _to_request(payload)
     # 先解析 thread，保证客户端在第一个事件里就拿到会话 id。
     thread_id = await runner.resolve_thread(request)
+    broker = getattr(state, "broker", None)
 
     async def event_source() -> AsyncIterator[dict[str, str]]:
         yield _pack("start", StreamStart(thread_id=thread_id, channel=request.channel).model_dump())
 
         metrics = get_metrics()
         tool_calls = 0
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        async def on_approval(approval_req: ApprovalRequest) -> None:
+            await queue.put(("approval", approval_req))
+
+        async def produce() -> None:
+            try:
+                async for event in runner.astream(request, thread_id=thread_id):
+                    await queue.put(("run", event))
+            except Exception as exc:
+                await queue.put(("exc", exc))
+            finally:
+                await queue.put(("eof", None))
+
+        if broker is not None:
+            broker.subscribe_thread(thread_id, on_approval)
+        producer = asyncio.create_task(produce())
         try:
-            async for event in runner.astream(request, thread_id=thread_id):
+            while True:
+                kind, item = await queue.get()
+                if kind == "eof":
+                    break
+                if kind == "exc":
+                    exc = item
+                    logger.error(
+                        "api.stream_failed",
+                        thread_id=thread_id,
+                        error=str(exc),
+                        exc_info=True,
+                    )
+                    metrics.incr("run.failed")
+                    yield _pack(
+                        "error",
+                        StreamError(
+                            thread_id=thread_id, message="运行失败，请查看服务端日志"
+                        ).model_dump(),
+                    )
+                    return
+                if kind == "approval":
+                    req: ApprovalRequest = item
+                    yield _pack(
+                        "approval_required",
+                        StreamApprovalRequired(
+                            approval_id=req.approval_id,
+                            tool_name=req.tool_name,
+                            args=req.args,
+                            step=req.step,
+                            call_id=req.call_id,
+                            thread_id=req.thread_id,
+                        ).model_dump(),
+                    )
+                    continue
+                event: RunEvent = item
                 if event.type == "tool_call":
                     tool_calls += 1
                 mapped = map_event(event, thread_id)
                 if mapped is not None:
                     yield _pack(*mapped)
-        except Exception as exc:
-            # 详细信息只进日志，回应给客户端的信息不含内部细节。
-            logger.error("api.stream_failed", thread_id=thread_id, error=str(exc), exc_info=True)
-            metrics.incr("run.failed")
-            yield _pack(
-                "error",
-                StreamError(thread_id=thread_id, message="运行失败，请查看服务端日志").model_dump(),
-            )
-            return
+        finally:
+            if broker is not None:
+                broker.unsubscribe_thread(thread_id, on_approval)
+            if not producer.done():
+                producer.cancel()
+            with suppress(asyncio.CancelledError):
+                await producer
 
         metrics.incr("run.finished")
         metrics.incr("run.tool_calls", tool_calls)

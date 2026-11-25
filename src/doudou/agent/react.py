@@ -50,6 +50,7 @@ class ToolApprovalRequest:
     args: dict[str, Any]
     step: int
     call_id: str
+    thread_id: str | None = None
 
 
 #: 确认回调：返回 ``True`` 表示允许执行。
@@ -189,7 +190,7 @@ class ReactAgent:
                     thread_id=thread_id,
                 )
 
-            outcomes = await self._execute_calls(calls, step=step, turn=turn)
+            outcomes = await self._execute_calls(calls, step=step, turn=turn, thread_id=thread_id)
 
             for outcome in outcomes:
                 if outcome.approval is not None:
@@ -386,7 +387,12 @@ class ReactAgent:
     # ---------------------------------------------------------------- 执行
 
     async def _execute_calls(
-        self, calls: Sequence[dict[str, Any]], *, step: int, turn: _ModelTurn
+        self,
+        calls: Sequence[dict[str, Any]],
+        *,
+        step: int,
+        turn: _ModelTurn,
+        thread_id: str | None = None,
     ) -> list[ToolOutcome]:
         """执行一步内的所有工具调用，返回与 ``calls`` 同序的结果。
 
@@ -402,7 +408,10 @@ class ReactAgent:
             if batch:
                 outcomes.extend(
                     await asyncio.gather(
-                        *(self._execute_tool(call, step=step, turn=turn) for call in batch)
+                        *(
+                            self._execute_tool(call, step=step, turn=turn, thread_id=thread_id)
+                            for call in batch
+                        )
                     )
                 )
                 batch.clear()
@@ -410,7 +419,9 @@ class ReactAgent:
         for call in calls:
             if self._has_side_effects(str(call.get("name") or "")):
                 await flush()
-                outcomes.append(await self._execute_tool(call, step=step, turn=turn))
+                outcomes.append(
+                    await self._execute_tool(call, step=step, turn=turn, thread_id=thread_id)
+                )
             else:
                 batch.append(call)
         await flush()
@@ -427,7 +438,12 @@ class ReactAgent:
         return bool(self.interrupt_on.get("*"))
 
     async def _execute_tool(
-        self, call: dict[str, Any], *, step: int, turn: _ModelTurn
+        self,
+        call: dict[str, Any],
+        *,
+        step: int,
+        turn: _ModelTurn,
+        thread_id: str | None = None,
     ) -> ToolOutcome:
         name = str(call.get("name") or "")
         call_id = str(call.get("id") or "")
@@ -458,7 +474,13 @@ class ReactAgent:
         approval: bool | None = None
         approval_reason = ""
         if self._needs_approval(name):
-            request = ToolApprovalRequest(tool_name=name, args=args, step=step, call_id=call_id)
+            request = ToolApprovalRequest(
+                tool_name=name,
+                args=args,
+                step=step,
+                call_id=call_id,
+                thread_id=thread_id,
+            )
             if self.approval_hook is None:
                 return ToolOutcome(
                     call_id=call_id,

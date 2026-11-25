@@ -40,7 +40,7 @@ from doudou.channels.voice.detector import (
 from doudou.channels.voice.errors import VoiceError
 from doudou.channels.voice.models import ensure_voice_models
 from doudou.config.loader import Settings, resolve_path
-from doudou.gateway.runner import AgentRunner
+from doudou.gateway.runner import RunnerLike
 from doudou.gateway.schema import RunRequest
 from doudou.observability.logging import get_logger
 
@@ -82,7 +82,7 @@ class VoiceAssistant:
     def __init__(
         self,
         settings: Settings,
-        runner: AgentRunner,
+        runner: RunnerLike,
         *,
         mic: AudioInputStream | None = None,
         speaker: AudioPlayer | None = None,

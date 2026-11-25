@@ -17,10 +17,9 @@ from rich.table import Table
 from doudou.agent.events import RunEvent
 from doudou.agent.react import ApprovalHook, RunResult, ToolApprovalRequest
 from doudou.channels.base import InboundMessage, OutboundMessage
-from doudou.gateway.runner import AgentRunner
+from doudou.gateway.runner import RunnerLike
 from doudou.gateway.schema import RunRequest
 from doudou.observability.logging import get_logger
-from doudou.tools.registry import tool_infos
 from doudou.utils.text import truncate
 
 logger = get_logger(__name__)
@@ -72,7 +71,7 @@ class CliChannel:
 
     def __init__(
         self,
-        runner: AgentRunner,
+        runner: RunnerLike,
         *,
         stream: bool = True,
         interactive: bool = True,
@@ -337,10 +336,9 @@ class CliChannel:
     # ---------------------------------------------------------------- REPL 命令
 
     def _print_banner(self) -> None:
-        metadata = self.runner.bundle.metadata
         self.console.print(
             f"[bold]{self.runner.settings.app.agent.name}[/bold] "
-            f"[dim]· 模型 {metadata.get('model')} · {len(self.runner.bundle.tools)} 个工具[/dim]"
+            f"[dim]· 模型 {self.runner.model_label} · {self.runner.tool_count} 个工具[/dim]"
         )
         self.console.print("[dim]输入 /help 查看命令，/exit 退出。[/dim]\n")
 
@@ -357,7 +355,7 @@ class CliChannel:
             self.console.print(_HELP)
             return True
         if name == "/tools":
-            self._print_tools()
+            await self._print_tools()
             return True
         if name == "/new":
             thread_id = await self.runner.start_new_thread(conversation_id, channel=self.name)
@@ -380,14 +378,14 @@ class CliChannel:
         self.console.print(f"[yellow]未知命令：{name}（/help 查看可用命令）[/yellow]")
         return True
 
-    def _print_tools(self) -> None:
+    async def _print_tools(self) -> None:
         table = Table(title="已装载的工具")
         table.add_column("名称", style="bold")
         table.add_column("分组", style="dim")
         table.add_column("副作用", justify="center")
         table.add_column("需确认", justify="center")
         table.add_column("说明")
-        for info in tool_infos(self.runner.settings):
+        for info in await self.runner.list_tool_infos():
             table.add_row(
                 info.name,
                 info.group,

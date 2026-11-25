@@ -8,8 +8,16 @@ from pydantic import BaseModel, Field, model_validator
 
 from doudou.agent.messages import MAX_IMAGES, ImageInput
 
-#: SSE 事件名。与 ``RunEvent`` 一一对应，客户端只需认这一组名字。
-StreamEventName = Literal["start", "delta", "tool_call", "tool_result", "done", "error"]
+#: SSE 事件名。与 ``RunEvent`` 及确认请求一一对应，客户端只需认这一组名字。
+StreamEventName = Literal[
+    "start",
+    "delta",
+    "tool_call",
+    "approval_required",
+    "tool_result",
+    "done",
+    "error",
+]
 
 
 class ChatRequest(BaseModel):
@@ -85,6 +93,17 @@ class StreamToolCall(BaseModel):
     step: int
 
 
+class StreamApprovalRequired(BaseModel):
+    """``event: approval_required`` —— 等待人工确认。"""
+
+    approval_id: str
+    tool_name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    step: int = 0
+    call_id: str = ""
+    thread_id: str | None = None
+
+
 class StreamToolResult(BaseModel):
     """``event: tool_result`` —— 工具执行结束。
 
@@ -119,6 +138,7 @@ __all__ = [
     "ChatRequest",
     "ChatResponse",
     "MessageOutLite",
+    "StreamApprovalRequired",
     "StreamDone",
     "StreamError",
     "StreamEventName",

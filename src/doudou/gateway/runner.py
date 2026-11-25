@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Sequence
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from langchain_core.messages import AIMessage, BaseMessage
 
@@ -38,7 +38,38 @@ from doudou.observability.observers import (
     notify_start,
 )
 
+if TYPE_CHECKING:
+    from doudou.tools.registry import ToolInfo
+
 logger = get_logger(__name__)
+
+
+class RunnerLike(Protocol):
+    """CLI / 语音等交互通道依赖的运行器协议（本地 ``AgentRunner`` 与远程客户端共用）。"""
+
+    settings: Settings
+
+    @property
+    def model_label(self) -> str: ...
+
+    @property
+    def tool_count(self) -> int: ...
+
+    async def resolve_thread(self, request: RunRequest) -> str: ...
+
+    async def start_new_thread(self, conversation_id: str, *, channel: str = "cli") -> str: ...
+
+    async def get_thread(self, thread_id: str) -> ThreadInfo | None: ...
+
+    async def history(self, thread_id: str) -> list[BaseMessage]: ...
+
+    async def list_tool_infos(self) -> Sequence[ToolInfo]: ...
+
+    def astream(
+        self, request: RunRequest, *, thread_id: str | None = None
+    ) -> AsyncIterator[RunEvent]: ...
+
+    async def ainvoke(self, request: RunRequest, *, thread_id: str | None = None) -> RunResult: ...
 
 
 class AgentRunner:
@@ -65,6 +96,19 @@ class AgentRunner:
         self.observers: list[RunObserver] = list(observers)
         self._locks: dict[str, asyncio.Lock] = {}
         self._stats: dict[str, ContextStats] = {}
+
+    @property
+    def model_label(self) -> str:
+        return str(self.bundle.metadata.get("model") or self.settings.app.model.primary)
+
+    @property
+    def tool_count(self) -> int:
+        return len(self.bundle.tools)
+
+    async def list_tool_infos(self) -> Sequence[ToolInfo]:
+        from doudou.tools.registry import tool_infos
+
+        return tool_infos(self.settings, tools=self.bundle.tools)
 
     # ---------------------------------------------------------------- 会话
 
@@ -341,5 +385,6 @@ def truncate_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessag
 
 __all__ = [
     "AgentRunner",
+    "RunnerLike",
     "truncate_dangling_tool_calls",
 ]

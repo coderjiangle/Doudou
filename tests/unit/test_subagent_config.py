@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from doudou.agent.subagents import SubAgentRegistry, SubAgentSpec, select_tools
 from doudou.agent.testing import ScriptedChatModel, summarize_last_tool_result, tool_call
 from doudou.config.loader import Settings
 from doudou.skills.registry import SkillRegistry
-from doudou.tools.builtin import clock, delegation, skills
+from doudou.tools.builtin import clock, delegation, shell, skills
 
 
 @pytest.fixture
@@ -58,6 +59,40 @@ def test_explicit_empty_whitelist_disables_tools_but_omission_inherits(settings:
     available = clock.build_tools(settings)
     assert select_tools(SubAgentSpec(name="a", description="d", tools=[]), available) == []
     assert select_tools(SubAgentSpec(name="a", description="d"), available) == list(available)
+
+
+@pytest.mark.parametrize("allow_shell", [True, False])
+async def test_child_prompt_describes_shell_when_available(
+    child_settings: Callable[..., Settings], monkeypatch: pytest.MonkeyPatch, allow_shell: bool
+) -> None:
+    settings = child_settings(
+        {
+            "name": "coder",
+            "description": "code",
+            "prompt": "Child instructions",
+            "tools": ["shell_exec"] if allow_shell else [],
+        },
+        tools_config="tools:\n  shell:\n    enabled: true\n",
+    )
+    prompts: list[str] = []
+
+    def capture_prompt(messages: list[BaseMessage]) -> AIMessage:
+        prompts.extend(
+            str(message.content) for message in messages if isinstance(message, SystemMessage)
+        )
+        return AIMessage(content="done")
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    task = delegation.build_tools(
+        settings,
+        model=ScriptedChatModel(steps=[capture_prompt]),
+        available_tools=shell.build_tools(settings),
+    )[0]
+
+    assert "done" in await task.ainvoke({"description": "code"})
+    assert "Child instructions" in prompts[0]
+    assert ("cmd.exe" in prompts[0]) is allow_shell
+    assert ("dir /a" in prompts[0]) is allow_shell
 
 
 def test_unavailable_child_model_is_not_registered(child_settings: Callable[..., Settings]) -> None:

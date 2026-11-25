@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
@@ -81,21 +83,30 @@ def test_system_prompt_without_skills(skills_settings) -> None:  # type: ignore[
     assert "## 可用技能" not in prompt
 
 
-def test_system_prompt_respects_memory_and_skills_slots(skills_settings) -> None:  # type: ignore[no-untyped-def]
-    """模板显式声明 {{ memory }} / {{ skills }} 时按槽位插入，末尾人设不被挤到后面。"""
+@pytest.mark.parametrize("runtime_slot", ["", "{{ runtime_env }}\n\n"])
+def test_system_prompt_respects_memory_and_skills_slots(
+    skills_settings,  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_slot: str,
+) -> None:
+    """旧模板和带环境槽位的新模板都保留末尾人设，并注入一次执行环境。"""
     settings = skills_settings()
     assert settings.system_prompt_path is not None
     settings.system_prompt_path.parent.mkdir(parents=True, exist_ok=True)
     settings.system_prompt_path.write_text(
-        "头部人设\n\n{{ memory }}\n\n{{ skills }}\n\n尾部口吻示例",
+        "头部人设\n\n" + runtime_slot + "{{ memory }}\n\n{{ skills }}\n\n尾部口吻示例",
         encoding="utf-8",
     )
     registry = SkillRegistry.from_settings(settings)
 
+    monkeypatch.setattr(sys, "platform", "win32")
     prompt = load_system_prompt(settings, skills=registry.skills, memory="## 长期记忆\n- 乐哥")
 
     assert prompt.startswith("头部人设")
     assert prompt.endswith("尾部口吻示例")
+    assert prompt.count("## 当前执行环境") == 1
+    assert "cmd.exe" in prompt
+    assert prompt.index("## 当前执行环境") < prompt.index("## 长期记忆")
     assert prompt.count("## 长期记忆") == 1
     assert prompt.count("## 可用技能") == 1
 
@@ -105,8 +116,6 @@ def test_system_prompt_includes_runtime_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """内置模板与自定义无槽位模板都应自动带上当前操作系统与默认 Shell。"""
-    import sys
-
     settings = settings_factory(config_yaml="agent:\n  system_prompt_file: null\n")
     monkeypatch.setattr(sys, "platform", "win32")
     win_prompt = load_system_prompt(settings)

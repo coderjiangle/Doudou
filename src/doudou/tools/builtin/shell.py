@@ -46,6 +46,17 @@ class ShellError(ValueError):
     """命令执行失败。消息会直接回填给模型。"""
 
 
+def shell_dialect() -> tuple[str, str]:
+    """返回默认解释器和交给模型的命令语法说明。"""
+    if sys.platform == "win32":
+        return (
+            "cmd.exe",
+            "使用 CMD 语法，例如 `dir /a`、`findstr`、`git status`。"
+            "即使从 PowerShell 启动 Doudou，也按 CMD 语法构造命令。",
+        )
+    return "/bin/sh", "使用 POSIX sh 语法，例如 `ls -la`、`grep`、`git status`。"
+
+
 def missing_requirement(settings: Settings) -> str | None:
     """shell 分组不可用的原因；可用时返回 ``None``。
 
@@ -90,7 +101,7 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
         """在工作目录里执行一条 shell 命令。
 
         Args:
-            command: 要执行的命令，例如 ``ls -la``、``git status``。
+            command: 由工具指定的 Shell 解析的非交互命令。
 
         Returns:
             退出码与输出（stdout / stderr 合并，超长会截断）。
@@ -145,6 +156,8 @@ def build_tools(settings: Settings) -> Sequence[BaseTool]:
         )
         return f"退出码 {process.returncode}（耗时 {elapsed}s）\n{body}"
 
+    shell_name, syntax = shell_dialect()
+    shell_exec.description += f"\n\n执行 Shell：`{shell_name}`。{syntax}"
     annotate(shell_exec, group=GROUP, side_effects=True, timeout=config.timeout + 10)
     return [shell_exec]
 
@@ -262,4 +275,4 @@ def default_shell_hint() -> str:
     )
 
 
-__all__ = ["GROUP", "ShellError", "build_tools", "missing_requirement"]
+__all__ = ["GROUP", "ShellError", "build_tools", "missing_requirement", "shell_dialect"]

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from doudou.tools.builtin import sandbox, shell
 from doudou.tools.registry import describe_groups
@@ -206,3 +207,28 @@ async def test_shell_exec_closes_stdin_so_stdin_reads_do_not_hang(
     )
     assert "退出码 0" in output
     assert "\n0" in output
+
+
+@pytest.mark.parametrize(
+    ("platform", "shell_name", "example", "foreign_example"),
+    [
+        ("win32", "cmd.exe", "dir /a", "ls -la"),
+        ("linux", "/bin/sh", "ls -la", "dir /a"),
+    ],
+)
+def test_shell_tool_schema_uses_host_command_syntax(
+    settings_factory,  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    shell_name: str,
+    example: str,
+    foreign_example: str,
+) -> None:
+    settings = settings_factory(config_yaml="tools:\n  shell:\n    enabled: true\n")
+    monkeypatch.setattr(sys, "platform", platform)
+
+    function = convert_to_openai_tool(shell.build_tools(settings)[0])["function"]
+
+    assert shell_name in function["description"]
+    assert example in function["description"]
+    assert foreign_example not in str(function)

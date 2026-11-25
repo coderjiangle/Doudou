@@ -12,6 +12,7 @@ from typing import Any
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
 from doudou.skills.loader import SkillInfo
+from doudou.tools.builtin.shell import shell_dialect
 
 logger = get_logger(__name__)
 
@@ -45,23 +46,15 @@ DEFAULT_SYSTEM_PROMPT = """\
 
 def describe_runtime_environment(settings: Settings) -> str:
     """生成当前执行环境说明，让模型知道宿主机操作系统与默认 Shell。"""
-    if sys.platform == "win32":
-        os_name = "Windows"
-        shell_name = "cmd.exe"
-        shell_hint = (
-            "（请使用 Windows 兼容命令，勿直接套用 date/ls/grep 等 Linux 语法；取时间优先用 `now`）"
-        )
-    else:
-        os_name = platform.system() or sys.platform
-        shell_name = "/bin/sh"
-        shell_hint = ""
+    os_name = "Windows" if sys.platform == "win32" else (platform.system() or sys.platform)
+    shell_name, syntax = shell_dialect()
     release = platform.release()
     machine = platform.machine() or "unknown"
     os_label = f"{os_name} {release}".strip()
     return (
         "## 当前执行环境\n"
         f"- 操作系统：{os_label}（{machine}）\n"
-        f"- `shell_exec` 默认 Shell：`{shell_name}`{shell_hint}\n"
+        f"- `shell_exec` 默认 Shell：`{shell_name}`。{syntax}取时间优先用 `now`。\n"
         f"- 运行时区：{settings.app.runtime.timezone}"
     )
 
@@ -82,7 +75,7 @@ def render_template(text: str, variables: dict[str, Any] | None = None) -> str:
 def default_variables(settings: Settings) -> dict[str, Any]:
     """提示词模板可用变量。"""
     os_name = "Windows" if sys.platform == "win32" else (platform.system() or sys.platform)
-    shell_name = "cmd.exe" if sys.platform == "win32" else "/bin/sh"
+    shell_name, _ = shell_dialect()
     return {
         "name": settings.app.agent.name,
         "user_name": os.environ.get("DOUDOU_USER_NAME", "你"),
@@ -134,13 +127,19 @@ def load_system_prompt(
     if has_skills_slot:
         merged_vars.setdefault("skills", index)
 
+    if not has_runtime_env_slot and merged_vars.get("runtime_env"):
+        # 老模板在独立的记忆或技能槽位前补环境说明，保留末尾的口吻示例。
+        context_slot = re.search(
+            r"^[ \t]*\{\{[ \t]*(?:memory|skills)[ \t]*\}\}[ \t]*$", template, re.M
+        )
+        position = context_slot.start() if context_slot else len(template)
+        template = "\n\n{{ runtime_env }}\n\n".join(
+            (template[:position].rstrip(), template[position:])
+        )
+
     prompt = render_template(template, merged_vars).strip()
     # 槽位为空时可能会留下连续空行，收敛成最多一个空行。
     prompt = re.sub(r"\n{3,}", "\n\n", prompt)
-
-    runtime_env_block = str(merged_vars.get("runtime_env") or "").strip()
-    if not has_runtime_env_slot and not (has_memory_slot or has_skills_slot) and runtime_env_block:
-        prompt = f"{prompt}\n\n{runtime_env_block}"
 
     if not has_memory_slot and memory_block:
         prompt = f"{prompt}\n\n{memory_block}"

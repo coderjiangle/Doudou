@@ -22,7 +22,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import BaseTool, tool
 
 from doudou.agent.models import ModelBuildError, build_model
-from doudou.agent.prompts import render_skill_index
+from doudou.agent.prompts import describe_runtime_environment, render_skill_index
 from doudou.agent.subagents import DelegationResult, SubAgentRegistry, SubAgentSpec, select_tools
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
@@ -225,7 +225,12 @@ def _child_context(
             subagent=spec.name,
             hint="请在工具白名单中允许 read_skill，并启用 skills 分组",
         )
-    return selected, "\n\n".join(part for part in (spec.system_prompt, index) if part)
+    runtime = (
+        describe_runtime_environment(settings)
+        if any(item.name == "shell_exec" for item in selected)
+        else ""
+    )
+    return selected, "\n\n".join(part for part in (spec.system_prompt, runtime, index) if part)
 
 
 def _load(settings: Settings) -> SubAgentRegistry:

@@ -185,3 +185,24 @@ def test_sandbox_env_moves_home_into_tmp(monkeypatch: pytest.MonkeyPatch) -> Non
     assert sandboxed["HOME"] == sandbox.SANDBOX_HOME
     assert sandboxed["TMPDIR"] == sandbox.SANDBOX_HOME
     assert plain["HOME"] == "/home/someone"
+
+
+async def test_shell_exec_closes_stdin_so_stdin_reads_do_not_hang(
+    settings_factory,  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+) -> None:
+    """``shell_exec`` 必须把 stdin 设为 DEVNULL，避免读标准输入的命令卡死到超时。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    settings = settings_factory(
+        config_yaml=(
+            f'filesystem:\n  root_dir: "{workspace.as_posix()}"\n'
+            "tools:\n  shell:\n    enabled: true\n    timeout: 2\n"
+        )
+    )
+    tool = shell.build_tools(settings)[0]
+    output = await tool.ainvoke(
+        {"command": f'"{sys.executable}" -c "import sys; print(len(sys.stdin.read()))"'}
+    )
+    assert "退出码 0" in output
+    assert "\n0" in output

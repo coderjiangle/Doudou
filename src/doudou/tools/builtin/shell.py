@@ -160,6 +160,8 @@ async def _spawn_shell(
         command,
         cwd=str(cwd),
         env=env,
+        # shell_exec 是非交互调用：切断 stdin 继承，防止 date/pause 等交互提示把工具卡死到超时。
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -176,6 +178,7 @@ async def _spawn_sandboxed(
         *argv,
         cwd=str(cwd),
         env=env,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         # 新进程组：超时时按组收尸，bwrap 里的子进程不会留在后台。

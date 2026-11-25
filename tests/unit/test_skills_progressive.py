@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool
 
@@ -97,6 +98,26 @@ def test_system_prompt_respects_memory_and_skills_slots(skills_settings) -> None
     assert prompt.endswith("尾部口吻示例")
     assert prompt.count("## 长期记忆") == 1
     assert prompt.count("## 可用技能") == 1
+
+
+def test_system_prompt_includes_runtime_environment(
+    settings_factory,  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """内置模板与自定义无槽位模板都应自动带上当前操作系统与默认 Shell。"""
+    import sys
+
+    settings = settings_factory(config_yaml="agent:\n  system_prompt_file: null\n")
+    monkeypatch.setattr(sys, "platform", "win32")
+    win_prompt = load_system_prompt(settings)
+    assert "## 当前执行环境" in win_prompt
+    assert "Windows" in win_prompt
+    assert "cmd.exe" in win_prompt
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    linux_prompt = load_system_prompt(settings)
+    assert "## 当前执行环境" in linux_prompt
+    assert "/bin/sh" in linux_prompt
 
 
 # --------------------------------------------------------------------------- 工具注册

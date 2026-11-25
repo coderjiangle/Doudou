@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
+import sys
 from collections.abc import Sequence
 from typing import Any
 
@@ -36,7 +38,32 @@ DEFAULT_SYSTEM_PROMPT = """\
 ## 边界
 - 涉及不可逆操作前，先说明将要做什么。
 - 不泄露密钥、令牌、内部路径等敏感信息。
+
+{{ runtime_env }}
 """
+
+
+def describe_runtime_environment(settings: Settings) -> str:
+    """生成当前执行环境说明，让模型知道宿主机操作系统与默认 Shell。"""
+    if sys.platform == "win32":
+        os_name = "Windows"
+        shell_name = "cmd.exe"
+        shell_hint = (
+            "（请使用 Windows 兼容命令，勿直接套用 date/ls/grep 等 Linux 语法；取时间优先用 `now`）"
+        )
+    else:
+        os_name = platform.system() or sys.platform
+        shell_name = "/bin/sh"
+        shell_hint = ""
+    release = platform.release()
+    machine = platform.machine() or "unknown"
+    os_label = f"{os_name} {release}".strip()
+    return (
+        "## 当前执行环境\n"
+        f"- 操作系统：{os_label}（{machine}）\n"
+        f"- `shell_exec` 默认 Shell：`{shell_name}`{shell_hint}\n"
+        f"- 运行时区：{settings.app.runtime.timezone}"
+    )
 
 
 def render_template(text: str, variables: dict[str, Any] | None = None) -> str:
@@ -54,11 +81,16 @@ def render_template(text: str, variables: dict[str, Any] | None = None) -> str:
 
 def default_variables(settings: Settings) -> dict[str, Any]:
     """提示词模板可用变量。"""
+    os_name = "Windows" if sys.platform == "win32" else (platform.system() or sys.platform)
+    shell_name = "cmd.exe" if sys.platform == "win32" else "/bin/sh"
     return {
         "name": settings.app.agent.name,
         "user_name": os.environ.get("DOUDOU_USER_NAME", "你"),
         "timezone": settings.app.runtime.timezone,
         "env": settings.app.runtime.env,
+        "os": os_name,
+        "shell": shell_name,
+        "runtime_env": describe_runtime_environment(settings),
     }
 
 
@@ -94,6 +126,7 @@ def load_system_prompt(
     index = render_skill_index(skills, limit=limit)
     memory_block = memory.strip()
 
+    has_runtime_env_slot = bool(re.search(r"\{\{\s*runtime_env\s*\}\}", template))
     has_memory_slot = bool(re.search(r"\{\{\s*memory\s*\}\}", template))
     has_skills_slot = bool(re.search(r"\{\{\s*skills\s*\}\}", template))
     if has_memory_slot:
@@ -104,6 +137,10 @@ def load_system_prompt(
     prompt = render_template(template, merged_vars).strip()
     # 槽位为空时可能会留下连续空行，收敛成最多一个空行。
     prompt = re.sub(r"\n{3,}", "\n\n", prompt)
+
+    runtime_env_block = str(merged_vars.get("runtime_env") or "").strip()
+    if not has_runtime_env_slot and not (has_memory_slot or has_skills_slot) and runtime_env_block:
+        prompt = f"{prompt}\n\n{runtime_env_block}"
 
     if not has_memory_slot and memory_block:
         prompt = f"{prompt}\n\n{memory_block}"
@@ -147,6 +184,7 @@ def render_skill_index(skills: Sequence[SkillInfo], *, limit: int = 40) -> str:
 __all__ = [
     "DEFAULT_SYSTEM_PROMPT",
     "default_variables",
+    "describe_runtime_environment",
     "load_system_prompt",
     "render_skill_index",
     "render_template",

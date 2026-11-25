@@ -1,4 +1,4 @@
-"""Typer app: serve, chat, ask, tools, skills, config, version."""
+"""Typer app: serve, chat, threads, ask, tools, skills, config, version."""
 
 from __future__ import annotations
 
@@ -24,9 +24,17 @@ from doudou.channels.cli_channel import (
     description_summary,
     make_approval_hook,
     make_auto_approve_hook,
+    render_threads_table,
+    resolve_thread_choice,
 )
-from doudou.cli.remote import EphemeralServeProcess, RemoteAgentRunner, RemoteServerError
+from doudou.cli.remote import (
+    EphemeralServeProcess,
+    RemoteAgentRunner,
+    RemoteServerError,
+    fetch_remote_threads,
+)
 from doudou.config.loader import Settings, load_settings
+from doudou.gateway.history import ThreadInfo
 from doudou.gateway.runner import AgentRunner
 from doudou.mcp.client import ServerOverview
 from doudou.mcp.config import McpConfigError
@@ -35,6 +43,7 @@ from doudou.observability.logging import configure_logging, get_logger
 from doudou.scheduler.store import SchedulerStore
 from doudou.skills.registry import SkillRegistry
 from doudou.storage.database import Database, create_database
+from doudou.storage.history import SqlHistoryStore
 from doudou.storage.scheduled import SqlSchedulerStore
 from doudou.tools.registry import build_tools, describe_groups, tool_infos
 from doudou.utils.console import configure_stdio
@@ -284,10 +293,76 @@ async def _prepare_remote_channel(
 # --------------------------------------------------------------------------- 对话
 
 
+async def _load_threads(
+    settings: Settings,
+    *,
+    server_url: str | None,
+    limit: int,
+) -> list[ThreadInfo]:
+    """优先向在线服务查询历史会话；无服务在线时直接读取本地数据库。"""
+    remote_threads = await fetch_remote_threads(settings, server_url=server_url, limit=limit)
+    if remote_threads is not None:
+        return remote_threads
+    if settings.app.storage.history != "database":
+        return []
+    database = create_database(settings.app.storage)
+    try:
+        await database.create_schema()
+        return await SqlHistoryStore(database).list_threads(limit=limit)
+    finally:
+        await database.dispose()
+
+
+async def _run_chat_session(
+    settings: Settings,
+    *,
+    model: str | None,
+    conversation: str,
+    thread_id: str | None,
+    stream: bool,
+    interactive: bool,
+    render_markdown: bool,
+    resume: bool,
+    local: bool,
+    server_url: str | None,
+    config_dir: Path | None,
+) -> None:
+    if local:
+        prepared = await _prepare_channel(
+            settings,
+            model,
+            stream=stream,
+            interactive=interactive,
+            quiet=False,
+            render_markdown=render_markdown,
+        )
+    else:
+        prepared = await _prepare_remote_channel(
+            settings,
+            model,
+            config_dir=config_dir,
+            server_url=server_url,
+            stream=stream,
+            interactive=interactive,
+            render_markdown=render_markdown,
+            new_session=not resume and thread_id is None,
+        )
+    try:
+        if thread_id:
+            prepared.channel.select_thread(conversation, thread_id)
+            await prepared.channel.show_thread_preview(thread_id)
+        await prepared.channel.repl(conversation_id=conversation)
+    finally:
+        await prepared.aclose()
+
+
 @app.command()
 def chat(
     model: ModelOption = None,
     conversation: Annotated[str, typer.Option("--conversation", "-c", help="会话标识。")] = "local",
+    thread: Annotated[
+        str | None, typer.Option("--thread", "-t", help="继续指定的历史会话 thread_id。")
+    ] = None,
     no_stream: Annotated[bool, typer.Option("--no-stream", help="关闭流式输出。")] = False,
     no_confirm: Annotated[
         bool,
@@ -308,32 +383,94 @@ def chat(
 ) -> None:
     """交互式对话（默认自动拉起随用随关的后台 serve，退出即清理）。"""
     settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
+    try:
+        asyncio.run(
+            _run_chat_session(
+                settings,
+                model=model,
+                conversation=conversation,
+                thread_id=thread,
+                stream=not no_stream,
+                interactive=not no_confirm,
+                render_markdown=not raw,
+                resume=resume,
+                local=local,
+                server_url=server,
+                config_dir=config_dir,
+            )
+        )
+    except RemoteServerError as exc:
+        err_console.print(f"[bold red]连接后台服务失败：[/bold red]{escape(str(exc))}")
+        raise typer.Exit(EXIT_USAGE) from exc
+    except KeyboardInterrupt:  # pragma: no cover - 交互中断
+        console.print("\n[dim]已中断。[/dim]")
+
+
+@app.command()
+def threads(
+    limit: Annotated[
+        int, typer.Option("--limit", "-n", min=1, max=200, help="最多显示多少条历史会话。")
+    ] = 20,
+    list_only: Annotated[
+        bool, typer.Option("--list", "-l", help="只列出历史会话，不进入选择对话。")
+    ] = False,
+    model: ModelOption = None,
+    no_stream: Annotated[bool, typer.Option("--no-stream", help="关闭流式输出。")] = False,
+    no_confirm: Annotated[
+        bool,
+        typer.Option("--no-confirm", help="不询问，直接同意有副作用的工具执行。"),
+    ] = False,
+    raw: Annotated[bool, typer.Option("--raw", help="关闭 Markdown 渲染，按纯文本输出。")] = False,
+    server: Annotated[
+        str | None, typer.Option("--server", help="连接到已运行的 doudou serve 地址。")
+    ] = None,
+    config_dir: ConfigDir = None,
+    log_level: LogLevel = None,
+) -> None:
+    """查看历史会话列表，并可选择其中一条继续对话。"""
+    settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
 
     async def _run() -> None:
-        if local:
-            prepared = await _prepare_channel(
-                settings,
-                model,
-                stream=not no_stream,
-                interactive=not no_confirm,
-                quiet=False,
-                render_markdown=not raw,
-            )
-        else:
-            prepared = await _prepare_remote_channel(
-                settings,
-                model,
-                config_dir=config_dir,
-                server_url=server,
-                stream=not no_stream,
-                interactive=not no_confirm,
-                render_markdown=not raw,
-                new_session=not resume,
-            )
+        items = await _load_threads(settings, server_url=server, limit=limit)
+        if not items:
+            console.print("[dim]暂无历史会话。[/dim]")
+            return
+
+        render_threads_table(console, items, timezone_name=settings.app.runtime.timezone)
+        if list_only:
+            return
+
         try:
-            await prepared.channel.repl(conversation_id=conversation)
-        finally:
-            await prepared.aclose()
+            choice = (
+                await asyncio.to_thread(
+                    console.input,
+                    "[dim]输入编号或会话 ID 继续对话（直接回车退出）：[/] ",
+                )
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            return
+        if not choice:
+            return
+
+        selected = resolve_thread_choice(items, choice)
+        if selected is None:
+            err_console.print(f"[red]未找到匹配的历史会话：{escape(choice)}[/red]")
+            raise typer.Exit(EXIT_USAGE)
+
+        await _run_chat_session(
+            settings,
+            model=model,
+            conversation=selected.conversation_id or "local",
+            thread_id=selected.thread_id,
+            stream=not no_stream,
+            interactive=not no_confirm,
+            render_markdown=not raw,
+            resume=True,
+            local=False,
+            server_url=server,
+            config_dir=config_dir,
+        )
 
     try:
         asyncio.run(_run())

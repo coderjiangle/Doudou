@@ -232,6 +232,7 @@ Body:   { "conversation_id": "...", "user_id": "...", "text": "..." }
 `uv run doudou chat` 启动交互式多轮对话（默认按「随用随关」模式自动探测或静默拉起一个临时 `doudou serve` 子进程，退出 `/exit` 时自动关闭该子进程，既隔离后台日志又共享数据库历史与 `/stats`；若已有手动启动的 `doudou serve` 在运行则直接复用，退出时不关闭它）。常用选项：
 
 - `--resume`：续接同 `--conversation` 上次的持久化会话（默认每次启动开新会话）；
+- `--thread <id>`：直接续接指定的历史会话 `thread_id`；
 - `--server <url>`：显式连向指定的 `doudou serve`；
 - `--local`：单进程本地运行，不拉起后台 `serve`。
 
@@ -240,10 +241,12 @@ Body:   { "conversation_id": "...", "user_id": "...", "text": "..." }
 | 命令 | 作用 |
 | --- | --- |
 | `/new` | 开启新会话（换新的 thread，清空上下文） |
-| `/history` | 查看当前会话的 thread 与历史条数 |
+| `/threads` | 查看最近历史会话列表，并可按编号或 `thread_id` 选择继续对话 |
 | `/tools` | 列出已装载的工具（含「需确认」标记） |
 | `/help` | 显示帮助 |
 | `/exit` | 退出 |
+
+也可以直接运行 `uv run doudou threads` 查看历史会话并选择其中一条进入对话（加 `--list` 只列出不进入交互选择）。
 
 单轮场景用 `uv run doudou ask "问题"`；`--quiet` 只输出最终答复（便于脚本调用），
 `--no-stream` 关闭流式，`--no-confirm` 关闭工具执行前的人工确认，`--raw` 关闭终端 Markdown 渲染（默认在交互式终端自动启用富文本渲染，非 TTY 或重定向时自动回退纯文本；也可在配置 `channels.cli.render_markdown` 控制）。

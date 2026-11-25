@@ -249,3 +249,47 @@ async def test_cli_channel_stops_live_on_run_end_before_runner_finally(
         )
         == 1
     )
+
+
+async def test_cli_channel_threads_command_lists_and_switches_thread(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``/threads`` 应列出历史会话，选择编号后可继续在该会话对话。"""
+    model = ScriptedChatModel(
+        steps=[
+            AIMessage(content="收到一"),
+            AIMessage(content="收到二"),
+            AIMessage(content="收到三"),
+        ]
+    )
+    bundle = build_agent(settings, model=model, extra_tools=())
+    runner = AgentRunner(bundle)
+    console, buf = _make_plain_console()
+    channel = CliChannel(runner, stream=False, console=console)
+
+    await channel.ask("第一条消息")
+    tid1 = channel._active_threads["local"]
+    await channel._handle_command("/new", conversation_id="local")
+    await channel.ask("第二条消息")
+    tid2 = channel._active_threads["local"]
+    assert tid1 != tid2
+
+    listed = await runner.list_threads()
+    tid1_index = next(i for i, item in enumerate(listed, start=1) if item.thread_id == tid1)
+    monkeypatch.setattr(console, "input", lambda _prompt="": str(tid1_index))
+
+    keep_going = await channel._handle_command("/threads", conversation_id="local")
+    assert keep_going is True
+
+    output = buf.getvalue()
+    assert "历史会话" in output
+    assert tid1 in output
+    assert "已切换到会话" in output
+    assert "第一条消息" in output
+
+    await channel.ask("回到第一条会话")
+    hist1 = [str(m.content) for m in await runner.history(tid1)]
+    hist2 = [str(m.content) for m in await runner.history(tid2)]
+    assert "回到第一条会话" in hist1
+    assert "回到第一条会话" not in hist2

@@ -101,9 +101,8 @@ async def test_remote_runner_streams_tools_threads_and_new(
 
         tid1 = await runner.resolve_thread(req1)
         assert tid1
-        info1 = await runner.get_thread(tid1)
-        assert info1 is not None
-        assert info1.message_count >= 2
+        hist1 = await runner.history(tid1)
+        assert len(hist1) >= 2
         follow_up = RunRequest(text="你好", conversation_id="local", channel="cli")
         assert (await runner.ainvoke(follow_up)).events[-1].thread_id == tid1
 
@@ -112,6 +111,18 @@ async def test_remote_runner_streams_tools_threads_and_new(
         events2 = [ev async for ev in runner.astream(req1)]
         tid2 = events2[-1].thread_id
         assert tid2 and tid2 != tid1
+
+        threads = await runner.list_threads(limit=10)
+        thread_ids = [item.thread_id for item in threads]
+        assert tid1 in thread_ids
+        assert tid2 in thread_ids
+
+        # 显式传入 thread_id 时即使处于 new_session=True 也应续接目标历史会话
+        resumed = await runner.ainvoke(
+            RunRequest(text="回到旧会话", conversation_id="local", channel="cli", thread_id=tid1)
+        )
+        assert resumed.events[-1].thread_id == tid1
+        assert any("回到旧会话" in str(m.content) for m in await runner.history(tid1))
 
 
 @asynccontextmanager

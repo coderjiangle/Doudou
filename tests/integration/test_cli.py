@@ -151,17 +151,112 @@ scheduler:
     result = runner.invoke(
         app,
         ["chat", "--model", "scripted:demo", "--config-dir", str(cfg)],
-        input="你好\n/history\n/exit\n",
+        input="你好\n/tools\n/exit\n",
     )
 
     assert result.exit_code == 0, result.output
     assert "[offline] 收到你的消息：你好" in result.output
-    assert "历史 2 条消息" in result.output
+    assert "已装载的工具" in result.output
     assert "再见。" in result.output
     assert "runner.run_finished" not in result.output
     assert seen_owned == [True]
     assert len(seen_procs) == 1
     assert seen_procs[0].poll() is not None  # type: ignore[attr-defined]
+
+
+def test_threads_command_lists_and_resumes_selected_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``doudou threads`` 应列出历史会话，并允许按编号选中后继续对话。"""
+    import asyncio
+
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from doudou.config.loader import load_settings
+    from doudou.storage.database import create_database
+    from doudou.storage.history import SqlHistoryStore
+
+    home = tmp_path / "home"
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    home.mkdir()
+    db_path = (home / "data" / "doudou.db").as_posix()
+    (cfg / "config.yaml").write_text(
+        f"""\
+version: 1
+runtime:
+  log_level: ERROR
+  timezone: Asia/Shanghai
+server:
+  host: 127.0.0.1
+  port: 18933
+agent:
+  name: ThreadsTest
+  system_prompt_file: null
+  skills: []
+storage:
+  database_url: sqlite+aiosqlite:///{db_path}
+  history: database
+mcp:
+  enabled: false
+scheduler:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DOUDOU_HOME", str(home))
+    monkeypatch.setenv("DOUDOU_MODEL_PRIMARY", "scripted:demo")
+
+    settings = load_settings(config_dir=cfg)
+
+    async def _seed() -> None:
+        db = create_database(settings.app.storage)
+        await db.create_schema()
+        store = SqlHistoryStore(db)
+        await store.append(
+            "t-older",
+            [HumanMessage(content="早些时候的问题"), AIMessage(content="早些时候的回答")],
+            channel="cli",
+            conversation_id="local",
+        )
+        await asyncio.sleep(0.02)
+        await store.append(
+            "t-recent",
+            [HumanMessage(content="最近的话题"), AIMessage(content="最近的回答")],
+            channel="cli",
+            conversation_id="local",
+        )
+        await db.dispose()
+
+    asyncio.run(_seed())
+
+    listed = runner.invoke(app, ["threads", "--list", "--config-dir", str(cfg)])
+    assert listed.exit_code == 0, listed.output
+    assert "t-recent" in listed.output
+    assert "t-older" in listed.output
+
+    resumed = runner.invoke(
+        app,
+        ["threads", "--model", "scripted:demo", "--config-dir", str(cfg)],
+        input="1\n接着刚才聊\n/exit\n",
+    )
+    assert resumed.exit_code == 0, resumed.output
+    assert "已切换到会话" in resumed.output
+    assert "t-recent" in resumed.output
+    assert "最近的话题" in resumed.output
+    # t-recent 已有 1 条历史 AIMessage，scripted:demo 看到历史后直接进入第 2 步回答，说明确已续接旧上下文
+    assert "工具返回结果" in resumed.output
+    assert "再见。" in resumed.output
+
+    async def _check_history() -> list[str]:
+        db = create_database(settings.app.storage)
+        store = SqlHistoryStore(db)
+        msgs = await store.load("t-recent")
+        await db.dispose()
+        return [str(m.content) for m in msgs]
+
+    contents = asyncio.run(_check_history())
+    assert "接着刚才聊" in contents
 
 
 # --------------------------------------------------------------------------- 单轮对话

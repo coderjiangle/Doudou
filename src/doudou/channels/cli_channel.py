@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from langchain_core.messages import BaseMessage
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -17,10 +20,11 @@ from rich.table import Table
 from doudou.agent.events import RunEvent
 from doudou.agent.react import ApprovalHook, RunResult, ToolApprovalRequest
 from doudou.channels.base import InboundMessage, OutboundMessage
+from doudou.gateway.history import ThreadInfo
 from doudou.gateway.runner import RunnerLike
 from doudou.gateway.schema import RunRequest
 from doudou.observability.logging import get_logger
-from doudou.utils.text import truncate
+from doudou.utils.text import content_to_text, truncate
 
 logger = get_logger(__name__)
 
@@ -30,7 +34,7 @@ MAX_TOOL_RESULT_CHARS = 300
 _HELP = """\
 [b]可用命令[/b]
   /new           开启新会话（换新的 thread，清空上下文）
-  /history       查看当前会话的历史条数
+  /threads       查看历史会话并选择继续对话
   /tools         列出已装载的工具
   /help          显示本帮助
   /exit          退出
@@ -90,6 +94,7 @@ class CliChannel:
         self.max_tool_result_chars = max_tool_result_chars
         self.render_markdown = render_markdown
         self._state = _RenderState()
+        self._active_threads: dict[str, str] = {}
 
     # ---------------------------------------------------------------- Channel 协议
 
@@ -107,9 +112,24 @@ class CliChannel:
 
     # ---------------------------------------------------------------- 入口
 
+    def select_thread(self, conversation_id: str, thread_id: str) -> None:
+        """指定某个终端会话标识接下来要继续使用的 ``thread_id``。"""
+        self._active_threads[conversation_id] = thread_id
+
+    async def show_thread_preview(self, thread_id: str) -> None:
+        """展示选定历史会话的最近几轮对话摘要。"""
+        messages = await self.runner.history(thread_id)
+        self.console.print(f"[green]已切换到会话[/green] [dim]{thread_id}[/dim]")
+        print_thread_preview(self.console, messages)
+
     async def ask(self, text: str, *, conversation_id: str = DEFAULT_CONVERSATION) -> RunResult:
         """跑一轮对话并渲染结果。"""
-        request = RunRequest(text=text, conversation_id=conversation_id, channel=self.name)
+        request = RunRequest(
+            text=text,
+            conversation_id=conversation_id,
+            channel=self.name,
+            thread_id=self._active_threads.get(conversation_id),
+        )
         thread_id = await self.runner.resolve_thread(request)
         self._state.reset()
 
@@ -120,6 +140,12 @@ class CliChannel:
         else:
             result = await self.runner.ainvoke(request, thread_id=thread_id)
 
+        resolved_id = next(
+            (ev.thread_id for ev in reversed(result.events) if ev.thread_id),
+            thread_id,
+        )
+        if resolved_id:
+            self._active_threads[conversation_id] = resolved_id
         self._finish(result)
         return result
 
@@ -331,9 +357,11 @@ class CliChannel:
     async def _handle_command(self, command: str, *, conversation_id: str) -> bool:
         """处理斜杠命令；返回 ``False`` 表示应退出 REPL。
 
-        是异步的：``/new`` 与 ``/history`` 要走 ``HistoryStore``（可能是数据库）。
+        是异步的：``/new``、``/threads`` 与 ``/tools`` 需要异步调用运行器。
         """
-        name = command.split(maxsplit=1)[0].lower()
+        parts = command.split(maxsplit=1)
+        name = parts[0].lower()
+        arg = parts[1].strip() if len(parts) > 1 else ""
 
         if name in {"/exit", "/quit"}:
             return False
@@ -344,25 +372,50 @@ class CliChannel:
             await self._print_tools()
             return True
         if name == "/new":
+            self._active_threads.pop(conversation_id, None)
             thread_id = await self.runner.start_new_thread(conversation_id, channel=self.name)
             self.console.print(f"[green]已开启新会话[/green] [dim]{thread_id}[/dim]")
             return True
-        if name == "/history":
-            request = RunRequest(text="", conversation_id=conversation_id, channel=self.name)
-            thread_id = await self.runner.resolve_thread(request)
-            info = await self.runner.get_thread(thread_id)
-            if info is None or info.message_count == 0:
-                self.console.print("[dim]尚未开始对话。[/dim]")
-            else:
-                updated = f"{info.updated_at:%Y-%m-%d %H:%M:%S %Z}" if info.updated_at else "—"
-                self.console.print(
-                    f"[dim]thread={info.thread_id}，历史 {info.message_count} 条消息"
-                    f"（更新于 {updated}）[/dim]"
-                )
+        if name == "/threads":
+            await self._select_thread_command(conversation_id=conversation_id, selector=arg)
             return True
 
         self.console.print(f"[yellow]未知命令：{name}（/help 查看可用命令）[/yellow]")
         return True
+
+    async def _select_thread_command(self, *, conversation_id: str, selector: str) -> None:
+        threads = await self.runner.list_threads(limit=20)
+        if not threads:
+            self.console.print("[dim]暂无历史会话。[/dim]")
+            return
+
+        current_id = self._active_threads.get(conversation_id)
+        if not selector:
+            render_threads_table(
+                self.console,
+                threads,
+                current_thread_id=current_id,
+                timezone_name=self.runner.settings.app.runtime.timezone,
+            )
+            try:
+                selector = (
+                    await asyncio.to_thread(
+                        self.console.input,
+                        "[dim]输入编号或会话 ID 继续对话（直接回车取消）：[/] ",
+                    )
+                ).strip()
+            except (EOFError, KeyboardInterrupt):
+                self.console.print()
+                return
+            if not selector:
+                return
+
+        selected = resolve_thread_choice(threads, selector)
+        if selected is None:
+            self.console.print(f"[yellow]未找到匹配的历史会话：{selector}[/yellow]")
+            return
+        self.select_thread(conversation_id, selected.thread_id)
+        await self.show_thread_preview(selected.thread_id)
 
     async def _print_tools(self) -> None:
         table = Table(title="已装载的工具")
@@ -502,6 +555,83 @@ def _format_args(args: dict[str, Any]) -> str:
     return f"({truncate(rendered, 120)})"
 
 
+def _format_thread_time(dt: datetime | None, timezone_name: str) -> str:
+    if dt is None:
+        return "—"
+    try:
+        tz = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+    return f"{dt.astimezone(tz):%Y-%m-%d %H:%M}"
+
+
+def render_threads_table(
+    console: Console,
+    threads: Sequence[ThreadInfo],
+    *,
+    current_thread_id: str | None = None,
+    timezone_name: str = "UTC",
+) -> None:
+    """以表格列出最近的历史会话。"""
+    table = Table(title="历史会话")
+    table.add_column("编号", justify="right", style="cyan")
+    table.add_column("会话 ID", style="bold")
+    table.add_column("渠道", style="dim")
+    table.add_column("消息数", justify="right")
+    table.add_column("更新时间", style="dim")
+    for idx, item in enumerate(threads, start=1):
+        is_current = bool(current_thread_id and item.thread_id == current_thread_id)
+        marker = f"[green]* {idx}[/green]" if is_current else str(idx)
+        table.add_row(
+            marker,
+            item.thread_id,
+            item.channel or "—",
+            str(item.message_count),
+            _format_thread_time(item.updated_at, timezone_name),
+        )
+    console.print(table)
+
+
+def resolve_thread_choice(threads: Sequence[ThreadInfo], choice: str) -> ThreadInfo | None:
+    """根据用户输入的 1-based 编号或 thread_id（含唯一前缀）解析目标会话。"""
+    raw = choice.strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        index = int(raw)
+        if 1 <= index <= len(threads):
+            return threads[index - 1]
+        return None
+    for item in threads:
+        if item.thread_id == raw:
+            return item
+    if len(raw) >= 4:
+        matches = [item for item in threads if item.thread_id.startswith(raw)]
+        if len(matches) == 1:
+            return matches[0]
+    return None
+
+
+def print_thread_preview(
+    console: Console, messages: Sequence[BaseMessage], *, max_items: int = 4
+) -> None:
+    """打印所选会话最近几轮的用户/助手对话预览。"""
+    turns: list[tuple[str, str]] = []
+    for msg in messages:
+        if msg.type not in {"human", "ai"}:
+            continue
+        text = " ".join(content_to_text(msg.content).split())
+        if not text:
+            continue
+        label = "你" if msg.type == "human" else "助手"
+        turns.append((label, truncate(text, 80)))
+    if not turns:
+        console.print("[dim]（该会话暂无历史对话内容）[/dim]")
+        return
+    for label, preview in turns[-max_items:]:
+        console.print(f"[dim]  {label}：{preview}[/dim]")
+
+
 def _usage_text(usage: dict[str, int]) -> str:
     parts = [f"{key}={value}" for key, value in usage.items() if key.endswith("_tokens")]
     return "、".join(parts) if parts else "无用量统计"
@@ -513,4 +643,7 @@ __all__ = [
     "description_summary",
     "make_approval_hook",
     "make_auto_approve_hook",
+    "print_thread_preview",
+    "render_threads_table",
+    "resolve_thread_choice",
 ]

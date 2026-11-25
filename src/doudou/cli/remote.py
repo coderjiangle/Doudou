@@ -80,6 +80,23 @@ def _parse_dt(raw: Any) -> datetime | None:
         return None
 
 
+def _parse_thread_items(raw_threads: Any) -> list[ThreadInfo]:
+    if not isinstance(raw_threads, list):
+        return []
+    return [
+        ThreadInfo(
+            thread_id=str(item.get("thread_id") or ""),
+            channel=item.get("channel"),
+            conversation_id=item.get("conversation_id"),
+            created_at=_parse_dt(item.get("created_at")),
+            updated_at=_parse_dt(item.get("updated_at")),
+            message_count=int(item.get("message_count") or 0),
+        )
+        for item in raw_threads
+        if isinstance(item, dict) and item.get("thread_id")
+    ]
+
+
 def _build_message(raw: dict[str, Any]) -> BaseMessage:
     role = str(raw.get("role") or "human")
     content = str(raw.get("content") or "")
@@ -200,22 +217,10 @@ class RemoteAgentRunner:
         self._pending_new.add(key)
         return "（将在下一条消息开启新会话）"
 
-    async def get_thread(self, thread_id: str) -> ThreadInfo | None:
-        if not thread_id:
-            return None
-        resp = await self._client.get(f"{self.base_url}/threads/{thread_id}")
-        if resp.status_code == 404:
-            return None
+    async def list_threads(self, *, limit: int = 50) -> list[ThreadInfo]:
+        resp = await self._client.get(f"{self.base_url}/threads", params={"limit": limit})
         resp.raise_for_status()
-        thread = resp.json().get("thread") or {}
-        return ThreadInfo(
-            thread_id=str(thread.get("thread_id") or thread_id),
-            channel=thread.get("channel"),
-            conversation_id=thread.get("conversation_id"),
-            created_at=_parse_dt(thread.get("created_at")),
-            updated_at=_parse_dt(thread.get("updated_at")),
-            message_count=int(thread.get("message_count") or 0),
-        )
+        return _parse_thread_items(resp.json().get("threads"))
 
     async def history(self, thread_id: str) -> list[BaseMessage]:
         if not thread_id:
@@ -250,7 +255,10 @@ class RemoteAgentRunner:
         self, request: RunRequest, *, thread_id: str | None = None
     ) -> AsyncIterator[RunEvent]:
         key = (request.channel, request.conversation_id)
-        effective_thread = thread_id or self._threads.get(key)
+        explicit_thread = thread_id or request.thread_id
+        if explicit_thread:
+            self._pending_new.discard(key)
+        effective_thread = explicit_thread or self._threads.get(key)
         want_new = (
             request.new_thread
             or key in self._pending_new
@@ -533,6 +541,34 @@ async def _probe_health(base_url: str, *, api_token: str | None, timeout_seconds
         return False
 
 
+async def fetch_remote_threads(
+    settings: Settings,
+    *,
+    server_url: str | None = None,
+    limit: int = 20,
+) -> list[ThreadInfo] | None:
+    """从已在线的 ``doudou serve`` 读取历史会话列表；未指定服务且不在线时返回 ``None``。"""
+    base_path = settings.app.server.base_path.rstrip("/")
+    if server_url:
+        base_url = _normalize_server_url(server_url, base_path)
+    else:
+        host = connect_host_for(settings.app.server.host)
+        base_url = f"http://{host}:{settings.app.server.port}{base_path}"
+    try:
+        async with httpx.AsyncClient(
+            headers=auth_headers(settings.api_token),
+            timeout=2.0,
+            trust_env=False,
+        ) as client:
+            resp = await client.get(f"{base_url}/threads", params={"limit": limit})
+            resp.raise_for_status()
+            return _parse_thread_items(resp.json().get("threads"))
+    except (httpx.HTTPError, ValueError) as exc:
+        if server_url:
+            raise RemoteServerError(f"无法读取指定服务端历史会话：{base_url}（{exc}）") from exc
+        return None
+
+
 def _spawn_serve(
     cmd: list[str],
     *,
@@ -575,4 +611,5 @@ __all__ = [
     "RemoteServerError",
     "auth_headers",
     "connect_host_for",
+    "fetch_remote_threads",
 ]

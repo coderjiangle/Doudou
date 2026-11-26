@@ -29,6 +29,7 @@ from doudou.channels.feishu.events import CHANNEL_NAME, EventDedup, parse_messag
 from doudou.config.loader import Settings
 from doudou.observability.logging import get_logger
 from doudou.observability.metrics import get_metrics
+from doudou.utils.asyncio_compat import install_connection_reset_filter
 from doudou.utils.text import truncate
 
 if TYPE_CHECKING:  # pragma: no cover - 只为类型检查
@@ -93,6 +94,7 @@ class FeishuWebSocketRunner:
             from lark_oapi.ws import client as ws_module
 
             loop = asyncio.new_event_loop()
+            install_connection_reset_filter(loop)
             asyncio.set_event_loop(loop)
             ws_module.loop = loop
             self._loop = loop

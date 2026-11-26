@@ -30,6 +30,7 @@ from doudou.storage.approvals import SqlApprovalStore
 from doudou.storage.database import Database, create_database
 from doudou.storage.history import SqlHistoryStore
 from doudou.storage.scheduled import SqlSchedulerStore
+from doudou.utils.asyncio_compat import install_connection_reset_filter
 from doudou.version import __version__
 
 logger = get_logger(__name__)
@@ -251,6 +252,9 @@ def make_lifespan(settings: Settings | None = None):  # type: ignore[no-untyped-
             json_logs=resolved.app.runtime.log_json,
             timezone=resolved.app.runtime.timezone,
         )
+        # 服务端也有长期 keep-alive / 飞书长连接：先压掉 Windows Proactor
+        # 在连接重置后关闭传输时的清理噪音，避免每次断线都打一整段 traceback。
+        install_connection_reset_filter()
         get_metrics().reset()
         app.state.doudou = await create_state(resolved)
         try:

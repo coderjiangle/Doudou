@@ -46,6 +46,7 @@ from doudou.storage.database import Database, create_database
 from doudou.storage.history import SqlHistoryStore
 from doudou.storage.scheduled import SqlSchedulerStore
 from doudou.tools.registry import build_tools, describe_groups, tool_infos
+from doudou.utils.asyncio_compat import run_async
 from doudou.utils.console import configure_stdio
 from doudou.utils.optional import install_hint, missing_modules, module_available
 from doudou.utils.text import truncate
@@ -384,7 +385,7 @@ def chat(
     """交互式对话（默认自动拉起随用随关的后台 serve，退出即清理）。"""
     settings = _load(config_dir, log_level=log_level, default_log_level="WARNING")
     try:
-        asyncio.run(
+        run_async(
             _run_chat_session(
                 settings,
                 model=model,
@@ -473,7 +474,7 @@ def threads(
         )
 
     try:
-        asyncio.run(_run())
+        run_async(_run())
     except RemoteServerError as exc:
         err_console.print(f"[bold red]连接后台服务失败：[/bold red]{escape(str(exc))}")
         raise typer.Exit(EXIT_USAGE) from exc
@@ -551,7 +552,7 @@ def voice_listen(
             await prepared.aclose()
 
     try:
-        asyncio.run(_run())
+        run_async(_run())
     except RemoteServerError as exc:
         err_console.print(f"[bold red]连接后台服务失败：[/bold red]{escape(str(exc))}")
         raise typer.Exit(EXIT_USAGE) from exc
@@ -581,7 +582,7 @@ def voice_download_models(config_dir: ConfigDir = None) -> None:
     voice_cfg = settings.app.channels.voice
     models_dir = resolve_path(Path.cwd(), voice_cfg.models_dir)
     try:
-        paths = asyncio.run(
+        paths = run_async(
             ensure_voice_models(
                 models_dir,
                 wake_words=voice_cfg.wake_words,
@@ -671,7 +672,7 @@ def ask(
         finally:
             await prepared.aclose()
 
-    result = asyncio.run(_run())
+    result = run_async(_run())
 
     if quiet:
         if result.text:
@@ -711,14 +712,14 @@ def tools_list(
             database,
         )
 
-    tools, runtime, database = asyncio.run(_collect())
+    tools, runtime, database = run_async(_collect())
     try:
         infos = tool_infos(settings, tools=tools)
     finally:
         if runtime is not None:
-            asyncio.run(runtime.stop())
+            run_async(runtime.stop())
         if database is not None:
-            asyncio.run(database.dispose())
+            run_async(database.dispose())
 
     table = Table(title=f"工具（{len(infos)}）")
     table.add_column("名称", style="bold")
@@ -1120,7 +1121,7 @@ def mcp_list(
             await runtime.stop()
 
     try:
-        entries = asyncio.run(_run())
+        entries = run_async(_run())
     except McpConfigError as exc:
         err_console.print(f"[bold red]MCP 配置有误：[/bold red]{exc}")
         raise typer.Exit(EXIT_USAGE) from exc
@@ -1177,7 +1178,7 @@ def mcp_check(
             await runtime.stop()
 
     try:
-        entries, info = asyncio.run(_run())
+        entries, info = run_async(_run())
     except McpConfigError as exc:
         err_console.print(f"[bold red]探测失败：[/bold red]{exc}")
         raise typer.Exit(EXIT_USAGE) from exc

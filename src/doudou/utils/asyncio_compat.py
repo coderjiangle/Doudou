@@ -28,6 +28,10 @@ _CONNECTION_LOST_CALLBACK = "_call_connection_lost"
 #: 标记异常处理器已经装过，避免重复包装。
 _INSTALLED_ATTR = "_doudou_connection_reset_filter"
 
+#: 标记 ``BaseProactorEventLoop._close_self_pipe`` 已经包过空指针保护。
+_SAFE_SELF_PIPE_ATTR = "_doudou_safe_close_self_pipe"
+_CLOSE_SELF_PIPE_METHOD = "_close_self_pipe"
+
 
 def _is_connection_reset_in_transport_close(context: dict[str, Any]) -> bool:
     """判断异常是否来自 Proactor 关闭传输时的 ``shutdown()``。
@@ -51,6 +55,7 @@ def install_connection_reset_filter(loop: asyncio.AbstractEventLoop | None = Non
     if sys.platform != "win32":
         return
 
+    install_safe_self_pipe_close()
     target = loop or asyncio.get_running_loop()
     if getattr(target, _INSTALLED_ATTR, False):
         return
@@ -76,8 +81,47 @@ def install_connection_reset_filter(loop: asyncio.AbstractEventLoop | None = Non
     setattr(target, _INSTALLED_ATTR, True)
 
 
+def install_safe_self_pipe_close() -> None:
+    """保护 Windows ``BaseProactorEventLoop._close_self_pipe`` 不因重复关闭崩溃。
+
+    Ctrl+C 连续中断 ``asyncio.run`` 的关闭阶段时，``_close_self_pipe`` 可能先将
+    ``_ssock`` 置为 ``None``，但 ``loop._closed`` 尚未置位；进程退出 GC 触发
+    ``BaseEventLoop.__del__`` 再次调 ``close()`` 时便抛出
+    ``AttributeError: 'NoneType' object has no attribute 'close'``。
+    """
+    if sys.platform != "win32":
+        return
+
+    from asyncio import proactor_events
+
+    cls = proactor_events.BaseProactorEventLoop
+    original = getattr(cls, _CLOSE_SELF_PIPE_METHOD, None)
+    if original is None or getattr(original, _SAFE_SELF_PIPE_ATTR, False):
+        return
+
+    def _safe_close_self_pipe(self: Any) -> None:
+        ssock = getattr(self, "_ssock", None)
+        csock = getattr(self, "_csock", None)
+        if ssock is not None and csock is not None:
+            original(self)
+            return
+        future = getattr(self, "_self_reading_future", None)
+        if future is not None:
+            future.cancel()
+            self._self_reading_future = None
+        for attr in ("_ssock", "_csock"):
+            sock = getattr(self, attr, None)
+            if sock is not None:
+                sock.close()
+                setattr(self, attr, None)
+
+    setattr(_safe_close_self_pipe, _SAFE_SELF_PIPE_ATTR, True)
+    setattr(cls, _CLOSE_SELF_PIPE_METHOD, _safe_close_self_pipe)
+
+
 def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
-    """``asyncio.run`` 的薄包装：运行前先装好连接重置过滤器。"""
+    """``asyncio.run`` 的薄包装：运行前先装好连接重置与关闭保护。"""
+    install_safe_self_pipe_close()
 
     async def _main() -> T:
         install_connection_reset_filter()
@@ -86,4 +130,4 @@ def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
     return asyncio.run(_main())
 
 
-__all__ = ["install_connection_reset_filter", "run_async"]
+__all__ = ["install_connection_reset_filter", "install_safe_self_pipe_close", "run_async"]

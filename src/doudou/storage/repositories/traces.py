@@ -103,16 +103,18 @@ class RunTraceRepository:
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        include_timing: bool = False,
     ) -> list[RunTraceModel]:
-        """列表 / 统计用：只加载标量列。
+        """列表 / 统计用：默认只加载标量列。
 
-        ``steps_detail`` 可能很大，列表与统计都用不上它 —— 只有 ``get``（单次
-        回放）才需要。少读这一列，90 天窗口下的查询才不会把几 MB 的 JSON 拉进内存。
+        ``steps_detail`` 可能很大，常规列表用不上它 —— 只有 ``get``（单次
+        回放）或显式 ``include_timing=True``（提取 LLM/工具耗时拆分）才读取。
 
         按 ``(started_at DESC, run_id DESC)`` 排序，用 ``offset``/``limit`` 翻页。
         """
+        columns = (*_STAT_COLUMNS, RunTraceModel.steps_detail) if include_timing else _STAT_COLUMNS
         statement = self._filtered(
-            select(RunTraceModel).options(load_only(*_STAT_COLUMNS)),
+            select(RunTraceModel).options(load_only(*columns)),
             thread_id=thread_id,
             channel=channel,
             since=since,

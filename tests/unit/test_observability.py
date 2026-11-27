@@ -700,17 +700,40 @@ def sample_events() -> list[RunEvent]:
         RunEvent.step_start(1, thread_id="t1"),
         RunEvent.text_delta("我查一下", step=1, thread_id="t1"),
         RunEvent.tool_call(step=1, name="web_search", call_id="c1", args={"query": "x"}),
-        RunEvent.tool_result(step=1, name="web_search", call_id="c1", result="结果", ok=True),
+        RunEvent.tool_result(
+            step=1, name="web_search", call_id="c1", result="结果", ok=True, elapsed=0.4
+        ),
+        RunEvent.step_end(1, llm_elapsed=0.8, ttft=0.25, tool_elapsed=0.4, thread_id="t1"),
         RunEvent.step_start(2, thread_id="t1"),
         RunEvent.tool_call(step=2, name="workspace_write", call_id="c2", args={"path": "a.md"}),
         RunEvent.approval(
-            step=2, name="workspace_write", call_id="c2", approved=False, reason="用户拒绝"
+            step=2,
+            name="workspace_write",
+            call_id="c2",
+            approved=False,
+            reason="用户拒绝",
+            approval_elapsed=2.5,
         ),
         RunEvent.tool_result(
             step=2, name="workspace_write", call_id="c2", result="用户拒绝执行", ok=False
         ),
+        RunEvent.step_end(
+            2,
+            llm_elapsed=0.6,
+            ttft=0.2,
+            tool_elapsed=0.0,
+            approval_elapsed=2.5,
+            thread_id="t1",
+        ),
         RunEvent.run_end(
-            "好了", step=2, usage={"input_tokens": 10, "output_tokens": 5}, thread_id="t1"
+            "好了",
+            step=2,
+            usage={"input_tokens": 10, "output_tokens": 5},
+            llm_elapsed=1.4,
+            ttft=0.25,
+            tool_elapsed=0.4,
+            approval_elapsed=2.5,
+            thread_id="t1",
         ),
     ]
 
@@ -786,6 +809,16 @@ async def test_trace_observer_groups_steps_and_tools() -> None:
     assert write["name"] == "workspace_write"
     assert write["approved"] is False
     assert write["ok"] is False
+    assert write["approval_elapsed"] == 2.5
+
+    # 每步与整轮的 LLM / TTFT / 工具 / 确认耗时正确汇总
+    assert record.steps_detail[0]["llm_elapsed"] == 0.8
+    assert record.steps_detail[0]["ttft"] == 0.25
+    assert record.steps_detail[0]["tool_elapsed"] == 0.4
+    assert record.llm_elapsed == 1.4
+    assert record.ttft == 0.25
+    assert record.tool_elapsed == 0.4
+    assert record.approval_elapsed == 2.5
 
 
 async def test_trace_observer_ignores_events_without_start() -> None:
@@ -912,3 +945,12 @@ async def test_sql_trace_store_round_trip(database: Database) -> None:
     assert [item.run_id for item in recent] == ["run-sql"]
     # 列表查询只读标量列，不把 steps_detail 也拉出来
     assert recent[0].steps_detail == []
+    assert recent[0].llm_elapsed is None
+
+    # 开启 include_timing 时仍不挂载 steps_detail，但能拿到拆分耗时
+    timed = await store.list_recent(limit=10, include_timing=True)
+    assert timed[0].steps_detail == []
+    assert timed[0].llm_elapsed == 1.4
+    assert timed[0].ttft == 0.25
+    assert timed[0].tool_elapsed == 0.4
+    assert timed[0].approval_elapsed == 2.5

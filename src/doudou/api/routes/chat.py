@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Any
 
+import anyio
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
@@ -35,6 +36,10 @@ from doudou.utils.text import truncate
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["chat"])
+
+#: SSE 断连或停机取消后，等待后台运行器完成收尾落库的最长秒数。
+_STREAM_CLEANUP_TIMEOUT_SECONDS = 3.0
+
 
 #: SSE 里工具结果的单条上限。工具可能返回几十万字，原样推给客户端会拖垮连接；
 #: 超出时截断并置 ``truncated``，需要全文的场景应改用工具落盘 + 读文件。
@@ -224,8 +229,13 @@ async def chat_stream(
                 broker.unsubscribe_thread(thread_id, on_approval)
             if not producer.done():
                 producer.cancel()
-            with suppress(asyncio.CancelledError):
-                await producer
+            # ``sse_starlette`` 通过 AnyIO cancel scope 水平触发取消；若不屏蔽，
+            # ``await producer`` 会立刻再次被取消，打断 runner.astream 里的
+            # aiosqlite 收尾提交并留下断开连接异常。
+            with anyio.CancelScope(shield=True):
+                with anyio.move_on_after(_STREAM_CLEANUP_TIMEOUT_SECONDS):
+                    with suppress(asyncio.CancelledError):
+                        await producer
 
         metrics.incr("run.finished")
         metrics.incr("run.tool_calls", tool_calls)

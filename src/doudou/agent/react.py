@@ -68,6 +68,10 @@ class RunResult:
     events: list[RunEvent] = field(default_factory=list)
     ok: bool = True
     error: str | None = None
+    llm_elapsed: float | None = None
+    ttft: float | None = None
+    tool_elapsed: float | None = None
+    approval_elapsed: float | None = None
 
 
 @dataclass(slots=True)
@@ -79,6 +83,8 @@ class _ModelTurn:
     #: ``tool_call_id`` -> 参数解析失败原因。
     arg_errors: dict[str, str] = field(default_factory=dict)
     usage: dict[str, int] = field(default_factory=dict)
+    llm_elapsed: float | None = None
+    ttft: float | None = None
 
 
 class ReactAgent:
@@ -143,7 +149,7 @@ class ReactAgent:
 
         Yields:
             RunEvent: 依次为 ``run_start`` → (``step_start`` → ``text_delta``* →
-            ``tool_call``* → ``tool_result``*)+ → ``run_end``（或 ``error``）。
+            ``tool_call``* → ``tool_result``* → ``step_end``)+ → ``run_end``（或 ``error``）。
         """
         history, has_summary = _prepend_system_prompt(messages, self.system_prompt)
         history = _ensure_turn_persona_reminder(
@@ -154,6 +160,11 @@ class ReactAgent:
         )
 
         usage: dict[str, int] = {}
+        total_llm_elapsed = 0.0
+        total_tool_elapsed = 0.0
+        total_approval_elapsed = 0.0
+        saw_approval = False
+        first_ttft: float | None = None
         yield RunEvent.run_start(thread_id=thread_id)
 
         for step in range(1, self.max_steps + 1):
@@ -163,12 +174,32 @@ class ReactAgent:
             async for event in self._reason(history, step=step, thread_id=thread_id, turn=turn):
                 yield event
             _merge_usage(usage, turn.usage)
+            if turn.llm_elapsed is not None:
+                total_llm_elapsed += turn.llm_elapsed
+            if first_ttft is None and turn.ttft is not None:
+                first_ttft = turn.ttft
 
             history.append(AIMessage(content=turn.text, tool_calls=list(turn.tool_calls)))
             self._mirror(history, messages_out, 1)
 
             if not turn.tool_calls:
-                yield RunEvent.run_end(turn.text, step=step, usage=usage, thread_id=thread_id)
+                yield RunEvent.step_end(
+                    step,
+                    llm_elapsed=turn.llm_elapsed,
+                    ttft=turn.ttft,
+                    tool_elapsed=0.0,
+                    thread_id=thread_id,
+                )
+                yield RunEvent.run_end(
+                    turn.text,
+                    step=step,
+                    usage=usage,
+                    llm_elapsed=total_llm_elapsed,
+                    ttft=first_ttft,
+                    tool_elapsed=total_tool_elapsed,
+                    approval_elapsed=total_approval_elapsed if saw_approval else None,
+                    thread_id=thread_id,
+                )
                 return
 
             calls = turn.tool_calls[: self.max_tool_calls_per_step]
@@ -202,6 +233,7 @@ class ReactAgent:
                         call_id=outcome.call_id,
                         approved=outcome.approval,
                         reason=outcome.approval_reason,
+                        approval_elapsed=outcome.approval_elapsed,
                         thread_id=thread_id,
                     )
                 history.append(
@@ -239,6 +271,34 @@ class ReactAgent:
                 )
             self._mirror(history, messages_out, len(outcomes) + len(skipped))
 
+            tool_intervals = [
+                (item.started_at, item.finished_at)
+                for item in outcomes
+                if item.started_at is not None and item.finished_at is not None
+            ]
+            step_tool_elapsed = _union_duration(tool_intervals)
+            approval_intervals = [
+                (item.approval_started_at, item.approval_finished_at)
+                for item in outcomes
+                if item.approval_started_at is not None and item.approval_finished_at is not None
+            ]
+            step_approval_elapsed = (
+                _union_duration(approval_intervals) if approval_intervals else None
+            )
+            total_tool_elapsed += step_tool_elapsed
+            if step_approval_elapsed is not None:
+                saw_approval = True
+                total_approval_elapsed += step_approval_elapsed
+
+            yield RunEvent.step_end(
+                step,
+                llm_elapsed=turn.llm_elapsed,
+                ttft=turn.ttft,
+                tool_elapsed=step_tool_elapsed,
+                approval_elapsed=step_approval_elapsed,
+                thread_id=thread_id,
+            )
+
         message = f"达到最大步数 {self.max_steps}，已停止执行。"
         logger.warning("agent.max_steps_reached", max_steps=self.max_steps, thread_id=thread_id)
         yield RunEvent.error(message, step=self.max_steps, thread_id=thread_id)
@@ -256,13 +316,43 @@ class ReactAgent:
         steps = 0
         usage: dict[str, int] = {}
         error: str | None = None
+        llm_elapsed = 0.0
+        saw_llm = False
+        tool_elapsed = 0.0
+        saw_tool = False
+        approval_elapsed = 0.0
+        saw_approval = False
+        ttft: float | None = None
 
         async for event in self.astream(messages, thread_id=thread_id, messages_out=produced):
             events.append(event)
-            if event.type == "run_end":
+            if event.type == "step_end":
+                if event.llm_elapsed is not None:
+                    saw_llm = True
+                    llm_elapsed += event.llm_elapsed
+                if event.tool_elapsed is not None:
+                    saw_tool = True
+                    tool_elapsed += event.tool_elapsed
+                if event.approval_elapsed is not None:
+                    saw_approval = True
+                    approval_elapsed += event.approval_elapsed
+                if ttft is None and event.ttft is not None:
+                    ttft = event.ttft
+            elif event.type == "run_end":
                 text = event.text
                 steps = event.step
                 usage = event.usage
+                if event.llm_elapsed is not None:
+                    saw_llm = True
+                    llm_elapsed = event.llm_elapsed
+                if event.tool_elapsed is not None:
+                    saw_tool = True
+                    tool_elapsed = event.tool_elapsed
+                if event.approval_elapsed is not None:
+                    saw_approval = True
+                    approval_elapsed = event.approval_elapsed
+                if event.ttft is not None:
+                    ttft = event.ttft
             elif event.type == "error":
                 error = event.text
                 steps = event.step
@@ -278,6 +368,10 @@ class ReactAgent:
             events=events,
             ok=error is None,
             error=error,
+            llm_elapsed=llm_elapsed if saw_llm else None,
+            ttft=ttft,
+            tool_elapsed=tool_elapsed if saw_tool else None,
+            approval_elapsed=approval_elapsed if saw_approval else None,
         )
 
     # ---------------------------------------------------------------- 推理
@@ -291,6 +385,7 @@ class ReactAgent:
         turn: _ModelTurn,
     ) -> AsyncIterator[RunEvent]:
         """按配置顺序尝试模型；已经输出文本的请求不能透明重放。"""
+        reason_started = perf_counter()
         for index in range(len(self._runnables)):
             attempt = _ModelTurn()
             emitted = False
@@ -301,6 +396,7 @@ class ReactAgent:
                     thread_id=thread_id,
                     turn=attempt,
                     model_index=index,
+                    started_at=reason_started,
                 ):
                     emitted = True
                     yield event
@@ -322,6 +418,17 @@ class ReactAgent:
             turn.tool_calls = attempt.tool_calls
             turn.arg_errors = attempt.arg_errors
             turn.usage = attempt.usage
+            turn.llm_elapsed = perf_counter() - reason_started
+            turn.ttft = attempt.ttft
+            logger.info(
+                "agent.model_finished",
+                step=step,
+                thread_id=thread_id,
+                elapsed=round(turn.llm_elapsed, 3),
+                ttft=round(turn.ttft, 3) if turn.ttft is not None else None,
+                tool_calls=len(turn.tool_calls),
+                text_chars=len(turn.text),
+            )
             return
 
     async def _reason_once(
@@ -332,14 +439,24 @@ class ReactAgent:
         thread_id: str | None,
         turn: _ModelTurn,
         model_index: int,
+        started_at: float,
     ) -> AsyncIterator[RunEvent]:
         """跑一轮模型，把文本与工具调用累积进 ``turn``。"""
         pending: dict[int, dict[str, Any]] = {}
         saw_chunks = False
         direct_calls: list[dict[str, Any]] = []
+        first_token_at: float | None = None
 
-        # 模型调用是循环里最关键的一步：入参（上下文规模 + 最新用户输入）用 DEBUG 留痕，
-        # 正常运行时不会打扰，排查「模型为什么不调工具」时把日志级别调到 DEBUG 即可。
+        # 模型调用起止在 INFO 留下轻量边界（不含正文，避免噪声与敏感信息），
+        # 方便定位卡在模型还是工具；完整入参摘要保留在 DEBUG。
+        logger.info(
+            "agent.model_started",
+            step=step,
+            thread_id=thread_id,
+            model_index=model_index,
+            context_messages=len(history),
+            tools=len(self._tools_by_name),
+        )
         logger.debug(
             "agent.model_call",
             step=step,
@@ -352,10 +469,15 @@ class ReactAgent:
         async for chunk in self._runnables[model_index].astream(history):
             text = content_to_text(getattr(chunk, "content", None))
             if text:
+                if first_token_at is None:
+                    first_token_at = perf_counter()
                 turn.text += text
                 yield RunEvent.text_delta(text, step=step, thread_id=thread_id)
 
-            for raw in getattr(chunk, "tool_call_chunks", None) or []:
+            raw_chunks = getattr(chunk, "tool_call_chunks", None) or []
+            if raw_chunks and first_token_at is None:
+                first_token_at = perf_counter()
+            for raw in raw_chunks:
                 saw_chunks = True
                 index = raw.get("index")
                 if not isinstance(index, int):
@@ -370,11 +492,16 @@ class ReactAgent:
                     slot["args"] += fragment if isinstance(fragment, str) else json.dumps(fragment)
 
             if not saw_chunks:
-                for call in getattr(chunk, "tool_calls", None) or []:
+                raw_direct = getattr(chunk, "tool_calls", None) or []
+                if raw_direct and first_token_at is None:
+                    first_token_at = perf_counter()
+                for call in raw_direct:
                     direct_calls.append(dict(call))
 
             _merge_usage(turn.usage, getattr(chunk, "usage_metadata", None) or {})
 
+        if first_token_at is not None:
+            turn.ttft = max(0.0, first_token_at - started_at)
         turn.tool_calls, turn.arg_errors = _finalize_tool_calls(pending, direct_calls)
         if turn.tool_calls:
             logger.debug(
@@ -473,6 +600,9 @@ class ReactAgent:
         # 审计要能答「这次操作有没有经过人」，这件事只有这里知道。
         approval: bool | None = None
         approval_reason = ""
+        approval_elapsed: float | None = None
+        approval_started: float | None = None
+        approval_finished: float | None = None
         if self._needs_approval(name):
             request = ToolApprovalRequest(
                 tool_name=name,
@@ -494,7 +624,10 @@ class ReactAgent:
                         "但当前运行未提供确认回调，已跳过执行。"
                     ),
                 )
+            approval_started = perf_counter()
             approved = await self.approval_hook(request)
+            approval_finished = perf_counter()
+            approval_elapsed = approval_finished - approval_started
             if not approved:
                 logger.info("agent.tool_rejected", tool=name, step=step)
                 return ToolOutcome(
@@ -504,6 +637,9 @@ class ReactAgent:
                     ok=False,
                     approval=False,
                     approval_reason="用户拒绝",
+                    approval_elapsed=approval_elapsed,
+                    approval_started_at=approval_started,
+                    approval_finished_at=approval_finished,
                     content=f"用户拒绝执行工具 {name}，请改用其他方式或询问用户。",
                 )
             approval, approval_reason = True, "用户同意"
@@ -525,7 +661,8 @@ class ReactAgent:
             invocation = tool.ainvoke(args)
             result = await asyncio.wait_for(invocation, timeout) if timeout else await invocation
         except TimeoutError:
-            elapsed = perf_counter() - started
+            finished = perf_counter()
+            elapsed = finished - started
             logger.warning(
                 "agent.tool_timeout",
                 tool=name,
@@ -539,12 +676,18 @@ class ReactAgent:
                 args=args,
                 ok=False,
                 elapsed=elapsed,
+                started_at=started,
+                finished_at=finished,
                 approval=approval,
                 approval_reason=approval_reason,
+                approval_elapsed=approval_elapsed,
+                approval_started_at=approval_started,
+                approval_finished_at=approval_finished,
                 content=f"错误：工具 {name} 执行超时（>{timeout}s）。",
             )
         except Exception as exc:
-            elapsed = perf_counter() - started
+            finished = perf_counter()
+            elapsed = finished - started
             logger.warning(
                 "agent.tool_failed",
                 tool=name,
@@ -560,12 +703,18 @@ class ReactAgent:
                 args=args,
                 ok=False,
                 elapsed=elapsed,
+                started_at=started,
+                finished_at=finished,
                 approval=approval,
                 approval_reason=approval_reason,
+                approval_elapsed=approval_elapsed,
+                approval_started_at=approval_started,
+                approval_finished_at=approval_finished,
                 content=f"错误：工具 {name} 执行失败（{type(exc).__name__}: {exc}）。",
             )
 
-        elapsed = perf_counter() - started
+        finished = perf_counter()
+        elapsed = finished - started
         content = stringify_tool_result(result)
         # 超大结果落盘：一条 5 万字的返回值会把后续所有请求挤掉，
         # 而模型通常只需要结论 —— 留预览 + 路径，需要细节时再去读。
@@ -585,8 +734,13 @@ class ReactAgent:
             args=args,
             ok=True,
             elapsed=elapsed,
+            started_at=started,
+            finished_at=finished,
             approval=approval,
             approval_reason=approval_reason,
+            approval_elapsed=approval_elapsed,
+            approval_started_at=approval_started,
+            approval_finished_at=approval_finished,
             content=content,
         )
 
@@ -726,6 +880,25 @@ def _ensure_turn_persona_reminder(
     patched = list(history)
     patched[last_human_idx] = append_persona_reminder(target, reminder)
     return patched
+
+
+def _union_duration(intervals: Sequence[tuple[float, float]]) -> float:
+    """合并重叠的时间区间，算出并发/串行混合场景下的精确墙钟耗时（秒）。"""
+    if not intervals:
+        return 0.0
+    ordered = sorted(intervals, key=lambda pair: pair[0])
+    total = 0.0
+    cur_start, cur_end = ordered[0]
+    for start, end in ordered[1:]:
+        if end <= start:
+            continue
+        if start <= cur_end:
+            cur_end = max(cur_end, end)
+        else:
+            total += max(0.0, cur_end - cur_start)
+            cur_start, cur_end = start, end
+    total += max(0.0, cur_end - cur_start)
+    return total
 
 
 def build_messages(

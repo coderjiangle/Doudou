@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Coroutine, Sequence
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -234,6 +234,14 @@ class AgentRunner:
             rejections = 0
             usage: dict[str, int] = {}
             error: str | None = None
+            llm_elapsed = 0.0
+            saw_llm = False
+            tool_elapsed = 0.0
+            saw_tool = False
+            approval_elapsed = 0.0
+            saw_approval = False
+            ttft: float | None = None
+            cancelled = False
             try:
                 async for event in self.bundle.agent.astream(
                     [*history, user_message],
@@ -241,10 +249,33 @@ class AgentRunner:
                     messages_out=produced,
                 ):
                     await notify_event(self.observers, context, event)
-                    if event.type == "run_end":
+                    if event.type == "step_end":
+                        if event.llm_elapsed is not None:
+                            saw_llm = True
+                            llm_elapsed += event.llm_elapsed
+                        if event.tool_elapsed is not None:
+                            saw_tool = True
+                            tool_elapsed += event.tool_elapsed
+                        if event.approval_elapsed is not None:
+                            saw_approval = True
+                            approval_elapsed += event.approval_elapsed
+                        if ttft is None and event.ttft is not None:
+                            ttft = event.ttft
+                    elif event.type == "run_end":
                         started_ok = True
                         steps = event.step
                         usage = dict(event.usage or {})
+                        if event.llm_elapsed is not None:
+                            saw_llm = True
+                            llm_elapsed = event.llm_elapsed
+                        if event.tool_elapsed is not None:
+                            saw_tool = True
+                            tool_elapsed = event.tool_elapsed
+                        if event.approval_elapsed is not None:
+                            saw_approval = True
+                            approval_elapsed = event.approval_elapsed
+                        if event.ttft is not None:
+                            ttft = event.ttft
                     elif event.type == "tool_call":
                         tool_calls += 1
                     elif event.type == "approval":
@@ -255,61 +286,125 @@ class AgentRunner:
                     elif event.type == "error":
                         error = event.text
                     yield event
+            except asyncio.CancelledError:
+                cancelled = True
+                if error is None:
+                    error = "运行已中断"
+                raise
             finally:
-                # 残段（有 tool_call 没有对应结果）不能落库，否则下一轮会被 provider 拒绝；
-                # 用户提问本身无论如何都要留下。
-                committed = truncate_dangling_tool_calls(produced)
-                await self.store.append(
-                    resolved_thread,
-                    [user_message, *committed],
-                    channel=request.channel,
-                    conversation_id=request.conversation_id,
-                )
-                stored_info = await self.store.get_thread(resolved_thread)
-                elapsed = perf_counter() - started
-                logger.info(
-                    "runner.run_finished",
-                    thread_id=resolved_thread,
-                    channel=request.channel,
-                    user_id=request.user_id,
-                    ok=started_ok and error is None,
-                    steps=steps,
-                    tool_calls=tool_calls,
-                    approvals=approvals,
-                    rejections=rejections,
-                    input_tokens=usage.get("input_tokens", 0),
-                    output_tokens=usage.get("output_tokens", 0),
-                    elapsed=round(elapsed, 3),
-                    history_messages=stored_info.message_count if stored_info else 0,
-                    new_messages=len(committed) + 1,
-                    # 上下文占用：排查「它为什么忘了」全靠这几个数
-                    ctx_messages=stats.messages,
-                    ctx_tokens=stats.tokens,
-                    ctx_budget=stats.budget,
-                    ctx_compressed=stats.compressed,
-                    ctx_summarized=stats.summarized,
-                    error=error,
-                )
-                if not started_ok:
-                    logger.warning(
-                        "runner.run_incomplete",
-                        thread_id=resolved_thread,
-                        committed=len(committed),
-                    )
-                await notify_end(
-                    self.observers,
-                    context,
-                    RunSummary(
-                        ok=started_ok and error is None,
+                await _shield_await(
+                    self._finalize_run(
+                        resolved_thread=resolved_thread,
+                        request=request,
+                        context=context,
+                        user_message=user_message,
+                        produced=produced,
+                        stats=stats,
+                        started=started,
+                        started_ok=started_ok,
+                        cancelled=cancelled,
                         steps=steps,
                         tool_calls=tool_calls,
                         approvals=approvals,
                         rejections=rejections,
                         usage=usage,
-                        elapsed=elapsed,
                         error=error,
-                    ),
+                        run_llm=llm_elapsed if saw_llm else None,
+                        ttft=ttft,
+                        run_tool=tool_elapsed if saw_tool else None,
+                        run_approval=approval_elapsed if saw_approval else None,
+                    )
                 )
+
+    async def _finalize_run(
+        self,
+        *,
+        resolved_thread: str,
+        request: RunRequest,
+        context: RunContext,
+        user_message: BaseMessage,
+        produced: list[BaseMessage],
+        stats: ContextStats,
+        started: float,
+        started_ok: bool,
+        cancelled: bool,
+        steps: int,
+        tool_calls: int,
+        approvals: int,
+        rejections: int,
+        usage: dict[str, int],
+        error: str | None,
+        run_llm: float | None,
+        ttft: float | None,
+        run_tool: float | None,
+        run_approval: float | None,
+    ) -> None:
+        """在屏蔽二次取消的前提下完成历史落库、日志与观察者收尾。"""
+        # 残段（有 tool_call 没有对应结果）不能落库，否则下一轮会被 provider 拒绝；
+        # 用户提问本身无论如何都要留下。
+        committed = truncate_dangling_tool_calls(produced)
+        await self.store.append(
+            resolved_thread,
+            [user_message, *committed],
+            channel=request.channel,
+            conversation_id=request.conversation_id,
+        )
+        stored_info = await self.store.get_thread(resolved_thread)
+        elapsed = perf_counter() - started
+        ok = started_ok and not cancelled and error is None
+        logger.info(
+            "runner.run_finished",
+            thread_id=resolved_thread,
+            channel=request.channel,
+            user_id=request.user_id,
+            ok=ok,
+            cancelled=cancelled,
+            steps=steps,
+            tool_calls=tool_calls,
+            approvals=approvals,
+            rejections=rejections,
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            elapsed=round(elapsed, 3),
+            llm_elapsed=round(run_llm, 3) if run_llm is not None else None,
+            ttft=round(ttft, 3) if ttft is not None else None,
+            tool_elapsed=round(run_tool, 3) if run_tool is not None else None,
+            approval_elapsed=round(run_approval, 3) if run_approval is not None else None,
+            history_messages=stored_info.message_count if stored_info else 0,
+            new_messages=len(committed) + 1,
+            # 上下文占用：排查「它为什么忘了」全靠这几个数
+            ctx_messages=stats.messages,
+            ctx_tokens=stats.tokens,
+            ctx_budget=stats.budget,
+            ctx_compressed=stats.compressed,
+            ctx_summarized=stats.summarized,
+            error=error,
+        )
+        if not started_ok:
+            logger.warning(
+                "runner.run_incomplete",
+                thread_id=resolved_thread,
+                committed=len(committed),
+                cancelled=cancelled,
+            )
+        await notify_end(
+            self.observers,
+            context,
+            RunSummary(
+                ok=ok,
+                steps=steps,
+                tool_calls=tool_calls,
+                approvals=approvals,
+                rejections=rejections,
+                usage=usage,
+                elapsed=elapsed,
+                llm_elapsed=run_llm,
+                ttft=ttft,
+                tool_elapsed=run_tool,
+                approval_elapsed=run_approval,
+                error=error,
+            ),
+        )
 
     async def ainvoke(self, request: RunRequest, *, thread_id: str | None = None) -> RunResult:
         """执行一次运行并返回聚合结果。"""
@@ -339,6 +434,19 @@ class AgentRunner:
             ok=error is None,
             error=error,
         )
+
+
+async def _shield_await(coro: Coroutine[Any, Any, None]) -> None:
+    """运行收尾协程并尽量抵御二次取消，避免数据库事务被中途撕裂。"""
+    task = asyncio.create_task(coro)
+    cancelled_again = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled_again = True
+    if cancelled_again:
+        raise asyncio.CancelledError
 
 
 def truncate_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessage]:

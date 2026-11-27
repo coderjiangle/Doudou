@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -63,6 +63,10 @@ class TraceRecord:
     input_tokens: int = 0
     output_tokens: int = 0
     elapsed: float = 0.0
+    llm_elapsed: float | None = None
+    ttft: float | None = None
+    tool_elapsed: float | None = None
+    approval_elapsed: float | None = None
     input_preview: str = ""
     output_preview: str = ""
     #: 按 step 聚合的明细（JSON 列）。
@@ -73,6 +77,19 @@ class TraceRecord:
     @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
+
+    @property
+    def other_elapsed(self) -> float | None:
+        """总耗时中扣除 LLM / 工具 / 人工等待后的其余开销（锁、压缩、落库等）。"""
+        if self.llm_elapsed is None:
+            return None
+        remainder = (
+            self.elapsed
+            - self.llm_elapsed
+            - (self.tool_elapsed or 0.0)
+            - (self.approval_elapsed or 0.0)
+        )
+        return round(max(0.0, remainder), 3)
 
     def as_summary(self) -> dict[str, Any]:
         """列表用：不含 ``steps_detail``（那可能很大）。"""
@@ -93,6 +110,11 @@ class TraceRecord:
             "output_tokens": self.output_tokens,
             "total_tokens": self.total_tokens,
             "elapsed": self.elapsed,
+            "llm_elapsed": self.llm_elapsed,
+            "ttft": self.ttft,
+            "tool_elapsed": self.tool_elapsed,
+            "approval_elapsed": self.approval_elapsed,
+            "other_elapsed": self.other_elapsed,
             "input_preview": self.input_preview,
             "output_preview": self.output_preview,
             "started_at": self.started_at.isoformat(),
@@ -123,6 +145,7 @@ class TraceStore(Protocol):
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        include_timing: bool = False,
     ) -> list[TraceRecord]: ...
 
     async def count(
@@ -173,6 +196,7 @@ class MemoryTraceStore:
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        include_timing: bool = False,
     ) -> list[TraceRecord]:
         items = self._matching(
             thread_id=thread_id, channel=channel, since=since, only_failed=only_failed
@@ -291,6 +315,7 @@ class TraceObserver(BaseObserver):
             return
 
         steps = _group_steps(events, max_chars=self.max_text_chars)
+        step_llm, step_ttft, step_tool, step_approval = summarize_steps_timing(steps)
         record.ok = summary.ok
         record.error = _clip_text(summary.error or "", self.max_text_chars) or None
         record.steps = summary.steps
@@ -300,6 +325,18 @@ class TraceObserver(BaseObserver):
         record.input_tokens = int(summary.usage.get("input_tokens", 0) or 0)
         record.output_tokens = int(summary.usage.get("output_tokens", 0) or 0)
         record.elapsed = round(summary.elapsed, 3)
+        record.llm_elapsed = (
+            _round_opt(summary.llm_elapsed, 3) if summary.llm_elapsed is not None else step_llm
+        )
+        record.ttft = _round_opt(summary.ttft, 3) if summary.ttft is not None else step_ttft
+        record.tool_elapsed = (
+            _round_opt(summary.tool_elapsed, 3) if summary.tool_elapsed is not None else step_tool
+        )
+        record.approval_elapsed = (
+            _round_opt(summary.approval_elapsed, 3)
+            if summary.approval_elapsed is not None
+            else step_approval
+        )
         record.output_preview = _clip_text(_final_text(events, steps), self.max_text_chars)
         record.steps_detail = steps
         record.created_at = datetime.now(UTC)
@@ -341,7 +378,15 @@ def _group_steps(events: Sequence[RunEvent], *, max_chars: int) -> list[dict[str
     def bucket(index: int) -> dict[str, Any]:
         item = steps.get(index)
         if item is None:
-            item = {"step": index, "text": "", "tools": []}
+            item = {
+                "step": index,
+                "text": "",
+                "llm_elapsed": None,
+                "ttft": None,
+                "tool_elapsed": None,
+                "approval_elapsed": None,
+                "tools": [],
+            }
             steps[index] = item
             order.append(index)
         return item
@@ -362,6 +407,7 @@ def _group_steps(events: Sequence[RunEvent], *, max_chars: int) -> list[dict[str
                 "args": _clip(redact(event.tool_args or {}), max_chars),
                 "ok": None,
                 "approved": None,
+                "approval_elapsed": None,
                 "result": "",
                 "elapsed": None,
                 "error": None,
@@ -373,6 +419,8 @@ def _group_steps(events: Sequence[RunEvent], *, max_chars: int) -> list[dict[str
             target = pending.get(event.tool_call_id or "")
             if target is not None:
                 target["approved"] = event.tool_ok
+                if event.approval_elapsed is not None:
+                    target["approval_elapsed"] = _round_opt(event.approval_elapsed, 4)
         elif event.type == "tool_result":
             target = pending.get(event.tool_call_id or "")
             if target is None:
@@ -384,6 +432,7 @@ def _group_steps(events: Sequence[RunEvent], *, max_chars: int) -> list[dict[str
                     "args": {},
                     "ok": None,
                     "approved": None,
+                    "approval_elapsed": None,
                     "result": "",
                     "elapsed": None,
                     "error": None,
@@ -394,6 +443,11 @@ def _group_steps(events: Sequence[RunEvent], *, max_chars: int) -> list[dict[str
             target["elapsed"] = event.tool_elapsed
             if not event.tool_ok:
                 target["error"] = _clip_text(event.result or "", min(max_chars, 300))
+        elif event.type == "step_end":
+            step["llm_elapsed"] = _round_opt(event.llm_elapsed, 4)
+            step["ttft"] = _round_opt(event.ttft, 4)
+            step["tool_elapsed"] = _round_opt(event.tool_elapsed, 4)
+            step["approval_elapsed"] = _round_opt(event.approval_elapsed, 4)
         elif event.type == "error":
             step["text"] = step["text"] or event.text
 
@@ -422,6 +476,53 @@ def _clip(value: Any, limit: int) -> Any:
     return value
 
 
+def _round_opt(value: float | None, digits: int = 4) -> float | None:
+    return round(float(value), digits) if value is not None else None
+
+
+def summarize_steps_timing(
+    steps_detail: Sequence[Mapping[str, Any]] | None,
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """从 ``steps_detail`` 汇总整轮 ``(llm_elapsed, ttft, tool_elapsed, approval_elapsed)``。
+
+    历史老数据没有拆分字段时返回 ``None``，绝不把「未知」伪装成 ``0.0``。
+    """
+    if not steps_detail:
+        return None, None, None, None
+
+    llm_sum = 0.0
+    has_llm = False
+    tool_sum = 0.0
+    has_tool = False
+    approval_sum = 0.0
+    has_approval = False
+    first_ttft: float | None = None
+
+    for step in steps_detail:
+        llm = step.get("llm_elapsed")
+        if isinstance(llm, (int, float)):
+            has_llm = True
+            llm_sum += float(llm)
+        ttft = step.get("ttft")
+        if first_ttft is None and isinstance(ttft, (int, float)):
+            first_ttft = float(ttft)
+        tool = step.get("tool_elapsed")
+        if isinstance(tool, (int, float)):
+            has_tool = True
+            tool_sum += float(tool)
+        approval = step.get("approval_elapsed")
+        if isinstance(approval, (int, float)):
+            has_approval = True
+            approval_sum += float(approval)
+
+    return (
+        round(llm_sum, 3) if has_llm else None,
+        round(first_ttft, 3) if first_ttft is not None else None,
+        round(tool_sum, 3) if has_tool else None,
+        round(approval_sum, 3) if has_approval else None,
+    )
+
+
 __all__ = [
     "MAX_BUFFERED_EVENTS",
     "MAX_PAYLOAD_CHARS",
@@ -429,4 +530,5 @@ __all__ = [
     "TraceObserver",
     "TraceRecord",
     "TraceStore",
+    "summarize_steps_timing",
 ]

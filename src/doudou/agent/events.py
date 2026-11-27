@@ -17,6 +17,7 @@ from typing import Any, Literal
 #: - ``tool_call``    即将执行某个工具
 #: - ``approval``     该工具需要人工确认，这是确认结果（同意 / 拒绝）
 #: - ``tool_result``  工具执行结束（成功或失败）
+#: - ``step_end``     本步结束（携带本步 LLM / 工具 / 确认耗时）
 #: - ``run_end``      运行结束，``text`` 为最终答复
 #: - ``error``        运行以错误终止
 EventType = Literal[
@@ -26,6 +27,7 @@ EventType = Literal[
     "tool_call",
     "approval",
     "tool_result",
+    "step_end",
     "run_end",
     "error",
 ]
@@ -52,10 +54,16 @@ class RunEvent:
     #: 工具返回内容（成功为结果，失败为错误说明）。
     result: str | None = None
     tool_ok: bool = True
-    #: 工具耗时（秒）。
+    #: 工具耗时（秒）：``tool_result`` 为单个工具，``step_end``/``run_end`` 为工具墙钟耗时。
     tool_elapsed: float | None = None
 
     # ---- 统计 ----
+    #: LLM 推理耗时（秒）：``step_end`` 为单步，``run_end`` 为本轮累计。
+    llm_elapsed: float | None = None
+    #: 首字/首包延迟（秒）：``step_end`` 为单步 TTFT，``run_end`` 为首步 TTFT。
+    ttft: float | None = None
+    #: 人工确认等待耗时（秒，不含实际工具执行）。
+    approval_elapsed: float | None = None
     #: 累计 token 用量，形如 ``{"input_tokens": 12, "output_tokens": 34}``。
     usage: dict[str, int] = field(default_factory=dict)
 
@@ -99,6 +107,7 @@ class RunEvent:
         call_id: str,
         approved: bool,
         reason: str = "",
+        approval_elapsed: float | None = None,
         thread_id: str | None = None,
     ) -> RunEvent:
         """人工确认的结果。
@@ -115,6 +124,7 @@ class RunEvent:
             tool_call_id=call_id,
             tool_ok=approved,
             text=reason,
+            approval_elapsed=approval_elapsed,
             thread_id=thread_id,
         )
 
@@ -142,15 +152,51 @@ class RunEvent:
         )
 
     @classmethod
+    def step_end(
+        cls,
+        step: int,
+        *,
+        llm_elapsed: float | None = None,
+        ttft: float | None = None,
+        tool_elapsed: float | None = None,
+        approval_elapsed: float | None = None,
+        thread_id: str | None = None,
+    ) -> RunEvent:
+        """单步结束，记录本步模型推理、首字延迟与工具墙钟耗时。"""
+        return cls(
+            type="step_end",
+            step=step,
+            llm_elapsed=llm_elapsed,
+            ttft=ttft,
+            tool_elapsed=tool_elapsed,
+            approval_elapsed=approval_elapsed,
+            thread_id=thread_id,
+        )
+
+    @classmethod
     def run_end(
         cls,
         text: str,
         *,
         step: int,
         usage: dict[str, int] | None = None,
+        llm_elapsed: float | None = None,
+        ttft: float | None = None,
+        tool_elapsed: float | None = None,
+        approval_elapsed: float | None = None,
         thread_id: str | None = None,
     ) -> RunEvent:
-        return cls(type="run_end", text=text, step=step, usage=usage or {}, thread_id=thread_id)
+        return cls(
+            type="run_end",
+            text=text,
+            step=step,
+            usage=usage or {},
+            llm_elapsed=llm_elapsed,
+            ttft=ttft,
+            tool_elapsed=tool_elapsed,
+            approval_elapsed=approval_elapsed,
+            thread_id=thread_id,
+        )
 
     @classmethod
     def error(cls, message: str, *, step: int = 0, thread_id: str | None = None) -> RunEvent:
@@ -167,9 +213,15 @@ class ToolOutcome:
     content: str = ""
     ok: bool = True
     elapsed: float | None = None
+    #: 实际执行起止时间戳（``perf_counter``），用于并发时精确合并墙钟耗时。
+    started_at: float | None = None
+    finished_at: float | None = None
     #: 该工具是否需要人工确认，以及结果。``None`` = 不需要确认（没问过）。
     approval: bool | None = None
     approval_reason: str = ""
+    approval_elapsed: float | None = None
+    approval_started_at: float | None = None
+    approval_finished_at: float | None = None
 
 
 __all__ = ["EventType", "RunEvent", "ToolOutcome"]

@@ -68,6 +68,7 @@ async def list_traces(
         channel=channel,
         since=since,
         only_failed=only_failed,
+        include_timing=True,
     )
     return TraceListResponse(
         count=len(records),
@@ -113,7 +114,9 @@ async def get_stats(
     runs: list[RunSample] = []
     store = observability.trace_store
     if store is not None:
-        records = await store.list_recent(limit=STATS_ROW_LIMIT, since=since, thread_id=thread_id)
+        records = await store.list_recent(
+            limit=STATS_ROW_LIMIT, since=since, thread_id=thread_id, include_timing=True
+        )
         runs = [
             RunSample(
                 started_at=item.started_at,
@@ -126,6 +129,10 @@ async def get_stats(
                 output_tokens=item.output_tokens,
                 channel=item.channel,
                 thread_id=item.thread_id,
+                llm_elapsed=item.llm_elapsed,
+                ttft=item.ttft,
+                tool_elapsed=item.tool_elapsed,
+                approval_elapsed=item.approval_elapsed,
             )
             for item in records
         ]

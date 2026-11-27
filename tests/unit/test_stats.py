@@ -89,3 +89,43 @@ def test_unknown_cost_is_preserved_in_trend() -> None:
     assert day["cost"] is None  # 未知 ≠ 0
     assert day["runs"] == 1
     assert day["total_tokens"] == 15
+
+
+def test_latency_breakdown_preserves_unknown_for_legacy_runs() -> None:
+    """历史老数据没有拆分字段时保持 None；新数据按天与总览正确聚合。"""
+    today = datetime.now(UTC).date().isoformat()
+    legacy = _run(days_ago=0, elapsed=3.0)
+    modern = _run(
+        days_ago=0,
+        elapsed=4.0,
+        llm_elapsed=2.5,
+        ttft=0.4,
+        tool_elapsed=1.2,
+        approval_elapsed=0.1,
+    )
+    tools = [
+        ToolSample("web_search", "ok", None, 0.2, datetime.now(UTC)),
+        ToolSample("web_search", "ok", None, 1.0, datetime.now(UTC)),
+    ]
+
+    report = build_stats(runs=[legacy, modern], tools=tools, usage_by_day={}, days=7)
+
+    overview = report["overview"]
+    assert overview["avg_llm_elapsed"] == 2.5
+    assert overview["avg_ttft"] == 0.4
+    assert overview["avg_tool_elapsed"] == 1.2
+    assert overview["llm_share"] == round(2.5 / 4.0, 4)
+
+    day = next(item for item in report["by_day"] if item["day"] == today)
+    assert day["avg_llm_elapsed"] == 2.5
+    assert day["avg_tool_elapsed"] == 1.2
+    assert day["avg_other_elapsed"] == 0.3
+
+    tool_stat = report["tools"][0]
+    assert tool_stat["avg_elapsed"] == 0.6
+    assert tool_stat["p95_elapsed"] == 1.0
+    assert tool_stat["total_elapsed"] == 1.2
+
+    legacy_only = build_stats(runs=[legacy], tools=[], usage_by_day={}, days=7)
+    assert legacy_only["overview"]["avg_llm_elapsed"] is None
+    assert legacy_only["overview"]["llm_share"] is None

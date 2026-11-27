@@ -1130,11 +1130,16 @@ async def test_run_produces_trace_and_stats(tmp_path: Path) -> None:
     assert detail["run_id"] == run_id
     assert detail["ok"] is True
     assert detail["steps_detail"], "轨迹没有步骤明细"
+    assert detail["llm_elapsed"] is not None
+    assert detail["tool_elapsed"] is not None
+    assert detail["steps_detail"][0]["llm_elapsed"] is not None
+    assert traces["traces"][0]["llm_elapsed"] is not None
     tool_names = {tool["name"] for step in detail["steps_detail"] for tool in step["tools"]}
     assert "now" in tool_names
 
     assert stats["overview"]["runs"] >= 1
     assert stats["overview"]["success_rate"] == 1.0
+    assert stats["overview"]["avg_llm_elapsed"] is not None
     assert "now" in {tool["name"] for tool in stats["tools"]}
     # now 不需要确认（没问过）→ auto 至少 1，且没有「需确认」的记录
     assert stats["approvals"]["auto"] >= 1
@@ -1253,3 +1258,77 @@ async def test_stats_page_is_served(tmp_path: Path) -> None:
     assert "统计" in page.text
     # base_path 已注入，占位符不该留在页面里
     assert "__DOUDOU_BASE_PATH__" not in page.text
+
+
+async def test_sse_disconnect_cleanly_persists_user_turn_without_db_cancellation(
+    tmp_path: Path,
+) -> None:
+    """SSE 客户端在中途断开（AnyIO cancel scope 触发）时，收尾写库不能被打断或留下 running 僵尸行。"""
+    import anyio
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    from doudou.api.routes.chat import chat_stream
+    from doudou.api.schemas import ChatRequest
+
+    model_entered = asyncio.Event()
+
+    class SlowModel(BaseChatModel):
+        @property
+        def _llm_type(self) -> str:
+            return "slow-test"
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # type: ignore[no-untyped-def]
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="ok"))])
+
+        async def _astream(self, messages, stop=None, run_manager=None, **kwargs):  # type: ignore[no-untyped-def]
+            model_entered.set()
+            await asyncio.sleep(5)
+            if False:  # pragma: no cover - 永不到达，仅构造异步生成器类型
+                yield None
+
+    settings = _write_config(tmp_path)
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        state = app.state.doudou
+        state.runner.bundle.agent._runnables = [SlowModel()]
+
+        response = await chat_stream(
+            ChatRequest(message="断连前的问题", conversation_id="disconnect-conv", channel="cli"),
+            state.runner,
+            state,
+        )
+
+        # 用 AnyIO task_group 模拟 sse_starlette 的水平触发 cancel_scope：
+        # 等模型请求真正挂起后再取消生成器，验证收尾写库不会被打断或留 running 僵尸行。
+        seen_events: list[object] = []
+        stream = aiter(response.body_iterator)
+        try:
+            async with anyio.create_task_group() as tg:
+
+                async def consume_sse() -> None:
+                    while True:
+                        seen_events.append(await anext(stream))
+
+                async def cancel_once_model_waits() -> None:
+                    await model_entered.wait()
+                    tg.cancel_scope.cancel()
+
+                tg.start_soon(consume_sse)
+                tg.start_soon(cancel_once_model_waits)
+        finally:
+            await stream.aclose()  # type: ignore[attr-defined]
+
+        assert len(seen_events) == 1
+        threads = await state.runner.list_threads(limit=10)
+        assert len(threads) == 1
+        history = await state.runner.history(threads[0].thread_id)
+        assert [str(msg.content) for msg in history] == ["断连前的问题"]
+
+        audit_store = state.observability.audit_store
+        assert audit_store is not None
+        entries = await audit_store.list_recent(limit=10, thread_id=threads[0].thread_id)
+        run_entries = [entry for entry in entries if entry.kind == "run"]
+        assert run_entries and run_entries[0].status == "failed"
+        assert run_entries[0].error == "运行已中断"

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from doudou.observability.logging import get_logger
-from doudou.observability.traces import TraceRecord, TraceStore
+from doudou.observability.traces import TraceRecord, TraceStore, summarize_steps_timing
 from doudou.storage.database import Database
 from doudou.storage.models import RunTraceModel, as_utc
 from doudou.storage.repositories import RunTraceRepository
@@ -61,6 +61,7 @@ class SqlTraceStore(TraceStore):
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        include_timing: bool = False,
     ) -> list[TraceRecord]:
         async with self.database.session() as session:
             rows = await RunTraceRepository(session).list_recent(
@@ -70,9 +71,11 @@ class SqlTraceStore(TraceStore):
                 channel=channel,
                 since=since,
                 only_failed=only_failed,
+                include_timing=include_timing,
             )
-            # 列表查询用了 load_only（不含 steps_detail），所以这里不能碰它。
-            return [_to_summary(row) for row in rows]
+            # 列表查询默认不含 steps_detail；include_timing=True 时也仅提取拆分耗时，
+            # 仍不在列表对象上挂大 JSON。
+            return [_to_summary(row, include_timing=include_timing) for row in rows]
 
     async def count(
         self,
@@ -97,8 +100,11 @@ class SqlTraceStore(TraceStore):
             return await RunTraceRepository(session).delete_for_thread(thread_id)
 
 
-def _to_summary(row: RunTraceModel) -> TraceRecord:
-    """列表 / 统计行 → 记录（不含 steps_detail；它没被加载）。"""
+def _to_summary(row: RunTraceModel, *, include_timing: bool = False) -> TraceRecord:
+    """列表 / 统计行 → 记录（始终不把 ``steps_detail`` 留在对象上）。"""
+    llm_elapsed, ttft, tool_elapsed, approval_elapsed = (
+        summarize_steps_timing(row.steps_detail) if include_timing else (None, None, None, None)
+    )
     return TraceRecord(
         run_id=row.run_id,
         thread_id=row.thread_id,
@@ -115,12 +121,18 @@ def _to_summary(row: RunTraceModel) -> TraceRecord:
         input_tokens=row.input_tokens,
         output_tokens=row.output_tokens,
         elapsed=row.elapsed,
+        llm_elapsed=llm_elapsed,
+        ttft=ttft,
+        tool_elapsed=tool_elapsed,
+        approval_elapsed=approval_elapsed,
         started_at=as_utc(row.started_at),
     )
 
 
 def _to_record(row: RunTraceModel) -> TraceRecord:
     """ORM 行 → :class:`TraceRecord`（补上 UTC 时区；含步骤明细）。"""
+    steps_detail = [dict(item) for item in (row.steps_detail or [])]
+    llm_elapsed, ttft, tool_elapsed, approval_elapsed = summarize_steps_timing(steps_detail)
     return TraceRecord(
         run_id=row.run_id,
         thread_id=row.thread_id,
@@ -137,9 +149,13 @@ def _to_record(row: RunTraceModel) -> TraceRecord:
         input_tokens=row.input_tokens,
         output_tokens=row.output_tokens,
         elapsed=row.elapsed,
+        llm_elapsed=llm_elapsed,
+        ttft=ttft,
+        tool_elapsed=tool_elapsed,
+        approval_elapsed=approval_elapsed,
         input_preview=row.input_preview,
         output_preview=row.output_preview,
-        steps_detail=[dict(item) for item in (row.steps_detail or [])],
+        steps_detail=steps_detail,
         started_at=as_utc(row.started_at),
         created_at=as_utc(row.created_at),
     )

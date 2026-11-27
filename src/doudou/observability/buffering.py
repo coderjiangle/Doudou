@@ -224,6 +224,7 @@ class BufferedTraceStore(TraceStore):
         channel: str | None = None,
         since: datetime | None = None,
         only_failed: bool = False,
+        include_timing: bool = False,
     ) -> list[TraceRecord]:
         await self.flush()  # 读之前先落盘，避免「刚发生的查不到」
         return await self.inner.list_recent(
@@ -233,6 +234,7 @@ class BufferedTraceStore(TraceStore):
             channel=channel,
             since=since,
             only_failed=only_failed,
+            include_timing=include_timing,
         )
 
     async def count(

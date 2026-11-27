@@ -187,6 +187,7 @@ async def test_cli_channel_flushes_live_before_tool_call_and_approval(
     assert result.ok
     assert live_states_at_approval == [True]
     assert channel._state.live is None
+    assert channel._state.status is None
     rendered = buf.getvalue()
     assert "查一下" in rendered
     assert "echo_tool" in rendered
@@ -212,6 +213,7 @@ async def test_cli_channel_stops_live_on_stream_exception(settings: Settings) ->
         pass
 
     assert channel._state.live is None
+    assert channel._state.status is None
 
 
 @pytest.mark.parametrize("send_deltas", [True, False])
@@ -293,3 +295,58 @@ async def test_cli_channel_threads_command_lists_and_switches_thread(
     hist2 = [str(m.content) for m in await runner.history(tid2)]
     assert "回到第一条会话" in hist1
     assert "回到第一条会话" not in hist2
+
+
+async def test_cli_channel_stops_thinking_status_before_approval_and_on_end(
+    settings: Settings,
+) -> None:
+    """等待模型期间开启 thinking status，进入工具确认前与结束时必须清理干净。"""
+
+    @tool
+    def echo_tool(msg: str) -> str:
+        """回显文本。"""
+        return f"ok:{msg}"
+
+    annotate(echo_tool, group="test", side_effects=True)
+    console, _buf = _make_tty_console()
+
+    model = ScriptedChatModel(
+        steps=[
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "call_1", "name": "echo_tool", "args": {"msg": "hi"}}],
+            ),
+            AIMessage(content="处理完成。"),
+        ]
+    )
+
+    channel_ref: list[CliChannel] = []
+    status_at_approval: list[bool] = []
+    status_seen_during_stream: list[bool] = []
+
+    async def approval_hook(_req: object) -> bool:
+        status_at_approval.append(channel_ref[0]._state.status is None)
+        return True
+
+    bundle = build_agent(
+        settings, model=model, extra_tools=[echo_tool], approval_hook=approval_hook
+    )
+    runner = AgentRunner(bundle)
+    channel = CliChannel(runner, stream=True, console=console)
+    channel_ref.append(channel)
+
+    original_render = channel._render
+
+    def spy_render(event: RunEvent) -> None:
+        if event.type == "run_start":
+            status_seen_during_stream.append(channel._state.status is not None)
+        original_render(event)
+
+    channel._render = spy_render  # type: ignore[method-assign]
+    result = await channel.ask("测试等待状态")
+
+    assert result.ok
+    assert status_seen_during_stream == [True]
+    assert status_at_approval == [True]
+    assert channel._state.status is None
+    assert channel._state.live is None

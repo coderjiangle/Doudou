@@ -72,8 +72,10 @@ async def test_tool_call_then_final_answer() -> None:
         "step_start",
         "tool_call",
         "tool_result",
+        "step_end",
         "step_start",
         "text_delta",
+        "step_end",
         "run_end",
     ]
 
@@ -551,3 +553,68 @@ async def test_persona_reminder_supports_multimodal_and_summary() -> None:
     anchored = append_time_context(HumanMessage(content="今天什么安排"), time_ctx)
     assert "[时间上下文]" in str(anchored.content)
     assert strip_display_annotations_message(anchored).content == "今天什么安排"
+
+
+async def test_step_and_run_timing_breakdown_separates_llm_tools_and_approval() -> None:
+    """并发只读工具按并集算墙钟耗时，且人工确认等待不计入工具/LLM 耗时。"""
+
+    @tool
+    async def slow_read(label: str) -> str:
+        """只读慢工具，测试并发墙钟合并。"""
+        await asyncio.sleep(0.05)
+        return label
+
+    @tool
+    async def guarded_write(path: str) -> str:
+        """写工具，测试确认等待与执行耗时分离。"""
+        await asyncio.sleep(0.02)
+        return f"wrote:{path}"
+
+    annotate(slow_read, group="files", side_effects=False)
+    annotate(guarded_write, group="files", side_effects=True)
+
+    async def delayed_approve(_req: ToolApprovalRequest) -> bool:
+        await asyncio.sleep(0.06)
+        return True
+
+    agent = make_agent(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "slow_read", "args": {"label": "a"}, "id": "c1", "type": "tool_call"},
+                    {"name": "slow_read", "args": {"label": "b"}, "id": "c2", "type": "tool_call"},
+                ],
+            ),
+            tool_call("guarded_write", {"path": "x.txt"}, call_id="c3"),
+            summarize_last_tool_result(),
+        ],
+        tools=[slow_read, guarded_write],
+        interrupt_on={"guarded_write": True},
+        approval_hook=delayed_approve,
+    )
+
+    result = await agent.ainvoke([HumanMessage(content="测耗时")])
+
+    assert result.ok
+    assert result.llm_elapsed is not None and result.llm_elapsed >= 0.0
+    assert result.ttft is not None and result.ttft >= 0.0
+    assert result.tool_elapsed is not None
+    assert result.approval_elapsed is not None and result.approval_elapsed >= 0.04
+
+    step_ends = [event for event in result.events if event.type == "step_end"]
+    assert [event.step for event in step_ends] == [1, 2, 3]
+    # 第 1 步两个 0.05s 工具并发执行：总墙钟应明显小于串行之和 (0.10s)
+    step1_tool_results = [
+        event for event in result.events if event.type == "tool_result" and event.step == 1
+    ]
+    assert len(step1_tool_results) == 2
+    sum_single = sum(event.tool_elapsed or 0.0 for event in step1_tool_results)
+    assert step_ends[0].tool_elapsed is not None
+    assert step_ends[0].tool_elapsed <= sum_single + 0.005
+    assert step_ends[0].tool_elapsed < 0.095
+    # 第 2 步确认等待 0.06s 应归入 approval_elapsed，不污染 tool_elapsed
+    assert step_ends[1].approval_elapsed is not None and step_ends[1].approval_elapsed >= 0.04
+    assert step_ends[1].tool_elapsed is not None and step_ends[1].tool_elapsed < 0.05
+    # 第 3 步无工具，tool_elapsed == 0.0
+    assert step_ends[2].tool_elapsed == 0.0

@@ -70,6 +70,10 @@
   .chart .bar .seg { width: 100%; border-radius: 3px 3px 0 0; background: var(--accent); }
   .chart .bar .seg.fail { background: var(--fail); border-radius: 0; }
   .chart .bar .seg.ok { background: var(--ok); }
+  .chart .bar .seg.llm { background: var(--accent); border-radius: 0; }
+  .chart .bar .seg.tool { background: var(--ok); border-radius: 0; }
+  .chart .bar .seg.other { background: #9ca3af; }
+  .chart .bar .seg.legacy { background: #cbd5e1; }
   .chart .bar .tip {
     position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
     background: #000c; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 12px;
@@ -113,8 +117,26 @@
   .dlg-head h3 { margin: 0; font-size: 14px; }
   .dlg-body { padding: 14px 18px; overflow: auto; max-height: 66vh; }
   .step { border-left: 2px solid var(--border); padding: 4px 0 12px 14px; margin-left: 4px; }
-  .step .step-title { font-weight: 600; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .step .step-title {
+    font-weight: 600; font-size: 12px; color: var(--muted); margin-bottom: 4px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .step .step-badge {
+    font-weight: 500; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    background: #f1f5f9; color: #475569;
+  }
+  .step .step-badge.llm { background: #eef4ff; color: var(--accent); }
+  .step .step-badge.tool { background: #e7f6ee; color: var(--ok); }
+  .step .step-badge.wait { background: #fef7e0; color: #9a6700; }
   .step .step-text { white-space: pre-wrap; }
+  .timing-box { margin: 8px 0 12px; padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; }
+  .timing-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: #e5e7eb; }
+  .timing-seg.llm { background: var(--accent); }
+  .timing-seg.tool { background: var(--ok); }
+  .timing-seg.wait { background: var(--warn); }
+  .timing-seg.other { background: #9ca3af; }
+  .timing-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .timing-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
   .tool { margin-top: 8px; padding: 8px 10px; background: #f7f8fa; border-radius: 8px; font-size: 12px; }
   .tool .tool-name { font-weight: 600; }
   .tool .kv { color: var(--muted); }
@@ -171,6 +193,18 @@
       <div class="legend" id="tokenLegend"><span><i style="background:var(--accent)"></i>token</span></div>
     </section>
   </div>
+
+  <section class="panel">
+    <h2>平均耗时拆解 <span class="hint">按天 · LLM / 工具 / 其他</span></h2>
+    <div class="chart" id="latencyChart"></div>
+    <div class="axis" id="latencyAxis"></div>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>LLM 推理</span>
+      <span><i style="background:var(--ok)"></i>工具执行</span>
+      <span><i style="background:#9ca3af"></i>其他 / 等待 / 落库</span>
+      <span><i style="background:#cbd5e1"></i>旧轨迹（未拆分）</span>
+    </div>
+  </section>
 
   <div class="grid2">
     <section class="panel">
@@ -317,11 +351,72 @@
     });
   }
 
+  /** 按天平均耗时拆解柱状图（LLM + 工具 + 其他，历史老数据用灰柱表示总耗时）。 */
+  function renderLatencyBars(chart, axis, byDay) {
+    chart.innerHTML = "";
+    axis.innerHTML = "";
+    if (!byDay.length) { chart.innerHTML = '<div class="empty">暂无数据</div>'; return; }
+    const max = Math.max(
+      0.001,
+      ...byDay.map((d) => {
+        if (d.avg_llm_elapsed === null || d.avg_llm_elapsed === undefined) return d.avg_elapsed || 0;
+        return (d.avg_llm_elapsed || 0) + (d.avg_tool_elapsed || 0) + (d.avg_other_elapsed || 0);
+      })
+    );
+    byDay.forEach((d) => {
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      const stack = document.createElement("div");
+      stack.className = "stack";
+      const tip = document.createElement("div");
+      tip.className = "tip";
+
+      if (d.avg_llm_elapsed === null || d.avg_llm_elapsed === undefined) {
+        if ((d.avg_elapsed || 0) > 0) {
+          const seg = document.createElement("div");
+          seg.className = "seg legacy";
+          seg.style.height = `${(d.avg_elapsed / max) * 100}%`;
+          stack.appendChild(seg);
+        }
+        tip.textContent = d.runs
+          ? `${d.day}｜平均 ${fmtNum(d.avg_elapsed)}s（旧轨迹未拆分）`
+          : `${d.day}｜无运行`;
+      } else {
+        const llm = d.avg_llm_elapsed || 0;
+        const tool = d.avg_tool_elapsed || 0;
+        const other = d.avg_other_elapsed || 0;
+        for (const [cls, val] of [["other", other], ["tool", tool], ["llm", llm]]) {
+          if (val > 0) {
+            const seg = document.createElement("div");
+            seg.className = `seg ${cls}`;
+            seg.style.height = `${(val / max) * 100}%`;
+            stack.appendChild(seg);
+          }
+        }
+        tip.textContent = `${d.day}｜平均 ${fmtNum(d.avg_elapsed)}s（LLM ${fmtNum(llm)}s · 工具 ${fmtNum(tool)}s · 其他 ${fmtNum(other)}s）`;
+      }
+
+      bar.appendChild(tip);
+      bar.appendChild(stack);
+      chart.appendChild(bar);
+
+      const tick = document.createElement("div");
+      tick.className = "tick";
+      tick.textContent = shortDay(d.day);
+      axis.appendChild(tick);
+    });
+  }
+
   function renderOverview(overview, approvals) {
+    const llmValue = overview.avg_llm_elapsed != null ? `${fmtNum(overview.avg_llm_elapsed)}s` : "—";
+    const llmSub = overview.avg_llm_elapsed != null
+      ? `首字 ${fmtNum(overview.avg_ttft)}s · 工具 ${fmtNum(overview.avg_tool_elapsed)}s · 占比 ${fmtPct(overview.llm_share)}`
+      : "暂无拆分（仅新轨迹记录）";
     const items = [
       ["运行数", fmtInt(overview.runs), `成功 ${fmtInt(overview.ok_runs)} / 失败 ${fmtInt(overview.failed_runs)}`],
       ["成功率", fmtPct(overview.success_rate), `工具调用 ${fmtInt(overview.tool_calls)} 次`],
-      ["平均耗时", `${fmtNum(overview.avg_elapsed)}s`, `P95 ${fmtNum(overview.p95_elapsed)}s`],
+      ["平均总耗时", `${fmtNum(overview.avg_elapsed)}s`, `P95 ${fmtNum(overview.p95_elapsed)}s`],
+      ["平均 LLM 耗时", llmValue, llmSub],
       ["tokens", fmtInt(overview.total_tokens), `入 ${fmtInt(overview.input_tokens)} / 出 ${fmtInt(overview.output_tokens)}`],
       ["人工确认", `${fmtInt(approvals.approvals)} 同意 / ${fmtInt(approvals.rejections)} 拒绝`, `通过率 ${fmtPct(approvals.approval_rate)}`],
     ];
@@ -342,10 +437,13 @@
         <td class="num">${fmtInt(t.failed)}</td>
         <td class="num">${fmtInt(t.rejected)}</td>
         <td class="num">${t.avg_elapsed === null ? "—" : fmtNum(t.avg_elapsed, 3)}</td>
+        <td class="num">${t.p95_elapsed == null ? "—" : fmtNum(t.p95_elapsed, 3)}</td>
+        <td class="num">${t.total_elapsed == null ? "—" : fmtNum(t.total_elapsed, 2)}</td>
       </tr>`).join("");
     el("tools").innerHTML = `<table><thead><tr>
       <th>工具</th><th class="num">次数</th><th class="num">成功</th>
-      <th class="num">失败</th><th class="num">被拒</th><th class="num">平均耗时(s)</th>
+      <th class="num">失败</th><th class="num">被拒</th>
+      <th class="num">平均(s)</th><th class="num">P95(s)</th><th class="num">累计(s)</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
   }
 
@@ -372,6 +470,11 @@
   const runState = { offset: 0, total: 0, busy: false };
 
   function runRow(trace) {
+    const timing = trace.llm_elapsed != null
+      ? `${fmtNum(trace.elapsed)}s（LLM ${fmtNum(trace.llm_elapsed)}s${
+          trace.tool_elapsed != null ? ` · 工具 ${fmtNum(trace.tool_elapsed)}s` : ""
+        }）`
+      : `${fmtNum(trace.elapsed)}s`;
     return `
       <div class="run" data-run="${escapeHtml(trace.run_id)}">
         <span class="when">${escapeHtml((trace.started_at || "").replace("T", " ").slice(5, 19))}</span>
@@ -379,7 +482,7 @@
           <span class="muted">· ${escapeHtml(trace.channel)}</span></span>
         <span class="meta">
           <span class="pill ${trace.ok ? "ok" : "fail"}">${trace.ok ? "成功" : "失败"}</span>
-          ${fmtNum(trace.elapsed)}s · ${fmtInt(trace.tool_calls)} 工具
+          ${timing} · ${fmtInt(trace.tool_calls)} 工具
         </span>
       </div>`;
   }
@@ -460,28 +563,63 @@
     }
   }
 
+  function renderTimingBreakdown(trace) {
+    if (trace.llm_elapsed == null) return "";
+    const parts = [
+      { cls: "llm", label: "LLM 推理", color: "var(--accent)", val: Number(trace.llm_elapsed || 0) },
+      { cls: "tool", label: "工具执行", color: "var(--ok)", val: Number(trace.tool_elapsed || 0) },
+      { cls: "wait", label: "确认等待", color: "var(--warn)", val: Number(trace.approval_elapsed || 0) },
+      { cls: "other", label: "其他（锁/压缩/落库）", color: "#9ca3af", val: Number(trace.other_elapsed || 0) },
+    ];
+    const sum = Math.max(0.0001, parts.reduce((acc, p) => acc + Math.max(0, p.val), 0));
+    const bars = parts
+      .filter((p) => p.val > 0)
+      .map((p) => `<div class="timing-seg ${p.cls}" style="width:${(p.val / sum) * 100}%" title="${escapeHtml(p.label)}: ${fmtNum(p.val, 3)}s"></div>`)
+      .join("");
+    const legend = parts
+      .filter((p) => p.val > 0 || p.cls === "llm" || p.cls === "tool")
+      .map((p) => `<span><i style="background:${p.color}"></i>${escapeHtml(p.label)} ${fmtNum(p.val, 3)}s (${((p.val / sum) * 100).toFixed(1)}%)</span>`)
+      .join("");
+    return `<div class="timing-box"><div class="timing-bar">${bars}</div><div class="timing-legend">${legend}</div></div>`;
+  }
+
   function renderDetail(trace) {
     el("detailTitle").textContent = `${trace.thread_id} · ${trace.ok ? "成功" : "失败"}`;
+    const ttftText = trace.ttft != null ? `｜首字 ${fmtNum(trace.ttft, 3)}s` : "";
     const head = `
       <div class="muted" style="font-size:12px;margin-bottom:10px">
         ${escapeHtml(trace.channel)}｜${escapeHtml(trace.model || "-")}｜
-        ${fmtNum(trace.elapsed)}s｜${fmtInt(trace.total_tokens)} tokens｜
+        总 ${fmtNum(trace.elapsed)}s${ttftText}｜${fmtInt(trace.total_tokens)} tokens｜
         ${escapeHtml(trace.started_at || "")}
       </div>
+      ${renderTimingBreakdown(trace)}
       <div class="tool"><span class="kv">输入</span><pre>${escapeHtml(trace.input_preview || "")}</pre></div>
       ${trace.error ? `<div class="tool" style="background:#fdecec"><span class="kv">错误</span><pre>${escapeHtml(trace.error)}</pre></div>` : ""}`;
     const steps = (trace.steps_detail || []).map((step) => {
+      const badges = [];
+      if (step.llm_elapsed != null) {
+        const ttft = step.ttft != null ? ` · 首字 ${fmtNum(step.ttft, 3)}s` : "";
+        badges.push(`<span class="step-badge llm">LLM ${fmtNum(step.llm_elapsed, 3)}s${ttft}</span>`);
+      }
+      if (step.tool_elapsed != null && (step.tool_elapsed > 0 || (step.tools || []).length > 0)) {
+        const multi = (step.tools || []).length > 1 ? ` · ${(step.tools || []).length} 工具墙钟` : "";
+        badges.push(`<span class="step-badge tool">工具 ${fmtNum(step.tool_elapsed, 3)}s${multi}</span>`);
+      }
+      if (step.approval_elapsed != null && step.approval_elapsed > 0) {
+        badges.push(`<span class="step-badge wait">确认等待 ${fmtNum(step.approval_elapsed, 2)}s</span>`);
+      }
       const tools = (step.tools || []).map((tool) => {
         const level = tool.approved === false ? "被拒" : (tool.ok === false ? "失败" : "成功");
+        const waitText = tool.approval_elapsed != null ? ` · 确认等 ${fmtNum(tool.approval_elapsed, 2)}s` : "";
         return `<div class="tool">
           <span class="tool-name">🔧 ${escapeHtml(tool.name)}</span>
-          <span class="kv">· ${level}${tool.elapsed != null ? ` · ${fmtNum(tool.elapsed, 3)}s` : ""}</span>
+          <span class="kv">· ${level}${tool.elapsed != null ? ` · ${fmtNum(tool.elapsed, 3)}s` : ""}${waitText}</span>
           <pre class="kv">参数：${escapeHtml(JSON.stringify(tool.args || {}))}</pre>
           ${tool.result ? `<pre>结果：${escapeHtml(tool.result)}</pre>` : ""}
         </div>`;
       }).join("");
       return `<div class="step">
-        <div class="step-title">第 ${step.step} 步</div>
+        <div class="step-title"><span>第 ${step.step} 步</span>${badges.join("")}</div>
         ${step.text ? `<div class="step-text">${escapeHtml(step.text)}</div>` : '<div class="muted">（无文本）</div>'}
         ${tools}
       </div>`;
@@ -512,6 +650,7 @@
         el("tokenChart"), el("tokenAxis"),
         stats.by_day.map((d) => ({ day: d.day, value: d.total_tokens })), false
       );
+      renderLatencyBars(el("latencyChart"), el("latencyAxis"), stats.by_day);
       renderTools(stats.tools);
       renderApprovals(stats.approvals);
       renderChannels(stats.by_channel);

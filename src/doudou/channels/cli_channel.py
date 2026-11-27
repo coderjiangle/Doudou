@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.prompt import Confirm
+from rich.status import Status
 from rich.table import Table
 
 from doudou.agent.events import RunEvent
@@ -49,6 +50,8 @@ class _RenderState:
     text_started: bool = False
     buffer: str = ""
     live: Live | None = None
+    status: Status | None = None
+    pending_tools: int = 0
     rendered_any: bool = False
     last_refresh: float = 0.0
 
@@ -56,6 +59,8 @@ class _RenderState:
         self.text_started = False
         self.buffer = ""
         self.live = None
+        self.status = None
+        self.pending_tools = 0
         self.rendered_any = False
         self.last_refresh = 0.0
 
@@ -202,6 +207,7 @@ class CliChannel:
         usage: dict[str, int] = {}
         error: str | None = None
 
+        self._start_thinking()
         try:
             async for event in stream:
                 events.append(event)
@@ -214,7 +220,8 @@ class CliChannel:
                     error = event.text
                     steps = event.step
         finally:
-            # 确保异常或中断退出时也会停掉 Live，恢复终端光标。
+            # 确保异常或中断退出时也会停掉 Status 与 Live，恢复终端光标。
+            self._stop_thinking()
             self._stop_live()
 
         return RunResult(
@@ -230,6 +237,26 @@ class CliChannel:
     def _should_render_markdown(self) -> bool:
         """仅在启用渲染、输出正文且处于交互式终端时启用 Markdown。"""
         return self.render_markdown and self.echo_text and self.console.is_terminal
+
+    def _start_thinking(self, label: str = "豆豆正在思考…") -> None:
+        """在交互终端等待模型响应期间展示轻量等待状态，收到任何实际输出前停掉。"""
+        if not (self.echo_text and self.console.is_terminal):
+            return
+        if self._state.live is not None or self._state.text_started or self._state.buffer:
+            return
+        if self._state.status is None:
+            status = self.console.status(f"[dim]{label}[/dim]", spinner="dots")
+            status.start()
+            self._state.status = status
+        else:
+            self._state.status.update(f"[dim]{label}[/dim]")
+
+    def _stop_thinking(self) -> None:
+        if self._state.status is not None:
+            try:
+                self._state.status.stop()
+            finally:
+                self._state.status = None
 
     def _stop_live(self) -> None:
         if self._state.live is not None:
@@ -283,6 +310,7 @@ class CliChannel:
         if event.type == "text_delta":
             if not self.echo_text or not event.text:
                 return
+            self._stop_thinking()
             if self._should_render_markdown():
                 self._stream_markdown_delta(event.text)
             else:
@@ -291,26 +319,34 @@ class CliChannel:
             return
 
         if event.type == "tool_call":
-            # 无论是否展示工具日志，都要在工具执行（含人工确认 Confirm.ask）前收口流式输出。
+            # 工具执行（含 Confirm.ask）前先收口等待提示与流式输出，避免穿插。
+            self._state.pending_tools += 1
+            self._stop_thinking()
             self._break_line()
             if self.show_tool_calls:
                 args = _format_args(event.tool_args or {})
                 self.console.print(f"[dim]· 调用工具 [b]{event.tool_name}[/b]{args}[/dim]")
             return
 
-        if event.type == "tool_result" and self.show_tool_calls:
-            marker = "←" if event.tool_ok else "✗"
-            body = truncate(event.result or "", self.max_tool_result_chars)
-            style = "dim" if event.tool_ok else "bold red"
-            self.console.print(f"[{style}]  {marker} {body}[/]")
+        if event.type == "tool_result":
+            self._state.pending_tools = max(0, self._state.pending_tools - 1)
+            if self.show_tool_calls:
+                marker = "←" if event.tool_ok else "✗"
+                body = truncate(event.result or "", self.max_tool_result_chars)
+                style = "dim" if event.tool_ok else "bold red"
+                self.console.print(f"[{style}]  {marker} {body}[/]")
+            if self._state.pending_tools == 0:
+                self._start_thinking("豆豆正在整理…")
             return
 
         if event.type == "error":
+            self._stop_thinking()
             self._break_line()
             self.console.print(f"[bold red]✗ {event.text}[/]")
             return
 
         if event.type == "run_end":
+            self._stop_thinking()
             # AgentRunner.astream 在 yield run_end 之后、退出前会在 finally 打
             # runner.run_finished 日志；必须先停掉 Live 并固化正文，避免 stderr
             # 日志打断 Live 光标回退导致正文重复渲染。

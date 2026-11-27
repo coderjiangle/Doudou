@@ -128,3 +128,60 @@ def test_run_async_installs_filter_and_returns_result(
 
     assert asyncio_compat.run_async(main()) == 7
     assert calls == [True]
+
+
+def test_safe_self_pipe_close_handles_partial_and_repeated_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_close_self_pipe`` 在 ``_ssock`` 已被置空后再次调用不能抛 AttributeError。"""
+    import asyncio.proactor_events as proactor_events
+
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    closed: list[str] = []
+
+    class FakeSock:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        def close(self) -> None:
+            closed.append(self.label)
+
+    class FakeFuture:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    class DummyProactorLoop:
+        def _close_self_pipe(self) -> None:
+            self._ssock.close()  # type: ignore[attr-defined]
+            self._ssock = None
+            self._csock.close()  # type: ignore[attr-defined]
+            self._csock = None
+
+    monkeypatch.setattr(proactor_events, "BaseProactorEventLoop", DummyProactorLoop)
+    asyncio_compat.install_safe_self_pipe_close()
+
+    loop = DummyProactorLoop()
+    fut = FakeFuture()
+    loop._self_reading_future = fut  # type: ignore[attr-defined]
+    loop._ssock = FakeSock("s")  # type: ignore[attr-defined]
+    loop._csock = FakeSock("c")  # type: ignore[attr-defined]
+
+    # 正常情况走原方法并清掉双端 socket
+    loop._close_self_pipe()
+    assert closed == ["s", "c"]
+    assert loop._ssock is None  # type: ignore[attr-defined]
+
+    # 模拟关闭途中被 Ctrl+C 打断后 __del__ 二次关闭：不抛 AttributeError
+    loop._self_reading_future = fut  # type: ignore[attr-defined]
+    loop._close_self_pipe()
+    assert fut.cancelled is True
+
+    # 只有单边残存时也安全收掉
+    loop._csock = FakeSock("c2")  # type: ignore[attr-defined]
+    loop._close_self_pipe()
+    assert closed == ["s", "c", "c2"]
+    assert loop._csock is None  # type: ignore[attr-defined]

@@ -9,10 +9,14 @@ from pydantic import BaseModel, Field
 
 
 class TraceStepOut(BaseModel):
-    """轨迹里的一步：这一步的文本 + 它调用的工具。"""
+    """轨迹里的一步：这一步的文本 + 耗时拆分 + 它调用的工具。"""
 
     step: int = 0
     text: str = ""
+    llm_elapsed: float | None = None
+    ttft: float | None = None
+    tool_elapsed: float | None = None
+    approval_elapsed: float | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -35,6 +39,11 @@ class TraceSummaryOut(BaseModel):
     output_tokens: int = 0
     total_tokens: int = 0
     elapsed: float = 0.0
+    llm_elapsed: float | None = None
+    ttft: float | None = None
+    tool_elapsed: float | None = None
+    approval_elapsed: float | None = None
+    other_elapsed: float | None = None
     input_preview: str = ""
     output_preview: str = ""
     started_at: datetime | None = None
@@ -63,6 +72,11 @@ class StatsOverviewOut(BaseModel):
     success_rate: float | None = None
     avg_elapsed: float = 0.0
     p95_elapsed: float = 0.0
+    avg_llm_elapsed: float | None = None
+    avg_ttft: float | None = None
+    avg_tool_elapsed: float | None = None
+    avg_approval_elapsed: float | None = None
+    llm_share: float | None = None
     tool_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -75,6 +89,9 @@ class StatsDayOut(BaseModel):
     ok: int = 0
     failed: int = 0
     avg_elapsed: float = 0.0
+    avg_llm_elapsed: float | None = None
+    avg_tool_elapsed: float | None = None
+    avg_other_elapsed: float | None = None
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
@@ -97,6 +114,8 @@ class StatsToolOut(BaseModel):
     failed: int = 0
     rejected: int = 0
     avg_elapsed: float | None = None
+    p95_elapsed: float | None = None
+    total_elapsed: float | None = None
 
 
 class StatsApprovalsOut(BaseModel):

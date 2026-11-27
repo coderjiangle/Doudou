@@ -30,6 +30,10 @@ class RunSample:
     output_tokens: int
     channel: str
     thread_id: str
+    llm_elapsed: float | None = None
+    ttft: float | None = None
+    tool_elapsed: float | None = None
+    approval_elapsed: float | None = None
 
     @property
     def day(self) -> str:
@@ -75,6 +79,13 @@ def build_stats(
     }
 
 
+def _avg_opt(values: Sequence[float | None], *, digits: int = 3) -> float | None:
+    present = [float(item) for item in values if item is not None]
+    if not present:
+        return None
+    return round(sum(present) / len(present), digits)
+
+
 def _overview(runs: Sequence[RunSample]) -> dict[str, Any]:
     total = len(runs)
     ok = sum(1 for run in runs if run.ok)
@@ -82,6 +93,13 @@ def _overview(runs: Sequence[RunSample]) -> dict[str, Any]:
     elapsed = [run.elapsed for run in runs]
     input_tokens = sum(run.input_tokens for run in runs)
     output_tokens = sum(run.output_tokens for run in runs)
+    timed = [run for run in runs if run.llm_elapsed is not None]
+    timed_total_elapsed = sum(run.elapsed for run in timed)
+    llm_share = (
+        round(sum(float(run.llm_elapsed or 0.0) for run in timed) / timed_total_elapsed, 4)
+        if timed and timed_total_elapsed > 0
+        else None
+    )
     return {
         "runs": total,
         "ok_runs": ok,
@@ -89,6 +107,11 @@ def _overview(runs: Sequence[RunSample]) -> dict[str, Any]:
         "success_rate": round(ok / total, 4) if total else None,
         "avg_elapsed": round(sum(elapsed) / total, 3) if total else 0.0,
         "p95_elapsed": round(_percentile(elapsed, 0.95), 3),
+        "avg_llm_elapsed": _avg_opt([run.llm_elapsed for run in runs]),
+        "avg_ttft": _avg_opt([run.ttft for run in runs]),
+        "avg_tool_elapsed": _avg_opt([run.tool_elapsed for run in runs]),
+        "avg_approval_elapsed": _avg_opt([run.approval_elapsed for run in runs]),
+        "llm_share": llm_share,
         "tool_calls": sum(run.tool_calls for run in runs),
         "total_tokens": input_tokens + output_tokens,
         "input_tokens": input_tokens,
@@ -102,6 +125,12 @@ class _DayBucket:
     ok: int = 0
     failed: int = 0
     elapsed_sum: float = 0.0
+    llm_sum: float = 0.0
+    llm_count: int = 0
+    tool_sum: float = 0.0
+    tool_count: int = 0
+    other_sum: float = 0.0
+    other_count: int = 0
 
 
 def _by_day(
@@ -116,6 +145,19 @@ def _by_day(
         bucket.ok += 1 if run.ok else 0
         bucket.failed += 0 if run.ok else 1
         bucket.elapsed_sum += run.elapsed
+        if run.llm_elapsed is not None:
+            bucket.llm_sum += float(run.llm_elapsed)
+            bucket.llm_count += 1
+            tool_val = float(run.tool_elapsed or 0.0)
+            other_val = max(0.0, run.elapsed - float(run.llm_elapsed) - tool_val)
+            bucket.other_sum += other_val
+            bucket.other_count += 1
+            if run.tool_elapsed is not None:
+                bucket.tool_sum += tool_val
+                bucket.tool_count += 1
+        elif run.tool_elapsed is not None:
+            bucket.tool_sum += float(run.tool_elapsed)
+            bucket.tool_count += 1
 
     trend: list[dict[str, Any]] = []
     for day in window:
@@ -128,6 +170,15 @@ def _by_day(
                 "ok": bucket.ok,
                 "failed": bucket.failed,
                 "avg_elapsed": round(bucket.elapsed_sum / bucket.runs, 3) if bucket.runs else 0.0,
+                "avg_llm_elapsed": (
+                    round(bucket.llm_sum / bucket.llm_count, 3) if bucket.llm_count else None
+                ),
+                "avg_tool_elapsed": (
+                    round(bucket.tool_sum / bucket.tool_count, 3) if bucket.tool_count else None
+                ),
+                "avg_other_elapsed": (
+                    round(bucket.other_sum / bucket.other_count, 3) if bucket.other_count else None
+                ),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "total_tokens": input_tokens + output_tokens,
@@ -174,6 +225,8 @@ def _tools(tools: Sequence[ToolSample]) -> list[dict[str, Any]]:
     for bucket in sorted(buckets.values(), key=lambda item: item["calls"], reverse=True):
         elapsed = bucket.pop("_elapsed")
         bucket["avg_elapsed"] = round(sum(elapsed) / len(elapsed), 4) if elapsed else None
+        bucket["p95_elapsed"] = round(_percentile(elapsed, 0.95), 4) if elapsed else None
+        bucket["total_elapsed"] = round(sum(elapsed), 4) if elapsed else None
         result.append(bucket)
     return result
 

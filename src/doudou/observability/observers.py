@@ -58,6 +58,10 @@ class RunSummary:
     #: 累计 token 用量（与 ``run_end`` 事件里的一致）。
     usage: dict[str, int] = field(default_factory=dict)
     elapsed: float = 0.0
+    llm_elapsed: float | None = None
+    ttft: float | None = None
+    tool_elapsed: float | None = None
+    approval_elapsed: float | None = None
     error: str | None = None
 
 

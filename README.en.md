@@ -130,8 +130,11 @@ Design principles:
   hard-coded.
 - **Configuration-driven**: `config/*.yaml` describes the agent, subagents, MCP servers and
   channels; environment variables and secrets live in `.env`.
-- **One agent engine, many channels**: Feishu, webhook, CLI, the HTTP API and local voice reuse the
-  gateway and ReAct engine. Local voice runs in the `doudou voice` process.
+- **Client / Serve split & shared engine**: `doudou serve` hosts Feishu, webhooks, HTTP API/Web UI,
+  persistence and the scheduler; `doudou chat` / `doudou threads` / `doudou voice` run by default
+  as local clients connecting over HTTP/SSE to an existing or ephemeral `doudou serve` instance,
+  sharing the same gateway, ReAct engine and database history (`--local` and `doudou ask` remain
+  available for single-process execution).
 
 ## 3. Directory layout
 

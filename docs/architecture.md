@@ -3,30 +3,31 @@
 ## 1. 分层
 
 ```
-┌───────────────────────────── 入口层 ────────────────────────────────┐
-│  [doudou serve 常驻进程]             [独立本地进程]                 │
-│  channels/{feishu,webhook}           cli/ (channels.cli_channel)    │
-│  api/{app,routes} (/ui, /stats)      voice/ (channels.voice)        │
-└──────────────┬──────────────┬─────────────────┬──────────────┬──────┘
-               │ InboundMsg   │ RunRequest      │ RunRequest   │ RunRequest /
-               ▼              ▼                 ▼              ▼ RunEvent
-┌──────────────────────── gateway & scheduler ────────────────────────┐
-│  scheduler.runtime（定时轮询 → router.run_now → 通道推送）          │
-│  session（会话↔thread 映射）  bus（并发队列）                       │
-│  router（分发）  runner（执行 + 事件回流 + 历史落库）               │
-└───────────────────────────────┬─────────────────────────────────────┘
+┌─────────────────────────────── 入口层 ───────────────────────────────────┐
+│  [doudou serve 服务端进程]           [本地客户端进程（默认走 HTTP/SSE）]  │
+│  channels/{feishu,webhook}           cli/{main,remote} (RemoteAgentRunner)│
+│  api/{app,routes} (/ui, /stats) ◀──▶ channels/{cli_channel,voice}        │
+└──────────────┬───────────────────────────┬──────────────────┬────────────┘
+               │ InboundMsg / RunRequest   │ (仅 --local /    │
+               │                           │  doudou ask 虚线 │
+               ▼                           │  直连 RunnerLike)│
+┌──────────────────────── gateway & scheduler ─────────────────────────────┐
+│  scheduler.runtime（定时轮询 → router.run_now → 通道推送）               │
+│  session（会话↔thread 映射）  bus（并发队列）                            │
+│  router（分发）  runner（RunnerLike / 执行 + 事件回流 + 屏蔽取消落库）    │
+└───────────────────────────────┬──────────────────────────────────────────┘
                                 ▼ agent 调用
-┌────────────────────────────── agent ────────────────────────────────┐
-│  factory（AgentBundle 组装）  react（ReAct 循环）  events           │
-│  models  messages  context  memory  subagents  permissions approvals│
-└───────┬──────────────────────────────────────────────┬──────────────┘
+┌────────────────────────────── agent ─────────────────────────────────────┐
+│  factory（AgentBundle 组装）  react（ReAct 循环）  events                │
+│  models  messages  context  memory  subagents  permissions approvals     │
+└───────┬──────────────────────────────────────────────┬───────────────────┘
         │ tools=                                       │ 依赖
         ▼                                              ▼
-┌─────────────────────┐                 ┌─────────────────────────────┐
-│ tools.registry      │                 │ storage   observability     │
-│  ├─ tools.builtin   │                 │ security  utils             │
-│  └─ mcp.client      │                 │ config                      │
-│ skills.registry     │                 └─────────────────────────────┘
+┌─────────────────────┐                 ┌──────────────────────────────────┐
+│ tools.registry      │                 │ storage   observability          │
+│  ├─ tools.builtin   │                 │ security  utils                  │
+│  └─ mcp.client      │                 │ config                           │
+│ skills.registry     │                 └──────────────────────────────────┘
 └─────────────────────┘
 ```
 
@@ -39,35 +40,38 @@
 ```
 run_start
   └─ step_start(step)
-       ├─ 推理：model.astream(history) → text_delta*  + 累积 tool_call_chunks
-       ├─ 无工具调用 → run_end(text)           ← 收敛
-       └─ 有工具调用 → tool_call* → 并发执行 → tool_result* → 下一轮 step
+       ├─ 推理：model.astream(history) → text_delta* + 累积 tool_call_chunks
+       ├─ 无工具调用 → step_end → run_end(text)                  ← 收敛
+       └─ 有工具调用 → tool_call* → approval* → 并发执行 → tool_result* → step_end → 下一轮 step
 ```
 
 关键设计：
 
-- **事件化**：输出统一为 `RunEvent`（`agent/events.py`），供 CLI、SSE、飞书卡片和语音播报消费。
+- **事件化**：输出统一为 `RunEvent`（`agent/events.py`），供 CLI、SSE、飞书卡片和语音播报消费；`step_end` 与 `run_end` 额外携带每步的 LLM 推理耗时、TTFT 首包延迟、工具墙钟耗时（按并发区间合并）与确认等待耗时。
 - **工具调用按 index 手工累积**：只依赖 `tool_call_chunks` 协议，对 OpenAI / Anthropic / 兼容网关都成立，不假定 provider 的返回形态。
 - **单步失败不中断**：工具异常、工具不存在、参数 JSON 坏了，都转成错误 `ToolMessage` 回填给模型，让它换一种做法。
 - **人在回路**：`interrupt_on` 登记的工具在执行前调用 `approval_hook`；没有回调时**拒绝执行**而不是静默放行。
 - 所有工具结果回填后进入下一轮，直到无工具调用或达到 `agent.max_steps`。
 
-### 2.1 入口层
+### 2.1 入口层（Client / Serve 分离）
+
+`doudou chat` / `doudou threads` / `doudou voice` 与 `doudou serve` 之间通过 `RunnerLike` 协议解耦：默认以客户端进程运行（连向已在线的 `doudou serve`，或自动拉起随用随关的临时 `serve` 子进程，从而共享同一份持久化历史、MCP、定时任务与 `/stats` 统计）；仅传入 `--local` 或运行 `doudou ask` 时才走单进程本地直连。
 
 | 模块 | 职责 |
 | --- | --- |
+| `cli.remote` | `RemoteAgentRunner`（实现 `RunnerLike`，经 HTTP/SSE 转发对话、审批与历史查询）与 `EphemeralServeProcess`（探测复用或托管临时 `doudou serve`）。 |
 | `channels.base` | 定义 `Channel` 协议：`start()` / `stop()` / 把外部消息归一化成 `InboundMessage` / `send(OutboundMessage)`。 |
 | `channels.registry` | 按配置实例化并启停通道。 |
 | `channels.feishu` | 飞书长连接接入，去重与卡片渲染。 |
 | `channels.webhook` | 通用入站 webhook，便于对接其他 IM / 自动化平台。 |
-| `channels.cli_channel` | 终端交互，本地开发不依赖任何外部平台。 |
-| `channels.voice` | `doudou voice` 启动常驻监听。本地唤醒并断句，唤醒后用 DeepSeek ASR 转写，再直接向 `AgentRunner` 提交文本。返回的文本增量经 DeepSeek WebSocket TTS 流式播报，支持打断。 |
+| `channels.cli_channel` | 终端交互，消费 `RunnerLike`；默认走 `RemoteAgentRunner` 连向 `serve`，`--local` / `ask` 走本地 `AgentRunner`。 |
+| `channels.voice` | `doudou voice` 启动常驻监听。本地唤醒断句 + DeepSeek ASR 转写后通过 `RunnerLike` 提交文本（默认走 `RemoteAgentRunner` → `serve`，`--local` 走本地 `AgentRunner`），回复文本增量经 DeepSeek WebSocket TTS 流式播报，支持打断。 |
 | `api.app` | FastAPI 应用工厂：路由、中间件、异常处理、CORS，以及内置聊天页（`/`、`/ui`）与统计页（`/stats`）。 |
-| `api.lifespan` | 进程级单例（agent / 数据库）的创建与释放，中间件与日志在此初始化。 |
+| `api.lifespan` | 进程级单例（agent / 数据库 / MCP / 定时调度 / 审批中介）的创建与释放，中间件与日志在此初始化。 |
 | `api.deps` | 依赖注入：运行期状态、runner、Bearer 鉴权。 |
 | `api.errors` | 领域异常 → 统一错误响应的翻译层。 |
-| `api.routes.chat` | `POST /chat` 与 `POST /chat/stream`（SSE）；`map_event()` 是纯函数，可单测。 |
-| `api.routes.threads` / `tools` / `health` | 会话与历史、工具清单、健康与就绪检查。 |
+| `api.routes.chat` | `POST /chat` 与 `POST /chat/stream`（SSE）；支持 `approval_required` 推流，并在断连取消时用 `CancelScope(shield=True)` 保护收尾写库。 |
+| `api.routes.threads` / `approvals` / `traces` / `tools` / `health` | 会话与历史、客户端确认回传、轨迹与 `/stats` 统计、工具清单、健康检查。 |
 
 ### 2.2 编排层 `gateway`
 
@@ -77,7 +81,7 @@ run_start
 | `session` | thread_id 的生成与规范化（`<channel>-<conversation>-<随机后缀>`）。 |
 | `bus` | 进程内异步消息总线，按会话串行、跨会话并发。 |
 | `router` | 把 `InboundMessage` 路由到对应 thread，组装 agent 输入。 |
-| `runner` | 调用 agent、消费事件流、把结果落库，并做「同一 thread 串行」的并发保护。 |
+| `runner` | 定义 `RunnerLike` 协议与 `AgentRunner`：调用 agent、消费事件流、做「同一 thread 串行」并发保护，并在取消/断连时通过屏蔽收尾确保历史与审计完整落库。 |
 | `schema` | 层间共享的 `RunRequest` 定义。 |
 
 **关键点**：`gateway` 不 import 任何具体通道实现，只依赖 `channels.base` 协议；
@@ -204,10 +208,12 @@ run_start
 
 ```
 POST /api/v1/chat            → 非流式，返回完整结果 + thread_id
-POST /api/v1/chat/stream     → SSE: start → (delta | tool_call | tool_result)* → done
+POST /api/v1/chat/stream     → SSE: start → (delta | tool_call | approval_required | tool_result)* → done
+POST /api/v1/approvals/{id}  → 客户端提交人工确认决策
 GET  /api/v1/threads         → 会话列表
 GET  /api/v1/threads/{id}    → 历史消息
 DELETE /api/v1/threads/{id}  → 删除会话
+GET  /api/v1/traces / /stats → 运行轨迹（含 LLM/TTFT/工具耗时拆分）与统计汇总
 GET  /api/v1/tools           → 工具清单
 GET  /api/v1/health[/ready]  → 健康 / 就绪（免鉴权）
 ```

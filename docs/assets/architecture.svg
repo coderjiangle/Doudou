@@ -1,9 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="1010" viewBox="0 0 1360 1010" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', 'Source Han Sans SC', sans-serif" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="1050" viewBox="0 0 1360 1050" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', 'Source Han Sans SC', sans-serif" role="img" aria-labelledby="title description">
   <title id="title">Doudou 架构总览</title>
-  <desc id="description">飞书、Webhook、HTTP API / Web 与定时任务运行在 doudou serve 常驻进程；CLI 与本地语音（doudou voice）作为独立本地进程运行，共同复用 gateway 与自研 ReAct 引擎。</desc>
+  <desc id="description">Client 与 Serve 分离架构：飞书、Webhook、HTTP API/Web、gateway、定时任务与持久化运行在 doudou serve 服务端进程；CLI（doudou chat/threads）与本地语音（doudou voice）默认作为本地客户端通过 RemoteAgentRunner 经 HTTP/SSE 连向 doudou serve（无在线服务时自动拉起随用随关的临时 serve），--local 与 doudou ask 支持单进程直连 RunnerLike。</desc>
   <defs>
     <marker id="arrow-sky" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0284c7"/>
     </marker>
     <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#22c55e"/>
@@ -16,173 +19,184 @@
     </marker>
   </defs>
 
-  <rect width="1360" height="1010" fill="#ffffff"/>
+  <rect width="1360" height="1050" fill="#ffffff"/>
 
   <!-- 标题 -->
-  <text x="680" y="50" text-anchor="middle" font-size="30" font-weight="700" fill="#0f172a">Doudou 架构总览</text>
-  <text x="680" y="78" text-anchor="middle" font-size="14" fill="#64748b">多渠道入口 / gateway 编排与定时调度 / 自研 ReAct / 可插拔工具与支撑</text>
+  <text x="680" y="48" text-anchor="middle" font-size="30" font-weight="700" fill="#0f172a">Doudou 架构总览</text>
+  <text x="680" y="76" text-anchor="middle" font-size="14" fill="#64748b">Client / Serve 分离入口 · gateway 编排与定时调度 · 自研 ReAct · 可插拔工具与支撑</text>
 
   <!-- ==================== 入口层 ==================== -->
-  <rect x="40" y="102" width="1280" height="196" rx="16" fill="#f0f9ff" stroke="#bae6fd" stroke-width="1.5"/>
-  <text x="60" y="130" font-size="13" font-weight="600" fill="#0369a1">入口层 · channels / api / cli</text>
+  <rect x="40" y="100" width="1280" height="202" rx="16" fill="#f0f9ff" stroke="#bae6fd" stroke-width="1.5"/>
+  <text x="60" y="128" font-size="13" font-weight="600" fill="#0369a1">入口层 · Client / Serve 分离（channels / api / cli）</text>
 
   <!-- 进程边界 1：doudou serve -->
-  <rect x="56" y="142" width="712" height="142" rx="12" fill="#ffffff" fill-opacity="0.45" stroke="#38bdf8" stroke-dasharray="5 4" stroke-width="1.2"/>
-  <text x="70" y="160" font-size="11.5" font-weight="600" fill="#0284c7">doudou serve 常驻进程（SQLite/Postgres 持久化 · ApprovalBroker 确认中介）</text>
+  <rect x="56" y="140" width="690" height="148" rx="12" fill="#ffffff" fill-opacity="0.55" stroke="#0284c7" stroke-dasharray="5 4" stroke-width="1.3"/>
+  <text x="70" y="159" font-size="11.5" font-weight="600" fill="#0284c7">doudou serve 服务端进程（常驻 / 临时托管 · 持久化历史 · ApprovalBroker · Scheduler）</text>
 
-  <!-- 进程边界 2：独立本地进程 -->
-  <rect x="780" y="142" width="524" height="142" rx="12" fill="#ffffff" fill-opacity="0.45" stroke="#0ea5e9" stroke-dasharray="5 4" stroke-width="1.2"/>
-  <text x="794" y="160" font-size="11.5" font-weight="600" fill="#0284c7">独立本地进程（默认内存历史 · 终端确认）</text>
+  <!-- 进程边界 2：本地客户端进程 -->
+  <rect x="760" y="140" width="544" height="148" rx="12" fill="#ffffff" fill-opacity="0.55" stroke="#0ea5e9" stroke-dasharray="5 4" stroke-width="1.3"/>
+  <text x="774" y="159" font-size="11.5" font-weight="600" fill="#0369a1">本地客户端进程（默认 RemoteAgentRunner + 随用随关 EphemeralServeProcess）</text>
 
   <g font-size="12" fill="#475569">
-    <rect x="68" y="172" width="210" height="98" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+    <!-- 飞书通道 -->
+    <rect x="68" y="172" width="204" height="104" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
     <text x="82" y="197" font-size="16" font-weight="600" fill="#0f172a">飞书通道</text>
     <text x="82" y="218">channels.feishu</text>
-    <text x="82" y="237">长连接 · 流式卡片 · 图片输入</text>
-    <text x="82" y="256" font-size="11.5" fill="#64748b">卡片按钮确认 · 群共享上下文</text>
+    <text x="82" y="238">长连接 · 流式卡片 · 图片</text>
+    <text x="82" y="257" font-size="11.5" fill="#64748b">卡片按钮确认 · 群共享上下文</text>
 
-    <rect x="290" y="172" width="174" height="98" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="304" y="197" font-size="16" font-weight="600" fill="#0f172a">Webhook</text>
-    <text x="304" y="218">channels.webhook</text>
-    <text x="304" y="237">X-Doudou-Token</text>
-    <text x="304" y="256" font-size="11.5" fill="#64748b">同步响应 / 异步入队</text>
+    <!-- Webhook -->
+    <rect x="284" y="172" width="166" height="104" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+    <text x="298" y="197" font-size="16" font-weight="600" fill="#0f172a">Webhook</text>
+    <text x="298" y="218">channels.webhook</text>
+    <text x="298" y="238">X-Doudou-Token</text>
+    <text x="298" y="257" font-size="11.5" fill="#64748b">同步响应 / 异步入队</text>
 
-    <rect x="476" y="172" width="280" height="98" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="490" y="197" font-size="16" font-weight="600" fill="#0f172a">HTTP API / Web</text>
-    <text x="490" y="218">api.app · api.routes</text>
-    <text x="490" y="237">REST / SSE / Bearer 鉴权</text>
-    <text x="490" y="256" font-size="11.5" fill="#64748b">内置 /ui 聊天（含图片）· /stats 统计页</text>
+    <!-- HTTP API / Web -->
+    <rect x="462" y="172" width="272" height="104" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+    <text x="476" y="197" font-size="16" font-weight="600" fill="#0f172a">HTTP API / Web</text>
+    <text x="476" y="218">api.app · api.routes</text>
+    <text x="476" y="238">REST / SSE · /approvals · Bearer</text>
+    <text x="476" y="257" font-size="11.5" fill="#64748b">内置 /ui 聊天 · /stats 统计页</text>
 
-    <rect x="792" y="172" width="166" height="98" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="806" y="197" font-size="16" font-weight="600" fill="#0f172a">CLI</text>
-    <text x="806" y="218">channels.cli_channel</text>
-    <text x="806" y="237">doudou chat / ask</text>
-    <text x="806" y="256" font-size="11.5" fill="#64748b">rich 流式输出</text>
+    <!-- CLI 客户端 -->
+    <rect x="772" y="172" width="212" height="104" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+    <text x="786" y="197" font-size="16" font-weight="600" fill="#0f172a">CLI 客户端</text>
+    <text x="786" y="218">cli_channel · cli.remote</text>
+    <text x="786" y="238">doudou chat / threads</text>
+    <text x="786" y="257" font-size="11.5" fill="#64748b">rich 流式 · 终端确认 · ask 单次</text>
 
-    <rect x="970" y="172" width="322" height="98" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
-    <text x="984" y="197" font-size="16" font-weight="600" fill="#0f172a">本地语音</text>
-    <text x="1062" y="197" font-size="12" fill="#475569">channels.voice · doudou voice</text>
-    <text x="984" y="219">本地唤醒断句（KWS + VAD）→ DeepSeek ASR</text>
-    <text x="984" y="238">DeepSeek WebSocket TTS → 音箱流式播报</text>
-    <text x="984" y="256" font-size="11.5" fill="#64748b">播报打断（语音打断词 / 终端按键）</text>
+    <!-- 本地语音客户端 -->
+    <rect x="996" y="172" width="296" height="104" rx="10" fill="#ffffff" stroke="#7dd3fc" stroke-width="1.5"/>
+    <text x="1010" y="197" font-size="16" font-weight="600" fill="#0f172a">本地语音客户端</text>
+    <text x="1132" y="197" font-size="11.5" fill="#475569">channels.voice</text>
+    <text x="1010" y="219">本地 KWS+VAD 唤醒 → DeepSeek ASR</text>
+    <text x="1010" y="238">DeepSeek WebSocket TTS → 音箱播报</text>
+    <text x="1010" y="257" font-size="11.5" fill="#64748b">doudou voice · 支持语音/按键打断</text>
   </g>
 
-  <!-- 入口 → gateway：汇流 -->
-  <path d="M173,270 V324 M377,270 V324 M616,270 V324 M875,270 V324"
+  <!-- ==================== 入口 ↔ serve ↔ gateway 连接线 ==================== -->
+  <!-- 本地客户端（CLI + 语音）默认经 HTTP/SSE 连向 doudou serve 的 HTTP API -->
+  <path d="M878,276 V322 M1124,276 V322" stroke="#0284c7" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M1124,322 H634 V280" stroke="#0284c7" stroke-width="2" fill="none" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+  <text x="890" y="340" text-anchor="middle" font-size="11.5" font-weight="600" fill="#0284c7">默认：HTTP / SSE（/chat/stream · /approvals/{id} · /threads · 自动拉起/复用 serve）</text>
+
+  <!-- 服务端内部入口（飞书 / Webhook / HTTP API）→ gateway -->
+  <path d="M170,276 V358 M367,276 V358 M564,276 V358"
         stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
-  <path d="M173,324 H875" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
-  <line x1="616" y1="324" x2="616" y2="350" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-sky)"/>
-  <text x="628" y="343" font-size="11.5" fill="#0369a1">InboundMessage / RunRequest</text>
+  <path d="M170,358 H564" stroke="#38bdf8" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <line x1="420" y1="358" x2="420" y2="390" stroke="#38bdf8" stroke-width="2.2" marker-end="url(#arrow-sky)"/>
+  <text x="434" y="378" font-size="11.5" fill="#0369a1">InboundMessage / RunRequest</text>
+
+  <!-- 本地单进程直连通道（虚线：local / doudou ask） -->
+  <line x1="1208" y1="276" x2="1208" y2="436" stroke="#0ea5e9" stroke-width="1.8" stroke-dasharray="4 3"
+        marker-start="url(#arrow-sky)" marker-end="url(#arrow-sky)"/>
+  <text x="1218" y="366" font-size="11" fill="#0369a1">--local / ask</text>
+  <text x="1218" y="382" font-size="11" fill="#0369a1">单进程直连</text>
 
   <!-- scheduler → 飞书通道：定时主动推送 -->
-  <line x1="112" y1="400" x2="112" y2="274" stroke="#22c55e" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrow-green)"/>
-  <text x="120" y="317" font-size="11" fill="#15803d">定时推送</text>
+  <line x1="110" y1="440" x2="110" y2="280" stroke="#22c55e" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#arrow-green)"/>
+  <text x="118" y="346" font-size="11" fill="#15803d">定时推送</text>
 
   <!-- ==================== gateway & scheduler ==================== -->
-  <rect x="40" y="354" width="1280" height="142" rx="16" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
-  <text x="60" y="384" font-size="13" font-weight="600" fill="#15803d">gateway &amp; scheduler · 会话 / 路由 / 定时调度 / 执行</text>
+  <rect x="40" y="394" width="1280" height="142" rx="16" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="60" y="424" font-size="13" font-weight="600" fill="#15803d">gateway &amp; scheduler（主要运行于 doudou serve 内）· 会话 / 路由 / 定时调度 / 执行</text>
 
   <g>
-    <rect x="60" y="400" width="220" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
-    <text x="74" y="427" font-size="15.5" font-weight="600" fill="#0f172a">scheduler</text>
-    <text x="155" y="427" font-size="11" fill="#15803d">doudou serve</text>
-    <text x="74" y="449" font-size="12" fill="#475569">轮询到期 → router.run_now</text>
-    <text x="74" y="467" font-size="11.5" fill="#64748b">按投递目标解析私聊/群聊</text>
+    <rect x="60" y="440" width="220" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="74" y="467" font-size="15.5" font-weight="600" fill="#0f172a">scheduler</text>
+    <text x="155" y="467" font-size="11" fill="#15803d">doudou serve</text>
+    <text x="74" y="489" font-size="12" fill="#475569">轮询到期 → router.run_now</text>
+    <text x="74" y="507" font-size="11.5" fill="#64748b">按投递目标解析私聊/群聊</text>
 
-    <rect x="296" y="400" width="220" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
-    <text x="310" y="427" font-size="15.5" font-weight="600" fill="#0f172a">session</text>
-    <text x="310" y="449" font-size="12" fill="#475569">会话 ↔ thread 映射</text>
-    <text x="310" y="467" font-size="11.5" fill="#64748b">进程内锁（同会话串行）</text>
+    <rect x="296" y="440" width="220" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="310" y="467" font-size="15.5" font-weight="600" fill="#0f172a">session</text>
+    <text x="310" y="489" font-size="12" fill="#475569">会话 ↔ thread 映射</text>
+    <text x="310" y="507" font-size="11.5" fill="#64748b">进程内锁（同会话串行）</text>
 
-    <rect x="532" y="400" width="200" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
-    <text x="546" y="427" font-size="15.5" font-weight="600" fill="#0f172a">bus</text>
-    <text x="546" y="449" font-size="12" fill="#475569">进程内异步消息总线</text>
-    <text x="546" y="467" font-size="11.5" fill="#64748b">按会话串行 · 跨会话并发</text>
+    <rect x="532" y="440" width="200" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="546" y="467" font-size="15.5" font-weight="600" fill="#0f172a">bus</text>
+    <text x="546" y="489" font-size="12" fill="#475569">进程内异步消息总线</text>
+    <text x="546" y="507" font-size="11.5" fill="#64748b">按会话串行 · 跨会话并发</text>
 
-    <rect x="748" y="400" width="210" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
-    <text x="762" y="427" font-size="15.5" font-weight="600" fill="#0f172a">router</text>
-    <text x="762" y="449" font-size="12" fill="#475569">InboundMessage → 输入</text>
-    <text x="762" y="467" font-size="11.5" fill="#64748b">记录用户→私聊投递目标</text>
+    <rect x="748" y="440" width="210" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="762" y="467" font-size="15.5" font-weight="600" fill="#0f172a">router</text>
+    <text x="762" y="489" font-size="12" fill="#475569">InboundMessage → 输入</text>
+    <text x="762" y="507" font-size="11.5" fill="#64748b">记录用户→私聊投递目标</text>
 
-    <rect x="974" y="400" width="326" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
-    <text x="988" y="427" font-size="15.5" font-weight="600" fill="#0f172a">runner · AgentRunner</text>
-    <text x="988" y="449" font-size="12" fill="#475569">执行 + RunEvent 回流 + 历史落库</text>
-    <text x="988" y="467" font-size="11.5" fill="#64748b">挂载旁路观察者（审计 / 成本 / 轨迹）</text>
+    <rect x="974" y="440" width="326" height="80" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+    <text x="988" y="467" font-size="15.5" font-weight="600" fill="#0f172a">runner · AgentRunner</text>
+    <text x="988" y="489" font-size="12" fill="#475569">RunnerLike · 屏蔽取消落库 · RunEvent 回流</text>
+    <text x="988" y="507" font-size="11.5" fill="#64748b">挂载旁路观察者（审计 / 成本 / 轨迹）</text>
   </g>
 
-  <!-- 语音直接调用 runner，返回文本增量用于流式合成 -->
-  <line x1="1131" y1="274" x2="1131" y2="396" stroke="#38bdf8" stroke-width="2"
-        marker-start="url(#arrow-sky)" marker-end="url(#arrow-sky)"/>
-  <text x="1142" y="317" font-size="11.5" fill="#0369a1">↓ RunRequest（转写文本）</text>
-  <text x="1142" y="336" font-size="11.5" fill="#0369a1">↑ RunEvent（文本增量）</text>
-
-  <line x1="680" y1="496" x2="680" y2="522" stroke="#22c55e" stroke-width="2.5" marker-end="url(#arrow-green)"/>
-  <text x="694" y="516" font-size="11.5" fill="#15803d">agent 调用</text>
+  <line x1="680" y1="536" x2="680" y2="562" stroke="#22c55e" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+  <text x="694" y="556" font-size="11.5" fill="#15803d">agent 调用</text>
 
   <!-- ==================== agent core ==================== -->
-  <rect x="40" y="526" width="1280" height="270" rx="16" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
-  <text x="60" y="556" font-size="13" font-weight="600" fill="#b45309">agent core · 自研 ReAct 循环（doudou.agent.react）</text>
+  <rect x="40" y="566" width="1280" height="270" rx="16" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+  <text x="60" y="596" font-size="13" font-weight="600" fill="#b45309">agent core · 自研 ReAct 循环（doudou.agent.react）</text>
 
   <g font-size="13.5" fill="#1e293b">
-    <rect x="60" y="572" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
-    <text x="78" y="600">系统提示词：长期记忆（AGENTS.md）+ Skill 索引（渐进式加载）</text>
+    <rect x="60" y="612" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
+    <text x="78" y="640">系统提示词：长期记忆（AGENTS.md）+ Skill 索引（渐进式加载）</text>
 
-    <rect x="60" y="628" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
-    <text x="78" y="656">上下文工程 &amp; 多模态：token 预算裁剪 / 摘要压缩 / 大结果卸载 / 图片输入</text>
+    <rect x="60" y="668" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
+    <text x="78" y="696">上下文工程 &amp; 多模态：token 预算裁剪 / 摘要压缩 / 大结果卸载 / 图片输入</text>
 
-    <rect x="60" y="684" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
-    <text x="78" y="712">权限规则 + 人在回路：PermissionPolicy + ApprovalBroker（超时按拒绝）</text>
+    <rect x="60" y="724" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
+    <text x="78" y="752">权限规则 + 人在回路：PermissionPolicy + ApprovalBroker（超时按拒绝）</text>
 
-    <rect x="60" y="740" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
-    <text x="78" y="768">事件流 RunEvent → CLI / SSE / 飞书卡片 / 语音播报（观测旁路同步消费）</text>
+    <rect x="60" y="780" width="680" height="46" rx="9" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
+    <text x="78" y="808">事件流 RunEvent（含 step_end LLM/TTFT/工具耗时）→ SSE / CLI / 飞书 / 语音</text>
   </g>
 
   <!-- Tool Registry -->
-  <rect x="770" y="568" width="530" height="218" rx="12" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5"/>
-  <text x="790" y="595" font-size="15" font-weight="700" fill="#6d28d9">Tool Registry（doudou.tools.registry）</text>
-  <text x="790" y="615" font-size="11.5" fill="#7c3aed">工具清单 = 实际可用（依赖不满足或未配置即不注册）</text>
+  <rect x="770" y="608" width="530" height="218" rx="12" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="790" y="635" font-size="15" font-weight="700" fill="#6d28d9">Tool Registry（doudou.tools.registry）</text>
+  <text x="790" y="655" font-size="11.5" fill="#7c3aed">工具清单 = 实际可用（依赖不满足或未配置即不注册）</text>
 
   <g>
-    <rect x="790" y="626" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
-    <text x="804" y="647" font-size="12" fill="#312e81">builtin（基础）：workspace_* / shell_exec / web_search / http_request / now</text>
+    <rect x="790" y="666" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
+    <text x="804" y="687" font-size="12" fill="#312e81">builtin（基础）：workspace_* / shell_exec / web_search / http_request / now</text>
 
-    <rect x="790" y="664" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
-    <text x="804" y="685" font-size="12" fill="#312e81">builtin（操控与能力）：browser_*（CDP）/ read_skill / remember / my</text>
+    <rect x="790" y="704" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
+    <text x="804" y="725" font-size="12" fill="#312e81">builtin（操控与能力）：browser_*（CDP）/ read_skill / remember / my</text>
 
-    <rect x="790" y="702" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
-    <text x="804" y="723" font-size="12" fill="#312e81">builtin（调度）&amp; MCP：schedule_* / MCP server__tool（失败降级）</text>
+    <rect x="790" y="742" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
+    <text x="804" y="763" font-size="12" fill="#312e81">builtin（调度）&amp; MCP：schedule_* / MCP server__tool（失败降级）</text>
 
-    <rect x="790" y="740" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
-    <text x="804" y="761" font-size="12" fill="#312e81">delegation：task → 子 Agent（独立上下文与提示词 / 工具白名单）</text>
+    <rect x="790" y="780" width="490" height="32" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
+    <text x="804" y="801" font-size="12" fill="#312e81">delegation：task → 子 Agent（独立上下文与提示词 / 工具白名单）</text>
   </g>
 
-  <line x1="770" y1="675" x2="744" y2="675" stroke="#8b5cf6" stroke-width="2" marker-start="url(#arrow-violet)"/>
+  <line x1="770" y1="715" x2="744" y2="715" stroke="#8b5cf6" stroke-width="2" marker-start="url(#arrow-violet)"/>
 
   <!-- agent → 支撑 -->
-  <line x1="680" y1="796" x2="680" y2="840" stroke="#94a3b8" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow-slate)"/>
-  <text x="694" y="824" font-size="11.5" fill="#64748b">依赖注入（旁路失败不影响主链路）</text>
+  <line x1="680" y1="836" x2="680" y2="880" stroke="#94a3b8" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow-slate)"/>
+  <text x="694" y="864" font-size="11.5" fill="#64748b">依赖注入（旁路失败不影响主链路）</text>
 
   <!-- ==================== 支撑层 ==================== -->
-  <rect x="40" y="844" width="1280" height="124" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
-  <text x="60" y="874" font-size="13" font-weight="600" fill="#475569">支撑层 · 依赖注入</text>
+  <rect x="40" y="884" width="1280" height="124" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="60" y="914" font-size="13" font-weight="600" fill="#475569">支撑层 · 依赖注入</text>
 
   <g>
-    <rect x="60" y="888" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
-    <text x="76" y="916" font-size="15" font-weight="600" fill="#0f172a">config</text>
-    <text x="76" y="938" font-size="11.5" fill="#475569">yaml + .env · ~/.doudou 主目录</text>
+    <rect x="60" y="928" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <text x="76" y="956" font-size="15" font-weight="600" fill="#0f172a">config</text>
+    <text x="76" y="978" font-size="11.5" fill="#475569">yaml + .env · ~/.doudou 主目录</text>
 
-    <rect x="370" y="888" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
-    <text x="386" y="916" font-size="15" font-weight="600" fill="#0f172a">storage</text>
-    <text x="386" y="938" font-size="11.5" fill="#475569">SQLite / Postgres · 会话 / 确认 / 定时任务</text>
+    <rect x="370" y="928" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <text x="386" y="956" font-size="15" font-weight="600" fill="#0f172a">storage</text>
+    <text x="386" y="978" font-size="11.5" fill="#475569">SQLite / Postgres · 会话 / 确认 / 定时任务</text>
 
-    <rect x="680" y="888" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
-    <text x="696" y="916" font-size="15" font-weight="600" fill="#0f172a">observability</text>
-    <text x="696" y="938" font-size="11.5" fill="#475569">结构化日志 · 审计 · 成本 · 运行轨迹</text>
+    <rect x="680" y="928" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <text x="696" y="956" font-size="15" font-weight="600" fill="#0f172a">observability</text>
+    <text x="696" y="978" font-size="11.5" fill="#475569">结构化日志 · 审计 · 成本 · 轨迹与耗时拆分</text>
 
-    <rect x="990" y="888" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
-    <text x="1006" y="916" font-size="15" font-weight="600" fill="#0f172a">security / utils</text>
-    <text x="1006" y="938" font-size="11.5" fill="#475569">脱敏 · Bearer 鉴权 · 重试 · token 计数</text>
+    <rect x="990" y="928" width="290" height="64" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+    <text x="1006" y="956" font-size="15" font-weight="600" fill="#0f172a">security / utils</text>
+    <text x="1006" y="978" font-size="11.5" fill="#475569">脱敏 · Bearer 鉴权 · 重试 · asyncio 兼容</text>
   </g>
 
-  <text x="680" y="994" text-anchor="middle" font-size="12" fill="#94a3b8">实线 = 一次运行的主链路 · 虚线 = 进程边界 / 定时推送 / 旁路依赖</text>
+  <text x="680" y="1034" text-anchor="middle" font-size="12" fill="#94a3b8">实线 = 默认运行主链路（含 Client → Serve HTTP/SSE） · 虚线 = 进程边界 / 定时推送 / --local 单进程直连 / 旁路依赖</text>
 </svg>

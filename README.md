@@ -115,7 +115,7 @@ $ uv run doudou voice
 - **通道与 Agent 解耦**：通道只负责「收消息 / 发消息」，所有编排逻辑集中在 `gateway`。
 - **能力可插拔**：工具、MCP server、Skill 均通过配置声明，不写死在代码里。
 - **配置驱动**：`config/*.yaml` 描述 Agent、子 Agent、MCP、通道；环境变量与密钥走 `.env`。
-- **同一套 Agent 引擎服务多渠道**：飞书、Webhook、CLI、HTTP API 与本地语音复用 gateway 和 ReAct 引擎。本地语音由 `doudou voice` 进程运行。
+- **Client / Serve 分离与引擎复用**：`doudou serve` 托管飞书、Webhook、HTTP API/Web 与定时任务；`doudou chat` / `doudou threads` / `doudou voice` 默认作为本地客户端通过 HTTP/SSE 连接（或随用随关临时拉起）`doudou serve`，共享同一套 gateway、ReAct 引擎与持久化历史（也支持 `--local` 与 `doudou ask` 单进程运行）。
 
 ## 3. 目录结构
 

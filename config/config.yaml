@@ -302,7 +302,6 @@ channels:
 
   feishu:                      # WebSocket 长连接
     enabled: false
-    mode: websocket            # websocket（推荐，无需公网）| callback（未实现）
     base_url: https://open.feishu.cn
     bot_name: 豆豆助手           # 群聊 @ 判定用，需与飞书里的显示名一致
     # bot_open_id:       # 更可靠的 @ 判定；留空时启动会自动获取
@@ -316,10 +315,6 @@ channels:
     isolate_by_thread: false   # false = 同一个群共享一个上下文
     max_reply_chars: 4000
     dedup_ttl_seconds: 600
-
-  webhook:
-    enabled: false
-    token_header: X-Doudou-Token
 
   # 本地常驻语音（sherpa-onnx 本地唤醒词 + Silero VAD + DeepSeek ASR/WebSocket TTS）
   voice:

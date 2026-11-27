@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -120,8 +121,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-#: uvicorn / gunicorn 的入口：``uvicorn doudou.api.app:app``。
-app = create_app()
+if TYPE_CHECKING:  # pragma: no cover - 供类型检查识别延迟创建的模块级 app
+    app: FastAPI
+
+
+def __getattr__(name: str) -> Any:
+    """按需构造 ``uvicorn doudou.api.app:app`` 入口，避免仅 import ``create_app`` 时读配置。"""
+    if name == "app":
+        instance = create_app()
+        globals()["app"] = instance
+        return instance
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = ["app", "create_app"]

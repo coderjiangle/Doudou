@@ -4,7 +4,7 @@
 
 * ``model.api_key`` / ``model.api_keys``
 * ``tools.web_search.api_key``
-* ``channels.feishu.app_id`` / ``app_secret`` / ``verification_token`` / ``encrypt_key``
+* ``channels.feishu.app_id`` / ``app_secret``
 
 环境变量统一为 ``DOUDOU_`` + 配置路径（见 :mod:`doudou.config.env`）。
 :class:`Secrets` 只是把这些字段整理成「按 provider 取值」的旧视图，
@@ -44,8 +44,6 @@ class Secrets(BaseModel):
 
     feishu_app_id: str | None = None
     feishu_app_secret: str | None = None
-    feishu_verification_token: str | None = None
-    feishu_encrypt_key: str | None = None
     feishu_base_url: str | None = None
     voice_api_key: str | None = None
 
@@ -91,8 +89,6 @@ class Secrets(BaseModel):
             tavily_api_key=web.api_key if web.provider == "tavily" else None,
             feishu_app_id=feishu.app_id,
             feishu_app_secret=feishu.app_secret,
-            feishu_verification_token=feishu.verification_token,
-            feishu_encrypt_key=feishu.encrypt_key,
             feishu_base_url=feishu.base_url,
             voice_api_key=voice.api_key or deepseek_key,
         )

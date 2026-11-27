@@ -1,7 +1,6 @@
 """Feishu (Lark) channel package.
 
-当前实现 **websocket 长连接** 模式（无需公网地址）。``callback`` 模式需要的
-验签解密（``crypto.py``）与公网回调路由尚未实现，见 docs/channels.md。
+当前实现 **WebSocket 长连接** 接入（无需公网地址与回调验签解密），见 docs/channels.md。
 """
 
 from __future__ import annotations

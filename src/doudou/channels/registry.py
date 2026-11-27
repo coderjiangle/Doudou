@@ -46,12 +46,6 @@ def build_enabled_channels(
         else:
             from doudou.channels.feishu import FeishuChannel
 
-            if feishu.mode != "websocket":
-                logger.warning(
-                    "channels.feishu_mode_unsupported",
-                    mode=feishu.mode,
-                    hint="目前只实现了 websocket 长连接模式，callback 模式仍会按长连接启动",
-                )
             channels.append(FeishuChannel(settings, router, broker=broker))
     else:
         logger.debug("channels.feishu_disabled")

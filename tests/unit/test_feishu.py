@@ -76,7 +76,6 @@ def feishu_settings(settings_factory) -> Settings:  # type: ignore[no-untyped-de
             "channels:\n"
             "  feishu:\n"
             "    enabled: true\n"
-            "    mode: websocket\n"
             "    bot_name: Doudou\n"
             '    bot_open_id: "ou_bot"\n'
             f"{extra}"

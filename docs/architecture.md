@@ -5,7 +5,7 @@
 ```
 ┌─────────────────────────────── 入口层 ───────────────────────────────────┐
 │  [doudou serve 服务端进程]           [本地客户端进程（默认走 HTTP/SSE）]  │
-│  channels/{feishu,webhook}           cli/{main,remote} (RemoteAgentRunner)│
+│  channels.feishu                     cli/{main,remote} (RemoteAgentRunner)│
 │  api/{app,routes} (/ui, /stats) ◀──▶ channels/{cli_channel,voice}        │
 └──────────────┬───────────────────────────┬──────────────────┬────────────┘
                │ InboundMsg / RunRequest   │ (仅 --local /    │
@@ -63,7 +63,6 @@ run_start
 | `channels.base` | 定义 `Channel` 协议：`start()` / `stop()` / 把外部消息归一化成 `InboundMessage` / `send(OutboundMessage)`。 |
 | `channels.registry` | 按配置实例化并启停通道。 |
 | `channels.feishu` | 飞书长连接接入，去重与卡片渲染。 |
-| `channels.webhook` | 通用入站 webhook，便于对接其他 IM / 自动化平台。 |
 | `channels.cli_channel` | 终端交互，消费 `RunnerLike`；默认走 `RemoteAgentRunner` 连向 `serve`，`--local` / `ask` 走本地 `AgentRunner`。 |
 | `channels.voice` | `doudou voice` 启动常驻监听。本地唤醒断句 + DeepSeek ASR 转写后通过 `RunnerLike` 提交文本（默认走 `RemoteAgentRunner` → `serve`，`--local` 走本地 `AgentRunner`），回复文本增量经 DeepSeek WebSocket TTS 流式播报，支持打断。 |
 | `api.app` | FastAPI 应用工厂：路由、中间件、异常处理、CORS，以及内置聊天页（`/`、`/ui`）与统计页（`/stats`）。 |
@@ -190,19 +189,22 @@ run_start
 ### 3.1 飞书消息
 
 ```
-用户发消息
-  → 飞书开放平台事件推送（HTTP 回调）
-  → api.routes.webhooks → channels.feishu.events（验签、解密、按 event_id 去重）
-  → 归一化 InboundMessage
-  → gateway.router：查 session 得 thread_id（无则创建）
-  → gateway.runner：agent.astream_events(...)
-  → 事件增量 → channels.feishu.cards 更新互动卡片
-  → 落库（messages 表）+ 记指标
-  → 3 秒内返回 200 给飞书（避免重推）
+用户发消息（或点击确认卡片按钮）
+  → 飞书开放平台经 WebSocket 长连接主动推送给 doudou serve
+  → channels.feishu.channel（daemon 线程内的 FeishuWebSocketRunner / lark_oapi.ws.Client）
+  → EventDedup 按 event_id 幂等去重 + parse_message_event 过滤与归一化
+  → asyncio.run_coroutine_threadsafe 转交回主事件循环（不阻塞 WS 线程心跳）
+  → 若含图片则下载并组装 InboundMessage
+  → gateway.router（TargetRecorder 记录私聊投递目标 + MessageBus 按会话串行入队）
+  → gateway.runner（AgentRunner → agent.astream_events）
+  → 事件增量 → channels.feishu.cards 节流整卡 patch（失败兜底纯文本）
+  → 若触发人工确认：推送按钮卡片 → 用户点击触发 card.action.trigger → ApprovalBroker
+  → 落库（messages / audit_events / run_traces）
 ```
 
-> 飞书要求回调在 **3 秒内**响应。因此 webhook 路由只做「验签 + 入队」，
-> 真正执行放在后台任务，回复通过卡片更新或主动发消息完成。
+> 飞书通道当前仅实现 **WebSocket 长连接**，无需公网地址与 HTTP 回调端点，因此不走
+> 回调验签与 AES 解密流程。WS 线程回调只在内存里做去重、解析与线程间投递，耗时极短且吞掉异常，
+> 避免卡住心跳或触发飞书重复投递。
 
 ### 3.2 HTTP 调用
 

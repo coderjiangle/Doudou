@@ -36,16 +36,15 @@ class Channel(Protocol):
 > `pip install "doudou-agent[feishu]"`）。启用 `channels.feishu` 但缺少依赖时，
 > `doudou config check` 会报错，服务日志也会给出安装提示。
 
-**当前实现：WebSocket 长连接**（`channels.feishu.mode: websocket`）。
+**当前实现：WebSocket 长连接**（`FeishuWebSocketRunner` / `lark_oapi.ws.Client`）。
 好处是不需要公网地址、不需要内网穿透，本地开发与内网部署都能直接跑。
 
-### 2.1 为什么长连接模式不需要 `crypto.py`
+### 2.1 为什么长连接模式不需要回调验签与解密
 
-事件回调模式要用 `Encrypt Key` 做 AES 解密、用 `Verification Token` 校验，
+HTTP 事件回调模式要用 `Encrypt Key` 做 AES 解密、用 `Verification Token` 校验，
 是因为那个 HTTP 端点是**公网可访问**的，必须证明请求真的来自飞书。
-长连接是我们的进程主动连出去、并由 app_id/app_secret 完成鉴权，
-事件经 SDK 解析后交给我们，因此**没有验签解密这一层**。
-`crypto.py` 与 `api/routes/webhooks.py` 留到需要公网回调时再补。
+长连接是我们的进程持 `App ID` / `App Secret` 主动连出去、由飞书开放平台完成鉴权后推送事件，
+因此**没有公网 HTTP 回调端点，也不涉及验签与 AES 解密**。
 
 ### 2.2 创建应用
 
@@ -62,7 +61,7 @@ class Channel(Protocol):
 
    > **`im:message`（「读取消息」）不够。** `im.message.receive_v1` 是**按消息类权限过滤推送**的：
    > 权限没覆盖到的消息既不推送、也不报错。只开 `im:message` 的表现是
-   > 「长连接正常、控制台验证也成功，但一条消息都收不到」——排查顺序见 §2.11。
+   > 「长连接正常、控制台验证也成功，但一条消息都收不到」——排查顺序见 §2.12。
 
 4. 「事件订阅」**选择「使用长连接接收事件」**，订阅 `im.message.receive_v1`。
    （不需要填请求地址，也不需要 `Verification Token`。）
@@ -74,7 +73,6 @@ class Channel(Protocol):
 ```dotenv
 # .env —— 环境变量 = DOUDOU_ + config.yaml 路径
 DOUDOU_CHANNELS_FEISHU_ENABLED=true
-DOUDOU_CHANNELS_FEISHU_MODE=websocket
 DOUDOU_CHANNELS_FEISHU_APP_ID=cli_xxxxxxxx
 DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 ```
@@ -84,7 +82,6 @@ DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 channels:
   feishu:
     enabled: true
-    mode: websocket
     bot_name: Doudou          # 用于群聊 @ 判定，需与飞书里的显示名一致
     # bot_open_id: ou_xxx     # 更可靠的 @ 判定；留空时会自动去查
     group_require_at: true    # 群里必须 @ 机器人才响应
@@ -191,7 +188,7 @@ channels:
 
 | 项 | 说明 |
 | --- | --- |
-| `callback` 模式 | 需要 `crypto.py`（AES 解密 + 验签）与公网回调路由 |
+| HTTP 事件回调接入 | 当前仅支持 WebSocket 长连接，未提供公网 HTTP 回调端点与验签解密 |
 | 文件 / 音频消息 | 当前支持 `text`、`post`、`image`；普通文件和语音尚未接入 |
 | 群成员身份映射 | 只透传 `open_id`，没有解析真实姓名 |
 
@@ -215,19 +212,7 @@ channels:
 - 控制台的「**验证长连接**」只验证**通道**，不验证推送过滤 —— 消息权限不够时它照样显示「连接成功」。
 - `bot/v3/info`、`im/v1/chats` 能调通只说明**应用已发布、权限已生效**，不代表消息事件会推给你。
 
-## 3. 通用 Webhook 通道
-
-`channels/webhook/` 提供一个泛化入站通道，便于对接任意系统：
-
-```
-POST /api/v1/webhooks/generic
-Header: X-Doudou-Token: <token>
-Body:   { "conversation_id": "...", "user_id": "...", "text": "..." }
-```
-
-响应可同步返回结果，也可 `?async=true` 只接受入队。
-
-## 4. CLI 通道
+## 3. CLI 通道
 
 `uv run doudou chat` 启动交互式多轮对话（默认按「随用随关」模式自动探测或静默拉起一个临时 `doudou serve` 子进程，退出 `/exit` 时自动关闭该子进程，既隔离后台日志又共享数据库历史与 `/stats`；若已有手动启动的 `doudou serve` 在运行则直接复用，退出时不关闭它）。常用选项：
 
@@ -251,12 +236,11 @@ Body:   { "conversation_id": "...", "user_id": "...", "text": "..." }
 单轮场景用 `uv run doudou ask "问题"`；`--quiet` 只输出最终答复（便于脚本调用），
 `--no-stream` 关闭流式，`--no-confirm` 关闭工具执行前的人工确认，`--raw` 关闭终端 Markdown 渲染（默认在交互式终端自动启用富文本渲染，非 TTY 或重定向时自动回退纯文本；也可在配置 `channels.cli.render_markdown` 控制）。
 
-## 5. 新增通道步骤
+## 4. 新增通道步骤
 
 1. 在 `src/doudou/channels/` 建子包，实现 `Channel` 协议。
 2. 在 `channels/registry.py` 注册构造逻辑（按配置启用）。
 3. 在 `config/schema.py` 的通道配置里加对应段落。
-4. 在 `api/routes/webhooks.py` 增加回调路由（如需要）。
-5. 补 `tests/unit/` 解析与去重测试。
+4. 补 `tests/unit/` 解析与去重测试。
 
 `gateway` 与 `agent` 无需任何改动。

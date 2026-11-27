@@ -115,7 +115,7 @@ $ uv run doudou voice
 - **通道与 Agent 解耦**：通道只负责「收消息 / 发消息」，所有编排逻辑集中在 `gateway`。
 - **能力可插拔**：工具、MCP server、Skill 均通过配置声明，不写死在代码里。
 - **配置驱动**：`config/*.yaml` 描述 Agent、子 Agent、MCP、通道；环境变量与密钥走 `.env`。
-- **Client / Serve 分离与引擎复用**：`doudou serve` 托管飞书、Webhook、HTTP API/Web 与定时任务；`doudou chat` / `doudou threads` / `doudou voice` 默认作为本地客户端通过 HTTP/SSE 连接（或随用随关临时拉起）`doudou serve`，共享同一套 gateway、ReAct 引擎与持久化历史（也支持 `--local` 与 `doudou ask` 单进程运行）。
+- **Client / Serve 分离与引擎复用**：`doudou serve` 托管飞书长连接、HTTP API/Web 与定时任务；`doudou chat` / `doudou threads` / `doudou voice` 默认作为本地客户端通过 HTTP/SSE 连接（或随用随关临时拉起）`doudou serve`，共享同一套 gateway、ReAct 引擎与持久化历史（也支持 `--local` 与 `doudou ask` 单进程运行）。
 
 ## 3. 目录结构
 
@@ -135,7 +135,7 @@ Doudou/
 │  ├─ tools/                  # 工具注册表与内置工具
 │  ├─ mcp/                    # MCP 客户端与生命周期
 │  ├─ skills/                 # Skill 发现与索引
-│  ├─ channels/               # 通道实现（feishu / webhook / cli / voice）
+│  ├─ channels/               # 通道实现（feishu / cli / voice）
 │  ├─ gateway/                # 会话路由、消息总线、运行器
 │  ├─ scheduler/              # 定时任务：时间表达、投递目标、轮询触发
 │  ├─ api/                    # FastAPI 应用与路由
@@ -402,7 +402,7 @@ DOUDOU_CHANNELS_FEISHU_APP_SECRET=xxxxxxxx
 `im:message.group_at_msg:readonly`。只开 `im:message` 的话，长连接会正常建立、
 控制台「验证长连接」也会显示成功，但**一条消息都收不到**（飞书按权限过滤推送）。
 权限/事件改完记得重新发布版本。排查顺序见
-[`docs/channels.md`](docs/channels.md) 的 §2.11。
+[`docs/channels.md`](docs/channels.md) 的 §2.12。
 
 会话隔离默认是「**同一个群共享一个上下文**」（`isolate_by_thread: false`），
 群里的助手像一个同事。完整步骤、@ 判定、卡片流式与已知限制见

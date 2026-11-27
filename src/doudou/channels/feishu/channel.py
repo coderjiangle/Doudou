@@ -192,12 +192,6 @@ class FeishuChannel:
                 "飞书通道已启用但缺少凭据：请设置 DOUDOU_CHANNELS_FEISHU_APP_ID "
                 "与 DOUDOU_CHANNELS_FEISHU_APP_SECRET。"
             )
-        if self.config.mode != "websocket":
-            logger.warning(
-                "feishu.mode_unsupported_yet",
-                mode=self.config.mode,
-                hint="目前只实现了 websocket 长连接；callback 模式需要验签解密与公网回调地址",
-            )
 
         # 记下主事件循环：事件从 WS 线程进来时要靠它把活儿交回来。
         self._main_loop = asyncio.get_running_loop()
@@ -216,7 +210,7 @@ class FeishuChannel:
         self._ws.start()
         logger.info(
             "feishu.channel_started",
-            mode=self.config.mode,
+            transport="websocket",
             bot_name=self.config.bot_name,
             group_require_at=self.config.group_require_at,
             isolate_by_thread=self.config.isolate_by_thread,

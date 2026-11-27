@@ -268,14 +268,11 @@ channels:
 
   feishu:
     enabled: false
-    # websocket = 主动连出去收事件（无需公网地址，推荐）
-    # callback  = HTTP 事件回调（需要公网 HTTPS、验签解密，尚未实现）
-    mode: websocket
+    # 通过 WebSocket 长连接主动连出去收事件（无需公网地址与回调验签）
     base_url: https://open.feishu.cn
     bot_name: Doudou         # 群聊 @ 判定用，需与飞书里的显示名一致
     # bot_open_id: ou_xxx    # 更可靠的 @ 判定；留空时启动会自动去查
     # app_id / app_secret 从 .env 的 DOUDOU_CHANNELS_FEISHU_APP_ID / DOUDOU_CHANNELS_FEISHU_APP_SECRET 注入
-    event_path: /webhooks/feishu/events
     reply_mode: card         # card | text
     stream_reply: true       # 卡片流式更新
     card_update_interval_ms: 800
@@ -287,10 +284,6 @@ channels:
     isolate_by_thread: false
     max_reply_chars: 4000
     dedup_ttl_seconds: 600
-
-  webhook:
-    enabled: false
-    token_header: X-Doudou-Token
 
   # 本地常驻语音通道：sherpa-onnx 本地唤醒与断句 + DeepSeek ASR/TTS
   voice:

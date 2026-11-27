@@ -110,6 +110,24 @@ def test_unknown_yaml_key_is_rejected(settings_factory) -> None:  # type: ignore
         settings_factory(config_yaml="agent:\n  max_stpes: 3\n")
 
 
+@pytest.mark.parametrize(
+    "config_yaml",
+    [
+        "channels:\n  webhook:\n    enabled: false\n",
+        "channels:\n  feishu:\n    mode: websocket\n",
+        "channels:\n  feishu:\n    encrypt_key: x\n",
+        "channels:\n  feishu:\n    verification_token: x\n",
+    ],
+)
+def test_unimplemented_channel_fields_are_rejected(
+    settings_factory,  # type: ignore[no-untyped-def]
+    config_yaml: str,
+) -> None:
+    """未实现的 webhook / 飞书 callback 字段不再保留空壳，配置出现时应直接拒绝。"""
+    with pytest.raises(ValidationError):
+        settings_factory(config_yaml=config_yaml)
+
+
 def test_secrets_read_from_env(settings_factory) -> None:  # type: ignore[no-untyped-def]
     settings = settings_factory(
         config_yaml=MINIMAL_CONFIG,
@@ -261,19 +279,19 @@ def test_redact_masks_nested_values_under_sensitive_key() -> None:
     assert "sk-ant-987" not in str(redacted)
 
 
-def test_describe_redacts_api_keys_and_encrypt_key(settings_factory) -> None:  # type: ignore[no-untyped-def]
+def test_describe_redacts_api_keys_and_channel_secrets(settings_factory) -> None:  # type: ignore[no-untyped-def]
     settings = settings_factory(
         config_yaml=MINIMAL_CONFIG,
         env={
             "DOUDOU_MODEL_API_KEYS": '{"openai": "sk-nested-secret"}',
-            "DOUDOU_CHANNELS_FEISHU_ENCRYPT_KEY": "encrypt-secret",
+            "DOUDOU_CHANNELS_FEISHU_APP_SECRET": "feishu-app-secret",
         },
     )
 
     shown = str(settings.describe())
 
     assert "sk-nested-secret" not in shown
-    assert "encrypt-secret" not in shown
+    assert "feishu-app-secret" not in shown
 
 
 def test_mask_edge_cases() -> None:
@@ -295,14 +313,18 @@ def test_deep_merge() -> None:
     assert base["a"] == {"b": 1, "c": 2}
 
 
-def test_settings_cache_can_be_reset() -> None:
+def test_settings_cache_can_be_reset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOUDOU_HOME", str(tmp_path))
+    monkeypatch.setenv("DOUDOU_ENV_FILE", str(tmp_path / "no.env"))
     reset_settings_cache()
-    first = get_settings()
-    assert get_settings() is first
+    try:
+        first = get_settings()
+        assert get_settings() is first
 
-    reset_settings_cache()
-    assert get_settings() is not first
-    reset_settings_cache()
+        reset_settings_cache()
+        assert get_settings() is not first
+    finally:
+        reset_settings_cache()
 
 
 def test_env_names_follow_config_paths() -> None:

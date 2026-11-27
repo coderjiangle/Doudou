@@ -130,7 +130,7 @@ Design principles:
   hard-coded.
 - **Configuration-driven**: `config/*.yaml` describes the agent, subagents, MCP servers and
   channels; environment variables and secrets live in `.env`.
-- **Client / Serve split & shared engine**: `doudou serve` hosts Feishu, webhooks, HTTP API/Web UI,
+- **Client / Serve split & shared engine**: `doudou serve` hosts the Feishu WebSocket channel, HTTP API/Web UI,
   persistence and the scheduler; `doudou chat` / `doudou threads` / `doudou voice` run by default
   as local clients connecting over HTTP/SSE to an existing or ephemeral `doudou serve` instance,
   sharing the same gateway, ReAct engine and database history (`--local` and `doudou ask` remain
@@ -154,7 +154,7 @@ Doudou/
 │  ├─ tools/                  # Tool registry and built-in tools
 │  ├─ mcp/                    # MCP client and lifecycle
 │  ├─ skills/                 # Skill discovery and indexing
-│  ├─ channels/               # Channel implementations (feishu / webhook / cli / voice)
+│  ├─ channels/               # Channel implementations (feishu / cli / voice)
 │  ├─ gateway/                # Session routing, message bus, runner
 │  ├─ scheduler/              # Scheduled tasks: time specs, delivery targets, polling
 │  ├─ api/                    # FastAPI app and routes
@@ -433,7 +433,7 @@ by the service itself.
 only `im:message`, the long connection is established normally and the console reports a successful
 "verify long connection" — yet **not a single message arrives** (Feishu filters pushes by
 permission). Re-publish the version after changing permissions or events. For the debugging order,
-see §2.11 of [`docs/channels.md`](docs/channels.md).
+see §2.12 of [`docs/channels.md`](docs/channels.md).
 
 Session isolation defaults to "**one shared context per group**" (`isolate_by_thread: false`), so the
 assistant in a group behaves like a colleague. Full steps, @-mention detection, streaming cards and

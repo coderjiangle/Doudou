@@ -148,7 +148,6 @@ def settings(settings_factory) -> Settings:  # type: ignore[no-untyped-def]
             "channels:\n"
             "  feishu:\n"
             "    enabled: true\n"
-            "    mode: websocket\n"
             "    bot_name: Doudou\n"
             '    bot_open_id: "ou_bot"\n'
             '    app_id: "cli_test"\n'
@@ -329,9 +328,7 @@ def test_fetch_bot_open_id_handles_exception(settings: Settings) -> None:
 
 async def test_start_requires_credentials(settings_factory) -> None:  # type: ignore[no-untyped-def]
     """缺凭据必须明确报错，而不是安静地连不上。"""
-    bare = settings_factory(
-        config_yaml="channels:\n  feishu:\n    enabled: true\n    mode: websocket\n"
-    )
+    bare = settings_factory(config_yaml="channels:\n  feishu:\n    enabled: true\n")
     channel = FeishuChannel(bare, RecordingSink(), runner=FakeWsRunner())  # type: ignore[arg-type]
 
     with pytest.raises(FeishuError, match="缺少凭据"):

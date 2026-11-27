@@ -5,7 +5,7 @@
 | 面 | 风险 | 对策 |
 | --- | --- | --- |
 | HTTP API | 未授权调用、越权读他人会话 | `DOUDOU_API_TOKEN` 鉴权 + 令牌常量时间比较 |
-| 飞书回调 | 伪造事件、重放 | 签名校验 + `event_id` 幂等去重 + 时间窗校验 |
+| 飞书通道 | 伪造建连、重复事件、越权访问 | App ID / App Secret 主动长连接鉴权 + `event_id` 幂等去重 + `allowed_chats` / `allowed_users` 白名单 |
 | MCP server | 恶意 server 返回注入内容、危险工具 | 白名单 server、`include_tools` 收敛、`exclude_tools` 屏蔽破坏性工具 |
 | 工具执行 | 越权读写文件、执行任意命令 | 文件系统权限规则 + `interrupt_on` 人工确认 + 沙箱 |
 | 模型输出 | 提示词注入导致越权动作 | 工具层做硬校验，不信任模型输入 |
@@ -17,19 +17,20 @@
 - 比较使用 `secrets.compare_digest`，避免时序侧信道。
 - prod 环境建议在网关层再叠一层鉴权（mTLS / OAuth2），并限制 `cors_origins` 为明确域名。
 
-## 3. 飞书回调安全
+## 3. 飞书通道安全
 
-```
-1) 存在 Encrypt Key  → 先 AES-CBC 解密 body
-2) 校验签名/时间戳   → 拒绝超时与签名不符的请求
-3) 校验 verification_token（配置期 challenge 除外）
-4) event_id 去重（TTL = dedup_ttl_seconds）
-5) 通过后才入队处理
-```
+当前飞书接入**只实现 WebSocket 长连接**（`FeishuWebSocketRunner` / `lark_oapi.ws.Client`），
+**不暴露公网 HTTP 回调端点**：
 
-- **prod 必须配置 `DOUDOU_CHANNELS_FEISHU_ENCRYPT_KEY`**，明文模式不适合生产。
-- 回调地址必须是 HTTPS。
-- 白名单：`allowed_chats` / `allowed_users` 非空即启用。
+1. **建连鉴权**：由本进程持 `DOUDOU_CHANNELS_FEISHU_APP_ID` 与 `DOUDOU_CHANNELS_FEISHU_APP_SECRET`
+   主动向飞书开放平台建立长连接；不开放 HTTP 事件回调入口，因此没有回调验签、`Verification Token`
+   与 `Encrypt Key` AES-CBC 解密环节。
+2. **入站过滤与防环**：丢弃机器人自身回流消息（`sender_type == "app"`）；`allowed_chats` /
+   `allowed_users` 非空即启用白名单校验；群聊默认要求显式 `@`（`group_require_at: true`）。
+3. **幂等去重**：`EventDedup` 按 `event_id` + `dedup_ttl_seconds`（默认 600s，容量上限 4096）去重，
+   防止重连或网络抖动时同一条消息被重复执行。
+4. **确认按钮粒度**：人工确认卡片只绑定单次调用的 `approval_id`，由 `ApprovalBroker`
+   校验状态与超时（超时按拒绝），不会把一次确认放宽为整类工具豁免。
 
 ## 4. 文件系统与权限
 
@@ -180,17 +181,23 @@ agent:
 生命周期上，不是永久留痕。需要不可删的合规留痕时，请自行把 `GET /api/v1/audit`
 导出到外部存储（见 `docs/observability.md` §6）。
 
-## 9. 依赖与镜像
+## 9. 质量门禁、依赖与镜像
 
-| 手段 | 命令 | CI |
+> 仓库未配置 GitHub Actions 等云端 CI；静态检查、离线测试与安全扫描均通过本地 `Makefile`
+> （或 Windows 下的 `scripts/*.ps1`）执行。
+
+| 检查项 | 本地命令 | 说明 |
 | --- | --- | --- |
-| 依赖漏洞 | `make audit`（`pip-audit`，只审**运行时**依赖） | 独立的 `security` job |
-| 镜像漏洞 | `make scan`（`trivy`，HIGH/CRITICAL 即失败） | docker job 里构建后扫 |
-| 依赖更新 | `make lock`（`uv lock --upgrade`）+ 跑全量测试 | — |
+| 代码规范与类型 | `make lint`（`ruff` + `mypy`） | 提交前必须通过 |
+| 凭据泄漏扫描 | `make secrets`（`scripts/check_secrets.py`） | 防止明文密钥进入版本库 |
+| 离线测试套件 | `make test`（`tests/unit` + `tests/integration`） | 提交前必须通过 |
+| 依赖漏洞 | `make audit`（`pip-audit`，只审**运行时**依赖） | 按需 / 发布前手工执行 |
+| 镜像漏洞 | `make scan`（`trivy`，HIGH/CRITICAL 即失败） | 构建镜像后手工扫描 |
+| 依赖更新 | `make lock`（`uv lock --upgrade`）+ 跑全量测试 | 更新锁定版本后回归 |
 
-只审运行时依赖是有意的：dev 工具不进生产镜像，它们的告警没有处置路径，
-留在 CI 里只会训练人忽略这个 job。上游未修的漏洞要用 `--ignore-vuln` 显式登记
-**并写清原因**，否则这个 job 会慢慢变成装饰品。
+`make audit` 只审运行时依赖是有意的：dev 工具不进生产镜像，它们的告警没有处置路径，
+只会训练人忽略告警。上游未修的漏洞要用 `--ignore-vuln` 显式登记**并写清原因**，
+否则检查会慢慢变成装饰品。
 
 ## 10. 运行时加固
 
@@ -205,4 +212,4 @@ agent:
 - 子 Agent 拿不到 `task`（`FORBIDDEN_TOOLS`），递归深度因此有界；
   它的确认策略按**自己的**工具清单重算，不会继承主 Agent 而静默放宽。
 - `agent.max_steps` 防死循环；`mcp.call_timeout` 与模型 `timeout` 防挂死。
-- 依赖安全：CI 中可加 `pip-audit`；容器镜像定期重建。
+- 依赖与镜像安全：发布前运行 `make audit` 与 `make scan`；容器镜像定期重建。

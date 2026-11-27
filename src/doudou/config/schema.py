@@ -458,10 +458,9 @@ class CliChannelConfig(_Section):
 
 
 class FeishuChannelConfig(_Section):
+    """飞书长连接通道配置（仅支持 WebSocket 主动建连，不暴露 HTTP 回调端点）。"""
+
     enabled: bool = False
-    #: ``websocket`` 用长连接收事件（无需公网地址，推荐本地开发与内网部署）；
-    #: ``callback`` 用 HTTP 事件回调（需要公网 HTTPS 地址与验签解密）。
-    mode: Literal["callback", "websocket"] = "callback"
     base_url: str = "https://open.feishu.cn"
     bot_name: str = "Doudou"
     #: 机器人自己的 open_id。留空时按 ``bot_name`` 或事件的 mentioned_type 判定 @。
@@ -469,10 +468,6 @@ class FeishuChannelConfig(_Section):
     #: 应用凭据。留空时由环境变量注入（DOUDOU_CHANNELS_FEISHU_APP_ID / _APP_SECRET）。
     app_id: str | None = None
     app_secret: str | None = None
-    #: 事件订阅校验 Token / 加密密钥；callback 模式需要，websocket 模式不用。
-    verification_token: str | None = None
-    encrypt_key: str | None = None
-    event_path: str = "/webhooks/feishu/events"
     reply_mode: Literal["card", "text"] = "card"
     stream_reply: bool = True
     card_update_interval_ms: int = 800
@@ -484,12 +479,6 @@ class FeishuChannelConfig(_Section):
     isolate_by_thread: bool = False
     max_reply_chars: int = 4000
     dedup_ttl_seconds: int = 600
-
-
-class WebhookChannelConfig(_Section):
-    enabled: bool = False
-    #: 校验入站请求的 header 名（不是密钥本身）。
-    token_header: str = "X-Doudou-Token"  # noqa: S105
 
 
 class VoiceChannelConfig(_Section):
@@ -540,7 +529,6 @@ class VoiceChannelConfig(_Section):
 class ChannelsConfig(_Section):
     cli: CliChannelConfig = Field(default_factory=CliChannelConfig)
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
-    webhook: WebhookChannelConfig = Field(default_factory=WebhookChannelConfig)
     voice: VoiceChannelConfig = Field(default_factory=VoiceChannelConfig)
 
 
@@ -678,5 +666,4 @@ __all__ = [
     "ToolsConfig",
     "TracesConfig",
     "WebSearchToolConfig",
-    "WebhookChannelConfig",
 ]

@@ -22,7 +22,7 @@
 6. **进程与副本数**：保持 **1 worker、1 副本**。历史与会话绑定可落库，但会话锁、消息总线、
    待确认请求在进程内。更换 Postgres 也不能解决跨进程协调问题；多副本需先实现分布式锁、
    队列及确认路由。`server.workers` 只接受 `1`，`doudou serve` 显式把它传给 uvicorn。
-7. **超时**：飞书回调需 3 秒内响应，Ingress/网关的读超时应 ≥ 流式接口所需时长，SSE 接口需关闭缓冲。
+7. **超时**：Ingress/网关的读超时应 ≥ 流式接口所需时长，SSE 接口需关闭缓冲。
 
 生产入口使用 `make serve-prod` 或 `uv run doudou serve --host 0.0.0.0 --port 8000`。
 不要另用 `uvicorn --workers N` 启动多个进程。Docker / Compose / K8s 模板都按单进程部署，

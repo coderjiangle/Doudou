@@ -927,13 +927,6 @@ def config_check(config_dir: ConfigDir = None, model: ModelOption = None) -> Non
         ]
         if missing:
             problems.append(("warn", f"飞书通道已启用但缺少：{', '.join(missing)}"))
-        if not feishu.encrypt_key:
-            problems.append(
-                (
-                    "warn",
-                    "飞书未配置 DOUDOU_CHANNELS_FEISHU_ENCRYPT_KEY，生产环境应启用加密",
-                )
-            )
         if not module_available("lark_oapi"):
             problems.append(
                 ("error", f"飞书通道已启用但未安装 lark-oapi。{install_hint('feishu')}")

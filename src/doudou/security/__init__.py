@@ -1,4 +1,4 @@
-"""Security package: authentication, callback verification and secret handling."""
+"""Security package: authentication and secret handling."""
 
 from __future__ import annotations
 

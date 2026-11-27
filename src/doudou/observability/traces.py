@@ -485,7 +485,7 @@ def summarize_steps_timing(
 ) -> tuple[float | None, float | None, float | None, float | None]:
     """从 ``steps_detail`` 汇总整轮 ``(llm_elapsed, ttft, tool_elapsed, approval_elapsed)``。
 
-    历史老数据没有拆分字段时返回 ``None``，绝不把「未知」伪装成 ``0.0``。
+    无步骤记录（如首轮模型尚未返回即出错）时对应字段保持 ``None``，不把未知伪装成 ``0.0``。
     """
     if not steps_detail:
         return None, None, None, None
